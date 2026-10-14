@@ -1,3 +1,3 @@
-# Периодический тик 1000 Гц, частота сверена по HPET, TSC сверен с HPET.
-timer: periodic tick 1000 Hz
+# Периодический тик 100 Гц, частота сверена по HPET (±10%), TSC сверен с HPET (2%).
+timer: periodic tick 100 Hz
 ktest: PASS timer

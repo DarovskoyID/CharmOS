@@ -204,8 +204,11 @@ void test_acpi() {
 }
 
 void test_timer() {
-  constexpr uint32_t kHz = 1000;
-  constexpr uint64_t kWindowNs = 200'000'000;
+  // 100 Гц, а не 1000: под QEMU без KVM (CI) эмулятор не успевает доставить
+  // каждое прерывание с периодом 1 мс, и пропущенные периодические тики
+  // теряются — это проверяло бы скорость эмулятора, а не ядро.
+  constexpr uint32_t kHz = 100;
+  constexpr uint64_t kWindowNs = 500'000'000;
   platform::start_tick(kHz);
   const auto& hpet = platform::hpet();
   uint64_t h0 = hpet.counter();
