@@ -17,3 +17,5 @@
 | `intel-sdm-vol2.pdf` | Intel SDM Vol. 2A–2D, Instruction Set Reference (325383) — SYSCALL/SYSRET, CPUID, SWAPGS | https://cdrdv2-public.intel.com/782156/325383-sdm-vol-2abcd.pdf | M3 |
 | `intel-sdm-vol4.pdf` | Intel SDM Vol. 4, Model-Specific Registers (335592) — адреса MSR (STAR/LSTAR/FMASK, GS_BASE) | https://cdrdv2-public.intel.com/782167/335592-sdm-vol-4.pdf | M3 |
 | `vtd-5.2.pdf` | Intel VT-d Architecture Specification, rev. 5.20 (D51397-019) — IOMMU, таблица DMAR | https://cdrdv2-public.intel.com/919688/D51397-019-vt-directed-io-spec.pdf | M5 |
+| `pci-reference.md` | **Вторичный** референс по PCI/PCIe (сводка автора по открытым источникам): заголовок, BAR, MSI/MSI-X, MCFG, enumeration. Официальные спецификации PCI-SIG недоступны. Известные ошибки: у `edu` нет MSI-X; не указан 28-битный DMA `edu`. Расхождения с docs/abi — прав docs/abi | автор проекта | M5 |
+| `qemu-edu.rst` | Учебное устройство QEMU `edu` (1234:11e8): регистры, DMA, INTx/MSI | https://gitlab.com/qemu-project/qemu/-/raw/master/docs/specs/edu.rst | M5 |
