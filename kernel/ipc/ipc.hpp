@@ -98,6 +98,13 @@ Status get_socket(uint32_t h, uint32_t need, uint64_t* id);
 // Для стека: пройти подписки на сокеты; ready возвращает true и тип пакета.
 void poll_sockets(bool (*ready)(uint64_t id, uint32_t* packet));
 
+// --- консоль (docs/abi/console.md) ------------------------------------------------------
+Status create_console(uint32_t rights, Cap** out);
+Status get_console(uint32_t h, uint32_t need);
+void set_console_input_probe(bool (*probe)());
+// Из прерывания консоли: пришёл ввод — пакеты подписчикам.
+void console_readable();
+
 // --- системные вызовы (текущий процесс) -------------------------------------------
 Status sys_handle_close(uint32_t h);
 Status sys_handle_duplicate(uint32_t h, uint64_t rights, uint64_t* out);

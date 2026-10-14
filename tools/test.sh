@@ -22,8 +22,16 @@ for exp in "$dir"/*.expected; do
   [[ -f "$root/tools/qemu/$name.args" ]] && cfg=(--config "$name")
   [[ -f "$dir/$name.cmdline" ]] && cfg+=(--cmdline "$(head -n1 "$dir/$name.cmdline" | tr -d '\r')")
 
-  timeout "$timeout_s" "$root/tools/run.sh" --test "${cfg[@]}" </dev/null >"$log" 2>&1
-  code=$?
+  # Ввод на COM1: <сценарий>.input подаётся на stdin QEMU через 12 с (после
+  # прошивки: OVMF сам читает serial), затем stdin держится открытым.
+  if [[ -f "$dir/$name.input" ]]; then
+    { sleep 12; cat "$dir/$name.input"; sleep "$timeout_s"; } |
+      timeout "$timeout_s" "$root/tools/run.sh" --test "${cfg[@]}" >"$log" 2>&1
+    code=${PIPESTATUS[1]}
+  else
+    timeout "$timeout_s" "$root/tools/run.sh" --test "${cfg[@]}" </dev/null >"$log" 2>&1
+    code=$?
+  fi
 
   ok=1
   if [[ $code -ne 33 ]]; then

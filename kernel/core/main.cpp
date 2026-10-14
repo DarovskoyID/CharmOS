@@ -10,6 +10,7 @@
 #include "../mm/layout.hpp"
 #include "../mm/pmm.hpp"
 #include "../mm/vmm.hpp"
+#include "../console/console.hpp"
 #include "../drivers/devmgr.hpp"
 #include "../fs/vfs.hpp"
 #include "../pci/iommu.hpp"
@@ -156,6 +157,7 @@ extern "C" [[noreturn]] void kernel_main(uint64_t boot_info_phys, uint64_t stack
   kernel::platform::platform_init(info, cmdline);
   kernel::pci::pci_init(info);
   kernel::pci::iommu::init(info, cmdline);
+  kernel::console::init();
   kernel::smp::late_init_bsp();
   kernel::smp::start_aps();
 

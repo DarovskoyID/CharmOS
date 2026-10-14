@@ -9,6 +9,7 @@
 #include "../mm/vmm.hpp"
 #include "../mm/stack.hpp"
 #include "../block/block.hpp"
+#include "../console/console.hpp"
 #include "../drivers/devmgr.hpp"
 #include "../fs/cache.hpp"
 #include "../fs/vfs.hpp"
@@ -937,6 +938,29 @@ void test_fs_check() {
   pass();
 }
 
+// Ввод с COM1 (tests/qemu/m8/console.input): строка, затем Ctrl-C.
+constinit volatile uint32_t g_console_signal = 0;
+void test_console() {
+  console::set_control_handler([](uint32_t signo) { g_console_signal = signo; });
+  char line[128];
+  uint32_t len = 0;
+  uint64_t deadline = platform::now_ns() + 60'000'000'000ull;
+  while (len < sizeof line - 1) {
+    uint32_t got = 0;
+    if (console::read(line + len, 1, deadline, &got) != console::Status::Ok) fail("no console input");
+    if (line[len] == '\n' || line[len] == '\r') break;
+    len += got;
+  }
+  kprint("ktest: console got: {}\n", StringView(line, len));
+  while (g_console_signal == 0) {
+    if (platform::now_ns() > deadline) fail("no ctrl-c");
+    sched::sleep_ns(10'000'000);
+  }
+  kprint("ktest: console control signal {}\n", static_cast<uint32_t>(g_console_signal));
+  if (g_console_signal != 1) fail("expected Interrupt");
+  pass();
+}
+
 struct Test {
   StringView name;
   void (*fn)();
@@ -967,6 +991,7 @@ constexpr Test kTests[] = {
     {"pci", &test_pci},
     {"drivers", &test_drivers},
     {"blk", &test_blk},
+    {"console", &test_console},
     {"fs", &test_fs},
     {"fs_check", &test_fs_check},
     {"fs_crash", &test_fs_crash},

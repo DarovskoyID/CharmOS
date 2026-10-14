@@ -27,6 +27,7 @@ add_executable(kernel
   net/tcp.cpp
   net/socket.cpp
   net/dns.cpp
+  console/console.cpp
   platform/platform.cpp
   proc/process.cpp
   proc/syscall.cpp

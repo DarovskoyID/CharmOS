@@ -36,6 +36,17 @@ class Serial {
     }
   }
 
+  // Приём (docs/specs/ns16c2752.pdf, совместимая с 16550 раскладка):
+  // LSR (+5) бит 0 — Data Ready (табл. LSR), RBR (+0) — принятый байт;
+  // IER (+1) бит 0 — прерывание «есть данные» (табл. 5); MCR (+4) бит 3 —
+  // OUT2 (на PC им разрешается выход прерывания UART).
+  static bool rx_ready() { return (inb(kCom1 + 5) & 0x01) != 0; }
+  static uint8_t get() { return inb(kCom1); }
+  static void enable_rx_interrupt() {
+    outb(kCom1 + 4, 0x0b);  // DTR + RTS + OUT2
+    outb(kCom1 + 1, 0x01);
+  }
+
   static void write(const char* s) {
     while (*s != '\0') {
       if (*s == '\n') put('\r');

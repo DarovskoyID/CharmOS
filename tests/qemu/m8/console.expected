@@ -1,0 +1,6 @@
+# M8: ввод с COM1 по прерыванию (IRQ 4 через I/O APIC) в кольцо ядра;
+# Ctrl-C не попадает в ввод, а становится сигналом Interrupt.
+console: COM1 input on GSI
+ktest: console got: hello console
+ktest: console control signal 1
+ktest: PASS console

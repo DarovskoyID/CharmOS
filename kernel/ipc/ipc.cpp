@@ -28,7 +28,7 @@ using arch::x86_64::kPageSize;
 
 // --- объекты ------------------------------------------------------------------------
 
-enum class Type : uint8_t { Endpoint, Vmo, Port, Device, Interrupt, FsNode, Net, Socket };
+enum class Type : uint8_t { Endpoint, Vmo, Port, Device, Interrupt, FsNode, Net, Socket, Console };
 
 struct Object {
   Type type;
@@ -123,6 +123,16 @@ struct SocketObj {
   uint64_t bound_key;
 };
 constinit void (*g_socket_closed)(uint64_t id) = nullptr;
+
+// Консоль (docs/abi/console.md): объект на капабилити; подписка — однократная.
+struct ConsoleObj {
+  Object base;
+  Port* bound;
+  uint64_t bound_key;
+};
+constexpr uint32_t kMaxConsoleBinds = 8;
+constinit bool (*console_has_input)() = nullptr;
+constinit ConsoleObj* g_console_binds[kMaxConsoleBinds] = {};
 constexpr uint32_t kMaxSocketBinds = 64;
 constinit SocketObj* g_socket_binds[kMaxSocketBinds] = {};
 
@@ -310,6 +320,18 @@ void release_object(Object* obj) {
     return;
   }
   if (obj->type == Type::Net) {
+    mm::kfree(obj);
+    return;
+  }
+  if (obj->type == Type::Console) {
+    auto* co = reinterpret_cast<ConsoleObj*>(obj);
+    for (ConsoleObj*& b : g_console_binds) {
+      if (b == co) b = nullptr;
+    }
+    if (co->bound != nullptr) {
+      --co->bound->armed;
+      release_object(&co->bound->base);
+    }
     mm::kfree(obj);
     return;
   }
@@ -969,6 +991,34 @@ Status sys_object_bind(uint32_t port_h, uint32_t h, uint64_t key) {
     ++port->armed;
     ++port->base.refs;
     if (!irq->masked && irq->pending != 0) deliver(irq);
+    return Status::Ok;
+  }
+  if (oc->obj->type == Type::Console) {
+    auto* co = reinterpret_cast<ConsoleObj*>(oc->obj);
+    if (co->bound != nullptr) return Status::Busy;
+    auto* port = reinterpret_cast<Port*>(pc->obj);
+    if (port->count + port->armed >= abi::syscall::kPortMaxPackets) return Status::Busy;
+    ConsoleObj** slot = nullptr;
+    for (ConsoleObj*& b : g_console_binds) {
+      if (b == nullptr) {
+        slot = &b;
+        break;
+      }
+    }
+    if (slot == nullptr) return Status::NoMemory;
+    co->bound = port;
+    co->bound_key = key;
+    ++port->armed;
+    ++port->base.refs;
+    *slot = co;
+    if (console_has_input != nullptr && console_has_input()) {
+      // Ввод уже есть: пакет сразу.
+      *slot = nullptr;
+      co->bound = nullptr;
+      --port->armed;
+      port_push(port, key, abi::syscall::kPacketConsoleReadable);
+      release_object(&port->base);
+    }
     return Status::Ok;
   }
   if (oc->obj->type == Type::Socket) {
@@ -1652,6 +1702,45 @@ void poll_sockets(bool (*ready)(uint64_t id, uint32_t* packet)) {
     --port->armed;
     port_push(port, so->bound_key, packet);
     release_object(&port->base);
+  }
+}
+
+// --- консоль ---------------------------------------------------------------------------
+
+void set_console_input_probe(bool (*probe)()) { console_has_input = probe; }
+
+Status create_console(uint32_t r, Cap** out) {
+  auto* co = alloc_zeroed<ConsoleObj>(sizeof(ConsoleObj));
+  if (co == nullptr) return Status::NoMemory;
+  co->base.type = Type::Console;
+  sync::SpinGuard guard(g_lock);
+  Cap* c = new_cap(&co->base, r, nullptr);
+  if (c == nullptr) {
+    mm::kfree(co);
+    return Status::NoMemory;
+  }
+  *out = c;
+  return Status::Ok;
+}
+
+Status get_console(uint32_t h, uint32_t need) {
+  sync::SpinGuard guard(g_lock);
+  Cap* c = lookup(me(), h);
+  if (c == nullptr) return Status::BadHandle;
+  if (c->obj->type != Type::Console) return Status::WrongType;
+  return (c->rights & need) == need ? Status::Ok : Status::AccessDenied;
+}
+
+void console_readable() {
+  sync::SpinGuard guard(g_lock);
+  for (ConsoleObj*& b : g_console_binds) {
+    if (b == nullptr || b->bound == nullptr) continue;
+    Port* port = b->bound;
+    b->bound = nullptr;
+    --port->armed;
+    port_push(port, b->bound_key, abi::syscall::kPacketConsoleReadable);
+    release_object(&port->base);
+    b = nullptr;
   }
 }
 

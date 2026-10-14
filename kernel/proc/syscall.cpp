@@ -1,3 +1,4 @@
+#include "../console/console.hpp"
 #include "../fs/vfs.hpp"
 #include "../net/socket.hpp"
 #include "syscall.hpp"
@@ -242,6 +243,16 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
     case Number::DnsResolve: {
       uint64_t v = 0;
       set_result(f, kernel::net::sys_dns_resolve(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, f.r10, &v), v);
+      break;
+    }
+    case Number::ConsoleRead: {
+      uint64_t v = 0;
+      set_result(f, kernel::console::sys_console_read(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, f.r10, &v), v);
+      break;
+    }
+    case Number::ConsoleWrite: {
+      uint64_t v = 0;
+      set_result(f, kernel::console::sys_console_write(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, &v), v);
       break;
     }
     case Number::ObjectBind:

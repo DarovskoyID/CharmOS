@@ -59,6 +59,29 @@ enum class Number : uint64_t {
   SocketShutdown = 39,
   NetInfo = 40,
   DnsResolve = 41,
+  // v1.5 (docs/abi/process.md, docs/abi/console.md)
+  ProcessSpawn = 42,
+  ProcessKill = 43,
+  ProcessInfo = 44,
+  ConsoleRead = 45,
+  ConsoleWrite = 46,
+  ThreadCreate = 47,
+  ThreadExit = 48,
+  ThreadInfo = 49,
+  FutexWait = 50,
+  FutexWake = 51,
+  ThreadSetFs = 52,
+  JobCreate = 53,
+  JobKill = 54,
+  JobInfo = 55,
+  ConsoleSetForeground = 56,
+  JobSetLimits = 57,
+  ThreadSetPriority = 58,
+  SignalSend = 59,
+  SignalSetHandler = 60,
+  SignalMask = 61,
+  SignalReturn = 62,
+  SignalAlarm = 63,
 };
 
 // Пакет порта (docs/abi/driver.md §4).
@@ -75,6 +98,10 @@ inline constexpr uint32_t kPacketChannelReadable = 2;
 inline constexpr uint32_t kPacketPeerClosed = 3;
 inline constexpr uint32_t kPacketSocketReadable = 4;  // socket.md §3
 inline constexpr uint32_t kPacketSocketWritable = 5;
+inline constexpr uint32_t kPacketProcessExited = 6;   // process.md §3.3
+inline constexpr uint32_t kPacketConsoleReadable = 7; // console.md §1
+inline constexpr uint32_t kPacketThreadExited = 8;    // process.md §4
+inline constexpr uint32_t kPacketJobEmpty = 9;        // process.md §5
 inline constexpr uint32_t kPortMaxPackets = 64;
 
 // Описание устройства для драйвера (docs/abi/driver.md §6.1).
@@ -126,6 +153,9 @@ inline constexpr uint32_t kNetListenLow = 1u << 10;
 inline constexpr uint32_t kNetResolve = 1u << 11;
 inline constexpr uint32_t kNetAll = kNetConnect | kNetListen | kNetListenLow | kNetResolve;
 inline constexpr uint32_t kSocketDefault = kDuplicate | kTransfer | kRead | kWrite;
+// v1.5 (docs/abi/process.md §3.1, §5).
+inline constexpr uint32_t kSignal = 1u << 12;
+inline constexpr uint32_t kSpawn = 1u << 13;
 }  // namespace rights
 
 inline constexpr uint32_t kInvalidHandle = 0;
@@ -161,6 +191,8 @@ enum class Status : uint64_t {
   ConnectionReset = 19,
   NetUnreachable = 20,
   AddressInUse = 21,
+  // v1.5 (docs/abi/process.md §10)
+  Interrupted = 22,
 };
 
 // §4
