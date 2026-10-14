@@ -18,6 +18,7 @@ add_executable(kernel
   sync/wait.cpp
   pci/pci.cpp
   pci/iommu.cpp
+  block/block.cpp
   platform/platform.cpp
   proc/process.cpp
   proc/syscall.cpp

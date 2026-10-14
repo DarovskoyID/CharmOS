@@ -38,6 +38,14 @@ bool attach(Domain* d, uint32_t pci_index);
 // Выделяет IOVA под pages страниц и отображает frames[i] (4 КиБ) подряд.
 // 0 — нет памяти под таблицы или адресов. writable — устройство может писать.
 uint64_t map(Domain* d, const uint64_t* frames, uint64_t pages, bool writable);
+// Отображает одну страницу по заданному IOVA (окно ядра kKernelIovaBase…,
+// не пересекается с адресами map). false — нет памяти под таблицы.
+bool map_at(Domain* d, uint64_t iova, uint64_t phys, bool writable);
+
+// IOVA выше этой границы map не выдаёт: окно для отображений ядра (блочный
+// слой отображает страницы кэша на время запроса).
+inline constexpr uint64_t kKernelIovaBase = 0x80000000ull;
+
 // Снимает отображение и ждёт, пока IOMMU забудет его (IOTLB, с осушением DMA
 // там, где блок это умеет): после возврата фреймы можно освобождать.
 void unmap(Domain* d, uint64_t iova, uint64_t pages);

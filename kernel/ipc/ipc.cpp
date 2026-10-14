@@ -70,23 +70,30 @@ struct Vmo {
   uint64_t size;
   uint64_t pages;
   uint64_t* frames;
-  bool mmio;  // BAR устройства: некэшируемо, фреймы не принадлежат VMO
+  bool mmio;  // BAR устройства: некэшируемо, фреймы не принадлежат VMO (kMmioHole — не отображать)
   struct Device* dma_dev;  // DMA-буфер: устройство (держит ссылку), в чьём домене он виден
   uint64_t iova;           // адрес буфера для устройства
 };
 
 struct Interrupt;
 
+constexpr uint64_t kMmioHole = ~uint64_t{0};
+
+// Векторов на устройство (MSI-X бывает до 2048; больше драйверам пока не нужно).
+constexpr uint32_t kMaxDeviceIrqs = 32;
+
 struct Device {
   Object base;
   uint32_t pci_index;
-  Interrupt* irq;  // не больше одного живого объекта прерывания
+  Interrupt* irqs[kMaxDeviceIrqs];  // не больше одного живого объекта на индекс
   pci::iommu::Domain* domain;  // nullptr — IOMMU нет или функцию он не обслуживает
 };
 
 struct Interrupt {
   Object base;
   Device* dev;     // держит ссылку
+  uint32_t index;  // индекс device_irq (запись таблицы MSI-X)
+  bool msix;
   uint8_t vector;
   bool masked;     // после доставки — до interrupt_ack
   bool hw_mask;    // функция умеет маскировать вектор сама
@@ -208,6 +215,16 @@ void fire(Endpoint* ep, uint32_t type) {
 
 constinit Interrupt* g_vector_irq[256] = {};
 
+// Маскирование вектора в устройстве, если оно это умеет.
+void hw_mask(Interrupt* irq, bool masked) {
+  const pci::Function& f = pci::function(irq->dev->pci_index);
+  if (irq->msix) {
+    pci::msix_set_mask(f, irq->index, masked);
+  } else if (irq->hw_mask) {
+    pci::msi_set_mask(f, masked);
+  }
+}
+
 // Доставка срабатываний в порт: пакет, сброс счётчика, маска до ack.
 void deliver(Interrupt* irq) {
   Port* port = irq->bound;
@@ -216,7 +233,7 @@ void deliver(Interrupt* irq) {
   port_push(port, irq->bound_key, abi::syscall::kPacketInterrupt, irq->pending, irq->last_ns);
   irq->pending = 0;
   irq->masked = true;
-  if (irq->hw_mask) pci::msi_set_mask(pci::function(irq->dev->pci_index), true);
+  hw_mask(irq, true);
   release_object(&port->base);
 }
 
@@ -271,14 +288,18 @@ void release_object(Object* obj) {
   }
   if (obj->type == Type::Interrupt) {
     auto* irq = reinterpret_cast<Interrupt*>(obj);
-    pci::msi_disable(pci::function(irq->dev->pci_index));
+    if (irq->msix) {
+      pci::msix_set_mask(pci::function(irq->dev->pci_index), irq->index, true);
+    } else {
+      pci::msi_disable(pci::function(irq->dev->pci_index));
+    }
     g_vector_irq[irq->vector] = nullptr;
     platform::free_device_vector(irq->vector);
     if (irq->bound != nullptr) {
       --irq->bound->armed;
       release_object(&irq->bound->base);
     }
-    irq->dev->irq = nullptr;
+    irq->dev->irqs[irq->index] = nullptr;
     release_object(&irq->dev->base);
     mm::kfree(irq);
     return;
@@ -819,6 +840,7 @@ Status sys_vmo_map(uint32_t h, uint64_t req, uint64_t* out) {
   uint64_t flags = arch::x86_64::kMapNoExec | ((req & rights::kWrite) != 0 ? arch::x86_64::kMapWrite : 0);
   if (v->mmio) flags |= arch::x86_64::kMapCacheDisable;
   for (uint64_t i = 0; i < v->pages; ++i) {
+    if (v->frames[i] == kMmioHole) continue;
     if (p->space.map_phys(addr + i * kPageSize, v->frames[i], flags).is_err()) {
       for (uint64_t k = 0; k < i; ++k) p->space.unmap(addr + k * kPageSize);
       mm::kfree(m);
@@ -1048,6 +1070,13 @@ Status install_new(Object* obj, uint32_t r, uint64_t* out) {
 
 namespace {
 
+// MSI-X, если есть (до kMaxDeviceIrqs векторов), иначе один вектор MSI.
+uint32_t irq_count(const pci::Function& f) {
+  uint32_t n = pci::msix_vectors(f);
+  if (n != 0) return n < kMaxDeviceIrqs ? n : kMaxDeviceIrqs;
+  return f.msi_cap != 0 ? 1 : 0;
+}
+
 // DMA выдаётся только в домен IOMMU, без него — лишь при явном iommu=off.
 bool dma_available(const Device* d) {
   return d->domain != nullptr || pci::iommu::disabled_by_cmdline();
@@ -1071,7 +1100,7 @@ Status sys_device_info(uint32_t h, uint64_t user_out) {
     info.vendor = f.vendor;
     info.device_id = f.device_id;
     info.class_code = f.class_code;
-    info.irq_count = f.msi_cap != 0 ? 1 : 0;
+    info.irq_count = irq_count(f);
     info.flags = dma_available(d) ? abi::syscall::kDeviceDma : 0;
     for (int i = 0; i < 6; ++i) {
       switch (f.bars[i].kind) {
@@ -1091,11 +1120,13 @@ Status sys_device_info(uint32_t h, uint64_t user_out) {
 Status sys_device_map_bar(uint32_t h, uint64_t bar, uint64_t* out) {
   if (bar >= 6) return Status::InvalidArgs;
   uint64_t base, size;
+  uint32_t pci_index;
   {
     sync::SpinGuard guard(g_lock);
     Status s;
     Device* d = device_from(h, rights::kMap, &s);
     if (d == nullptr) return s;
+    pci_index = d->pci_index;
     const pci::Bar& b = pci::function(d->pci_index).bars[bar];
     if (b.kind == pci::BarKind::Io) return Status::NotSupported;
     if (b.kind == pci::BarKind::Absent) return Status::InvalidArgs;
@@ -1115,6 +1146,12 @@ Status sys_device_map_bar(uint32_t h, uint64_t bar, uint64_t* out) {
     return Status::NoMemory;
   }
   for (uint64_t i = 0; i < pages; ++i) frames[i] = base + i * kPageSize;
+  // Таблица MSI-X задаёт адрес и данные сообщений: драйвер, меняющий её,
+  // посылал бы любые прерывания. Её страницы (и PBA) в отображении — дыры.
+  uint64_t first, last;
+  if (pci::msix_bar_pages(pci::function(pci_index), static_cast<uint32_t>(bar), &first, &last)) {
+    for (uint64_t i = first; i <= last && i < pages; ++i) frames[i] = kMmioHole;
+  }
   v->base.type = Type::Vmo;
   v->size = pages * kPageSize;
   v->pages = pages;
@@ -1135,8 +1172,10 @@ Status sys_device_irq(uint32_t h, uint64_t index, uint64_t* out) {
   Device* d = device_from(h, rights::kRead, &s);
   if (d == nullptr) return s;
   const pci::Function& f = pci::function(d->pci_index);
-  if (f.msi_cap == 0 || index != 0) return Status::OutOfRange;
-  if (d->irq != nullptr) return Status::Busy;
+  if (index >= irq_count(f)) return Status::OutOfRange;
+  if (d->irqs[index] != nullptr) return Status::Busy;
+  bool msix = pci::msix_vectors(f) != 0;
+  if (msix && !pci::msix_prepare(d->pci_index)) return Status::NoMemory;
   auto* irq = alloc_zeroed<Interrupt>(sizeof(Interrupt));
   if (irq == nullptr) return Status::NoMemory;
   uint8_t vector = platform::alloc_device_vector(&device_interrupt);
@@ -1148,15 +1187,24 @@ Status sys_device_irq(uint32_t h, uint64_t index, uint64_t* out) {
   irq->dev = d;
   ++d->base.refs;
   irq->vector = vector;
-  d->irq = irq;
+  irq->index = static_cast<uint32_t>(index);
+  irq->msix = msix;
+  d->irqs[index] = irq;
   s = install_new(&irq->base, rights::kInterruptDefault, out);
   if (s != Status::Ok) {
     // install_new уже освободил капабилити и объект (refs → 0).
     return s;
   }
   g_vector_irq[vector] = irq;
-  irq->hw_mask = pci::msi_set_mask(f, false);
-  pci::msi_enable(f, smp::cpu(0).apic_id, vector);
+  if (msix) {
+    irq->hw_mask = true;
+    pci::msix_program(f, irq->index, smp::cpu(0).apic_id, vector);
+    pci::msix_enable(f);
+    pci::msix_set_mask(f, irq->index, false);
+  } else {
+    irq->hw_mask = pci::msi_set_mask(f, false);
+    pci::msi_enable(f, smp::cpu(0).apic_id, vector);
+  }
   // Сообщение MSI — запись устройства в память, без Bus Master его нет. С
   // IOMMU устройство при этом видит только свой домен (MSI идут мимо
   // трансляции DMA). Без IOMMU изоляции DMA нет вовсе (DRIVERS.md §2.1).
@@ -1172,7 +1220,7 @@ Status sys_interrupt_ack(uint32_t h) {
   if ((c->rights & rights::kWrite) == 0) return Status::AccessDenied;
   auto* irq = reinterpret_cast<Interrupt*>(c->obj);
   irq->masked = false;
-  if (irq->hw_mask) pci::msi_set_mask(pci::function(irq->dev->pci_index), false);
+  hw_mask(irq, false);
   if (irq->pending != 0 && irq->bound != nullptr) deliver(irq);
   return Status::Ok;
 }
@@ -1259,6 +1307,130 @@ Status sys_dma_alloc(uint32_t h, uint64_t size, uint64_t flags, uint64_t user_ad
   }
   if (!proc::copy_to_user(user_addr, &device_addr, sizeof device_addr)) return Status::BadAddress;
   return Status::Ok;
+}
+
+Status sys_device_vendor_cap(uint32_t h, uint64_t index, uint64_t user_buf, uint64_t cap,
+                             uint64_t* out) {
+  uint8_t bytes[256];
+  uint32_t len = 0;
+  {
+    sync::SpinGuard guard(g_lock);
+    Status s;
+    Device* d = device_from(h, rights::kRead, &s);
+    if (d == nullptr) return s;
+    if (index > 255 ||
+        !pci::vendor_cap(pci::function(d->pci_index), static_cast<uint32_t>(index), bytes,
+                         sizeof bytes, &len)) {
+      return Status::OutOfRange;
+    }
+  }
+  *out = len;
+  if (cap < len) return Status::BufferTooSmall;
+  if (!proc::copy_to_user(user_buf, bytes, len)) return Status::BadAddress;
+  return Status::Ok;
+}
+
+// --- для ядра: блочный слой ---------------------------------------------------------
+
+Status kernel_recv(Cap* endpoint, void* buf, uint64_t cap, uint32_t* len, uint64_t deadline) {
+  auto* ep = reinterpret_cast<Endpoint*>(endpoint->obj);
+  for (;;) {
+    bool irq = g_lock.lock();
+    if (Message* m = ep->head) {
+      *len = m->bytes;
+      if (m->bytes > cap) {
+        g_lock.unlock(irq);
+        return Status::BufferTooSmall;
+      }
+      __builtin_memcpy(buf, m->data, m->bytes);
+      ep->head = m->next;
+      if (ep->head == nullptr) ep->tail = nullptr;
+      --ep->count;
+      m->next = nullptr;
+      destroy_message(m);  // закрывает хендлы сообщения
+      g_lock.unlock(irq);
+      return Status::Ok;
+    }
+    if (ep->peer == nullptr) {
+      g_lock.unlock(irq);
+      return Status::PeerClosed;
+    }
+    if (deadline == 0) {
+      g_lock.unlock(irq);
+      return Status::WouldBlock;
+    }
+    if (deadline != ~uint64_t{0} && platform::now_ns() >= deadline) {
+      g_lock.unlock(irq);
+      return Status::TimedOut;
+    }
+    sched::Thread* self = sched::current();
+    ep->readers.push(self);
+    sched::block_current_until(deadline);
+    g_lock.unlock(false);
+    sched::schedule();
+    {
+      sync::SpinGuard guard(g_lock);
+      ep->readers.remove(self);  // проснулись по сроку — ещё в очереди
+    }
+    if (irq) arch::x86_64::sti();
+  }
+}
+
+Status create_kernel_vmo(uint64_t pages, Cap** out, uint64_t* frames_out) {
+  auto* v = alloc_zeroed<Vmo>(sizeof(Vmo));
+  auto* frames = alloc_zeroed<uint64_t>(pages * sizeof(uint64_t));
+  if (v == nullptr || frames == nullptr) {
+    if (v != nullptr) mm::kfree(v);
+    if (frames != nullptr) mm::kfree(frames);
+    return Status::NoMemory;
+  }
+  for (uint64_t i = 0; i < pages; ++i) {
+    auto f = mm::alloc_frames();
+    if (f.is_err()) {
+      for (uint64_t k = 0; k < i; ++k) mm::free_frames(frames[k]);
+      mm::kfree(frames);
+      mm::kfree(v);
+      return Status::NoMemory;
+    }
+    __builtin_memset(mm::phys_to_virt<void>(f.value()), 0, kPageSize);
+    frames[i] = f.value();
+    frames_out[i] = f.value();
+  }
+  v->base.type = Type::Vmo;
+  v->size = pages * kPageSize;
+  v->pages = pages;
+  v->frames = frames;
+  sync::SpinGuard guard(g_lock);
+  Cap* c = new_cap(&v->base, rights::kVmoDefault & ~rights::kDuplicate, nullptr);
+  if (c == nullptr) {
+    v->base.refs = 1;
+    release_object(&v->base);
+    return Status::NoMemory;
+  }
+  *out = c;
+  return Status::Ok;
+}
+
+Status clone_detached(Cap* cap, Cap** out) {
+  sync::SpinGuard guard(g_lock);
+  Cap* c = new_cap(cap->obj, cap->rights, nullptr);
+  if (c == nullptr) return Status::NoMemory;
+  *out = c;
+  return Status::Ok;
+}
+
+void* acquire_device(uint32_t pci_index, pci::iommu::Domain** domain) {
+  sync::SpinGuard guard(g_lock);
+  Device* d = g_current_device[pci_index];
+  if (d == nullptr) return nullptr;
+  ++d->base.refs;
+  *domain = d->domain;
+  return d;
+}
+
+void release_device(void* device) {
+  sync::SpinGuard guard(g_lock);
+  release_object(&static_cast<Device*>(device)->base);
 }
 
 }  // namespace kernel::ipc

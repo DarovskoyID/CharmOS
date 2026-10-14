@@ -164,6 +164,12 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
                                                &v), v);
       break;
     }
+    case Number::DeviceVendorCap: {
+      uint64_t v = 0;
+      set_result(f, kernel::ipc::sys_device_vendor_cap(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx,
+                                                       f.r10, &v), v);
+      break;
+    }
     case Number::ObjectBind:
       set_result(f, kernel::ipc::sys_object_bind(static_cast<uint32_t>(f.rdi),
                                                  static_cast<uint32_t>(f.rsi), f.rdx));

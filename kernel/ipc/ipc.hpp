@@ -16,6 +16,9 @@
 namespace kernel::proc {
 struct Process;
 }
+namespace kernel::pci::iommu {
+struct Domain;
+}
 
 namespace kernel::ipc {
 
@@ -55,6 +58,23 @@ void release_detached(Cap* cap);
 // Капабилити Device на функцию PCI с индексом pci_index (для запуска драйвера).
 Status create_device(uint32_t pci_index, Cap** out);
 
+// Читает сообщение из канала от имени ядра (endpoint — отсоединённая
+// капабилити ядра). Хендлы в сообщении закрываются: ядру от драйверов они не
+// нужны. *len — длина сообщения (и при BufferTooSmall). deadline — как у
+// channel_read.
+Status kernel_recv(Cap* endpoint, void* buf, uint64_t cap, uint32_t* len, uint64_t deadline);
+
+// VMO из pages свежих обнулённых страниц для ядра: *out — отсоединённая
+// капабилити (права kVmoDefault без Duplicate), frames[i] — физ. адреса.
+Status create_kernel_vmo(uint64_t pages, Cap** out, uint64_t* frames);
+// Ещё одна отсоединённая капабилити на тот же объект (с теми же правами).
+Status clone_detached(Cap* cap, Cap** out);
+
+// Ссылка ядра на текущий объект Device функции (держит его домен IOMMU).
+// nullptr — драйвер ещё не запущен или уже ушёл.
+void* acquire_device(uint32_t pci_index, pci::iommu::Domain** domain);
+void release_device(void* device);
+
 // --- системные вызовы (текущий процесс) -------------------------------------------
 Status sys_handle_close(uint32_t h);
 Status sys_handle_duplicate(uint32_t h, uint64_t rights, uint64_t* out);
@@ -74,6 +94,8 @@ Status sys_device_info(uint32_t dev, uint64_t user_out);
 Status sys_device_map_bar(uint32_t dev, uint64_t bar, uint64_t* out);
 Status sys_device_irq(uint32_t dev, uint64_t index, uint64_t* out);
 Status sys_interrupt_ack(uint32_t irq);
+Status sys_device_vendor_cap(uint32_t dev, uint64_t index, uint64_t user_buf, uint64_t cap,
+                             uint64_t* out);
 Status sys_dma_alloc(uint32_t dev, uint64_t size, uint64_t flags, uint64_t user_addr,
                      uint64_t* out);
 

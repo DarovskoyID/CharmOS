@@ -8,6 +8,7 @@
 #include "../mm/pmm.hpp"
 #include "../mm/vmm.hpp"
 #include "../mm/stack.hpp"
+#include "../block/block.hpp"
 #include "../drivers/devmgr.hpp"
 #include "../pci/iommu.hpp"
 #include "../pci/pci.hpp"
@@ -686,6 +687,42 @@ void test_drivers() {
   pass();
 }
 
+void test_blk() {
+  // Драйвер virtio_blk поднят менеджером; диск — пустой образ (tools/qemu/blk.sh).
+  if (!block::wait_online(0, platform::now_ns() + 20'000'000'000ull)) fail("disk0 not online");
+  block::DiskInfo info;
+  (void)block::disk_info(0, &info);
+  kprint("ktest: disk0 {} blocks of {}\n", info.block_count, info.block_size);
+  uint64_t pages[4];
+  for (auto& p : pages) {
+    auto f = mm::alloc_frames();
+    if (f.is_err()) fail("no memory");
+    p = f.value();
+  }
+  auto* w0 = mm::phys_to_virt<uint32_t>(pages[0]);
+  auto* w1 = mm::phys_to_virt<uint32_t>(pages[1]);
+  for (uint32_t i = 0; i < 1024; ++i) {
+    w0[i] = 0xc0de0000u + i;
+    w1[i] = ~(0xc0de0000u + i);
+  }
+  if (block::transfer(0, true, 2048, pages, 2) != block::Status::Ok) fail("write failed");
+  if (block::flush(0) != block::Status::Ok) fail("flush failed");
+  __builtin_memset(mm::phys_to_virt<void>(pages[2]), 0xaa, 4096);
+  __builtin_memset(mm::phys_to_virt<void>(pages[3]), 0xaa, 4096);
+  if (block::transfer(0, false, 2048, pages + 2, 2) != block::Status::Ok) fail("read failed");
+  if (__builtin_memcmp(mm::phys_to_virt<void>(pages[0]), mm::phys_to_virt<void>(pages[2]), 4096) != 0 ||
+      __builtin_memcmp(mm::phys_to_virt<void>(pages[1]), mm::phys_to_virt<void>(pages[3]), 4096) != 0) {
+    fail("read back differs");
+  }
+  kprint("ktest: disk0 write, flush, read back ok\n");
+  // За концом диска — отказ без обращения к драйверу.
+  if (block::transfer(0, false, info.block_count - 1, pages, 1) != block::Status::OutOfRange) {
+    fail("out of range not rejected");
+  }
+  for (uint64_t p : pages) mm::free_frames(p);
+  pass();
+}
+
 struct Test {
   StringView name;
   void (*fn)();
@@ -715,11 +752,16 @@ constexpr Test kTests[] = {
     {"ipc", &test_ipc},
     {"pci", &test_pci},
     {"drivers", &test_drivers},
+    {"blk", &test_blk},
 };
 
 }  // namespace
 
 void select(const Cmdline& cmdline) { g_selected = cmdline.get("ktest"); }
+
+bool needs_drivers() {
+  return g_selected == StringView("drivers") || g_selected == StringView("blk");
+}
 StringView selected() { return g_selected; }
 
 bool exception_expected(const InterruptFrame& frame) {

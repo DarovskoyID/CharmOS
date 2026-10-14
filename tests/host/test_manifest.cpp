@@ -62,3 +62,13 @@ TEST(manifest_rejects) {
   CHECK(fails_at("name = \"a\"\n[[match]]\nvendor = 99999999999999999999999\n", 3));
   CHECK(fails_at("name = \"a\"\n[[match]]\ndevice = [1,2,3,4,5,6,7,8,9]\n", 3));
 }
+
+TEST(manifest_class) {
+  auto r = parse(StringView("name = \"vblk\"\nclass = \"block\"\n[[match]]\nvendor = 0x1af4\n"));
+  CHECK(r.is_ok() && r.value().driver_class == lib::manifest::DriverClass::Block);
+  CHECK(parse(StringView("name = \"e\"\n[[match]]\nvendor = 1\n")).value().driver_class ==
+        lib::manifest::DriverClass::None);
+  CHECK(fails_at("name = \"a\"\nclass = \"net\"\n", 2));                 // неизвестный класс
+  CHECK(fails_at("name = \"a\"\nclass = \"block\"\nclass = \"block\"\n", 3));
+  CHECK(fails_at("name = \"a\"\n[[match]]\nclass = \"block\"\n", 3));     // только сверху
+}

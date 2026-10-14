@@ -4,6 +4,7 @@
 #include <lib/initrd/initrd.hpp>
 #include <lib/manifest/manifest.hpp>
 
+#include "../block/block.hpp"
 #include "../core/log.hpp"
 #include "../ipc/ipc.hpp"
 #include "../mm/heap.hpp"
@@ -13,6 +14,7 @@
 #include "../proc/process.hpp"
 #include "../sched/sched.hpp"
 #include "../sync/spinlock.hpp"
+#include "../sync/wait.hpp"
 
 namespace kernel::devmgr {
 
@@ -27,9 +29,18 @@ struct Driver {
   lib::initrd::File elf;
 };
 
+// Поток блочного слоя на время одного запуска блочного драйвера.
+struct BlockServe {
+  uint32_t pci_index;
+  ipc::Cap* kernel_end;
+  const char* name;
+  sync::Semaphore done{"devmgr.block", 0};
+};
+
 struct Binding {
   uint32_t pci_index;
   const Driver* driver;
+  BlockServe block;
   volatile DriverStats stats;
   proc::Process* running;  // под g_lock: процесс текущего запуска, пока не освобождён
 };
@@ -97,6 +108,12 @@ const Driver* best_driver(const pci::Function& f) {
   return best;
 }
 
+void block_serve(void* arg) {
+  auto* s = static_cast<BlockServe*>(arg);
+  block::serve(s->pci_index, s->kernel_end, s->name);
+  s->done.up();
+}
+
 void forget_process(void* arg) {
   sync::SpinGuard guard(g_lock);
   static_cast<Binding*>(arg)->running = nullptr;
@@ -139,8 +156,19 @@ void supervise(void* arg) {
       sync::SpinGuard guard(g_lock);
       b->running = p.value();
     }
+    bool block = b->driver->manifest.driver_class == lib::manifest::DriverClass::Block;
+    if (block) {
+      b->block.pci_index = b->pci_index;
+      b->block.kernel_end = kernel_end;
+      b->block.name = name;
+      if (sched::spawn("block", &block_serve, &b->block).is_err()) {
+        kprint("devmgr: {}: cannot start block service\n", name);
+        block = false;
+      }
+    }
     b->stats.runs = b->stats.runs + 1;
     int64_t code = proc::wait_process(p.value(), &forget_process, b);
+    if (block) b->block.done.down();  // канал ядра больше никто не читает
     ipc::release_detached(kernel_end);
     b->stats.last_exit = code;
     if (code == proc::kExitKilled) b->stats.killed = b->stats.killed + 1;
@@ -149,6 +177,7 @@ void supervise(void* arg) {
     if (attempt == kMaxRestarts) {
       kprint("devmgr: {} on {}:{}.{} failed {} times, giving up\n", name, f.bus, f.device,
              f.function, b->stats.runs);
+      block::driver_failed(b->pci_index);
       break;
     }
     sched::sleep_ns(kRestartDelayNs);

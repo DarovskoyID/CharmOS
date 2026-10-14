@@ -86,6 +86,7 @@ class Parser {
 R Parser::run() {
   Manifest m = {};
   bool has_name = false;
+  bool has_class = false;
   Match* current = nullptr;
   // Какие ключи уже были в текущей таблице (повтор — ошибка).
   bool seen_vendor = false, seen_device = false, seen_class = false, seen_score = false;
@@ -111,7 +112,19 @@ R Parser::run() {
     ++pos_;
     skip_spaces();
 
-    if (current == nullptr) {
+    if (current == nullptr && key == StringView("class")) {
+      if (has_class) return fail("duplicate key");
+      if (peek() != '"') return fail("class must be a string");
+      ++pos_;
+      size_t start = pos_;
+      while (!at_end() && peek() != '"' && peek() != '\n') ++pos_;
+      if (peek() != '"') return fail("unterminated string");
+      StringView value = text_.substr(start, pos_ - start);
+      ++pos_;
+      if (value != StringView("block")) return fail("unknown class");
+      m.driver_class = DriverClass::Block;
+      has_class = true;
+    } else if (current == nullptr) {
       if (key != StringView("name")) return fail("unknown top-level key");
       if (has_name) return fail("duplicate key");
       if (peek() != '"') return fail("name must be a string");

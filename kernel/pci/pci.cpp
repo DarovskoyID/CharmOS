@@ -1,5 +1,6 @@
 #include "pci.hpp"
 
+#include <arch/x86_64/mmio.hpp>
 #include <lib/acpi/parse.hpp>
 
 #include "../core/panic.hpp"
@@ -21,6 +22,7 @@ constexpr uint16_t kRegStatus = 0x06;
 constexpr uint16_t kStatusCapList = 1u << 4;
 constexpr uint8_t kCapMsi = 0x05;
 constexpr uint8_t kCapMsix = 0x11;
+constexpr uint8_t kCapVendor = 0x09;
 constexpr int kMaxCapWalk = 48;
 
 struct Window {
@@ -259,5 +261,106 @@ bool msi_set_mask(const Function& f, bool masked) {
 
 uint32_t function_count() { return g_count; }
 const Function& function(uint32_t index) { return g_functions[index]; }
+
+namespace {
+
+// Источник вторичный: pci-reference.md §4 (MSI-X capability и таблица).
+constexpr uint16_t kMsixControl = 0x02;
+constexpr uint16_t kMsixTable = 0x04;
+constexpr uint16_t kMsixPba = 0x08;
+constexpr uint16_t kMsixEnable = 1u << 15;
+constexpr uint16_t kMsixFunctionMask = 1u << 14;
+constexpr uint16_t kMsixSizeMask = 0x7ff;  // размер таблицы − 1
+constexpr uint32_t kMsixEntryMasked = 1u << 0;
+
+uint16_t msix_off(const Function& f, uint16_t rel) {
+  return static_cast<uint16_t>(f.msix_cap + rel);
+}
+
+uint64_t msix_entry(const Function& f, uint32_t entry) { return f.msix_table + entry * 16ull; }
+
+}  // namespace
+
+uint32_t msix_vectors(const Function& f) {
+  if (f.msix_cap == 0) return 0;
+  return (read16(f, msix_off(f, kMsixControl)) & kMsixSizeMask) + 1u;
+}
+
+bool msix_prepare(uint32_t index) {
+  Function& f = g_functions[index];
+  if (f.msix_cap == 0) return false;
+  if (f.msix_table != 0) return true;
+  uint32_t t = read32(f, msix_off(f, kMsixTable));
+  const Bar& b = f.bars[t & 7];
+  if (b.kind != BarKind::Mem32 && b.kind != BarKind::Mem64) return false;
+  uint64_t size = uint64_t{msix_vectors(f)} * 16;
+  auto r = mm::map_mmio(b.base + (t & ~7u), size);
+  if (r.is_err()) return false;
+  f.msix_table = r.value();
+  return true;
+}
+
+void msix_program(const Function& f, uint32_t entry, uint32_t apic_id, uint8_t vector) {
+  uint64_t e = msix_entry(f, entry);
+  arch::x86_64::mmio_write32(e + 12, kMsixEntryMasked);
+  // SDM §11.11.1–11.11.2: как у MSI.
+  arch::x86_64::mmio_write32(e + 0, 0xfee00000u | ((apic_id & 0xff) << 12));
+  arch::x86_64::mmio_write32(e + 4, 0);
+  arch::x86_64::mmio_write32(e + 8, vector);
+}
+
+void msix_set_mask(const Function& f, uint32_t entry, bool masked) {
+  arch::x86_64::mmio_write32(msix_entry(f, entry) + 12, masked ? kMsixEntryMasked : 0);
+  (void)arch::x86_64::mmio_read32(msix_entry(f, entry) + 12);  // запись дошла до устройства
+}
+
+void msix_enable(const Function& f) {
+  uint16_t ctrl = read16(f, msix_off(f, kMsixControl));
+  write16(f, msix_off(f, kMsixControl),
+          static_cast<uint16_t>((ctrl | kMsixEnable) & ~kMsixFunctionMask));
+  set_command_bits(f, kCommandIntxDisable, 0);
+}
+
+void msix_disable(const Function& f) {
+  uint16_t ctrl = read16(f, msix_off(f, kMsixControl));
+  write16(f, msix_off(f, kMsixControl), static_cast<uint16_t>(ctrl & ~kMsixEnable));
+}
+
+bool msix_bar_pages(const Function& f, uint32_t bar, uint64_t* first, uint64_t* last) {
+  if (f.msix_cap == 0) return false;
+  bool found = false;
+  uint64_t size = uint64_t{msix_vectors(f)} * 16;
+  uint64_t pba_size = (uint64_t{msix_vectors(f)} + 63) / 64 * 8;
+  const uint16_t regs[] = {kMsixTable, kMsixPba};
+  for (uint16_t reg : regs) {
+    uint32_t v = read32(f, msix_off(f, reg));
+    if ((v & 7) != bar) continue;
+    uint64_t start = (v & ~7u) / 4096;
+    uint64_t end = ((v & ~7u) + (reg == kMsixTable ? size : pba_size) - 1) / 4096;
+    if (!found || start < *first) *first = start;
+    if (!found || end > *last) *last = end;
+    found = true;
+  }
+  return found;
+}
+
+bool vendor_cap(const Function& f, uint32_t index, uint8_t* buf, uint32_t cap, uint32_t* len) {
+  if ((read16(f, kRegStatus) & kStatusCapList) == 0) return false;
+  uint8_t ptr = read8(f, kRegCapPtr) & 0xfc;
+  for (int n = 0; ptr != 0 && n < kMaxCapWalk; ++n) {
+    if (read8(f, ptr) == kCapVendor) {
+      if (index == 0) {
+        uint32_t l = read8(f, static_cast<uint16_t>(ptr + 2));
+        if (l < 3 || ptr + l > 256) l = 3;  // неверная длина: только заголовок
+        *len = l;
+        for (uint32_t i = 0; i < l && i < cap; ++i) buf[i] = read8(f, static_cast<uint16_t>(ptr + i));
+        return true;
+      }
+      --index;
+    }
+    ptr = read8(f, static_cast<uint16_t>(ptr + 1)) & 0xfc;
+  }
+  return false;
+}
 
 }  // namespace kernel::pci

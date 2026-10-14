@@ -37,6 +37,16 @@ enum class Number : uint64_t {
   DeviceIrq = 20,
   InterruptAck = 21,
   DmaAlloc = 22,
+  // v1.3 (docs/abi/fs.md §4, docs/abi/driver.md §9)
+  FsOpen = 23,
+  FileRead = 24,
+  FileWrite = 25,
+  FileSync = 26,
+  FsStat = 27,
+  DirRead = 28,
+  FsUnlink = 29,
+  FileResize = 30,
+  DeviceVendorCap = 31,
 };
 
 // Пакет порта (docs/abi/driver.md §4).
@@ -120,6 +130,11 @@ enum class Status : uint64_t {
   OutOfRange = 11,
   BufferTooSmall = 12,
   Busy = 13,
+  // v1.3 (docs/abi/fs.md §6)
+  IoError = 14,
+  NotFound = 15,
+  AlreadyExists = 16,
+  NoSpace = 17,
 };
 
 // §4

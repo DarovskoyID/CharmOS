@@ -24,3 +24,4 @@ function(charmos_driver name)
 endfunction()
 
 charmos_driver(edu)
+charmos_driver(virtio_blk)

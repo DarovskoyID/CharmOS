@@ -10,6 +10,9 @@
 
 namespace kernel::ktest {
 
+// Выбранному тесту нужны драйверы из initrd (менеджер устройств).
+bool needs_drivers();
+
 // Запоминает выбранный тест. Вызывать до первого исключения.
 void select(const Cmdline& cmdline);
 // initrd из BootInfo (физ. адрес и размер; 0 — нет) — для тестов процессов.

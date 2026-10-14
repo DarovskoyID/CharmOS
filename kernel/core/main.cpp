@@ -104,8 +104,7 @@ constinit uint64_t g_initrd_size = 0;
 void kmain(void*) {
   // Тесты ядра работают с устройствами сами; драйверы — только в обычной
   // загрузке и в тесте драйверов.
-  if (kernel::ktest::selected().empty() ||
-      kernel::ktest::selected() == lib::core::StringView("drivers")) {
+  if (kernel::ktest::selected().empty() || kernel::ktest::needs_drivers()) {
     kernel::devmgr::start(g_initrd_phys, g_initrd_size);
   }
   kernel::ktest::run_selected();

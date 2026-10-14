@@ -1,0 +1,7 @@
+# M6: блочный драйвер virtio_blk в юзерспейсе, кольцо docs/abi/block.md,
+# страницы ядра в домене IOMMU драйвера: запись, flush, чтение обратно.
+devmgr: 0:3.0 0x1af4:0x1042 -> virtio_blk
+block: disk0 is virtio_blk: 131072 blocks of 512 bytes
+ktest: disk0 131072 blocks of 512
+ktest: disk0 write, flush, read back ok
+ktest: PASS blk

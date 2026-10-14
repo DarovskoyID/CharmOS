@@ -105,7 +105,7 @@ constexpr uint64_t kSsRead = 1ull << 0;
 constexpr uint64_t kSsWrite = 1ull << 1;
 
 constexpr uint64_t kIovaBase = 0x100000;        // 0 и первый мегабайт не выдаются
-constexpr uint64_t kIovaLimit = 1ull << 32;
+constexpr uint64_t kIovaLimit = kKernelIovaBase;
 
 struct Unit {
   uint64_t regs;
@@ -580,6 +580,15 @@ uint64_t map(Domain* d, const uint64_t* frames, uint64_t pages, bool writable) {
   // требуют; при CM = 1 (эмуляция) — требуют (§6.1). Делаем всегда.
   invalidate_domain(d);
   return iova;
+}
+
+bool map_at(Domain* d, uint64_t iova, uint64_t phys, bool writable) {
+  sync::SpinGuard guard(g_lock);
+  volatile uint64_t* e = leaf(d, iova, true);
+  if (e == nullptr) return false;
+  store(e, phys | kSsRead | (writable ? kSsWrite : 0));
+  invalidate_domain(d);
+  return true;
 }
 
 void unmap(Domain* d, uint64_t iova, uint64_t pages) {
