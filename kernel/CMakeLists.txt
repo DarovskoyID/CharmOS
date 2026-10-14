@@ -23,6 +23,7 @@ add_executable(kernel
   fs/vfs.cpp
   net/netif.cpp
   net/ip.cpp
+  net/udp.cpp
   platform/platform.cpp
   proc/process.cpp
   proc/syscall.cpp

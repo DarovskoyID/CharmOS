@@ -14,6 +14,7 @@
 #include "../fs/vfs.hpp"
 #include "../net/ip.hpp"
 #include "../net/netif.hpp"
+#include "../net/udp.hpp"
 #include "../pci/iommu.hpp"
 #include "../pci/pci.hpp"
 #include "../platform/platform.hpp"
@@ -793,15 +794,14 @@ void test_fs_crash() {
 }
 
 void test_net() {
-  // QEMU user-net (slirp): сеть 10.0.2.0/24, шлюз 10.0.2.2. Пока без DHCP —
-  // адрес задан статически (DHCP — следующий шаг M7).
+  // QEMU user-net (slirp): адрес по DHCP (ожидается 10.0.2.15, шлюз 10.0.2.2).
   uint64_t deadline = platform::now_ns() + 20'000'000'000ull;
   while (!net::link_up()) {
     if (platform::now_ns() > deadline) fail("no link");
     sched::sleep_ns(10'000'000);
   }
-  net::configure({net::ipv4(10, 0, 2, 15), net::ipv4(255, 255, 255, 0), net::ipv4(10, 0, 2, 2),
-                  net::ipv4(10, 0, 2, 3)});
+  if (net::dhcp_configure(platform::now_ns() + 10'000'000'000ull) != net::Status::Ok) fail("dhcp");
+  if (net::config().gateway != net::ipv4(10, 0, 2, 2)) fail("unexpected gateway");
   for (uint16_t seq = 1; seq <= 3; ++seq) {
     uint64_t rtt = 0;
     auto s = net::ping(net::ipv4(10, 0, 2, 2), seq, platform::now_ns() + 2'000'000'000ull, &rtt);

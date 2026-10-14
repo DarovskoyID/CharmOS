@@ -5,6 +5,7 @@
 #include "../sched/sched.hpp"
 #include "../sync/spinlock.hpp"
 #include "netif.hpp"
+#include "udp.hpp"
 
 namespace kernel::net {
 
@@ -137,8 +138,12 @@ Config config() {
 Status send_ip(uint32_t dst, uint8_t proto, const void* payload, uint32_t len, uint64_t deadline) {
   if (len + 20 + kEthHeader > 1514) return Status::InvalidArgs;  // без фрагментации (v1.4)
   uint8_t next_mac[6];
-  Status s = resolve(dst, next_mac, deadline);
-  if (s != Status::Ok) return s == Status::TimedOut ? Status::NetUnreachable : s;
+  if (dst == 0xffffffffu) {
+    __builtin_memcpy(next_mac, kBroadcast, 6);  // ограниченная широковещательная рассылка
+  } else {
+    Status s = resolve(dst, next_mac, deadline);
+    if (s != Status::Ok) return s == Status::TimedOut ? Status::NetUnreachable : s;
+  }
   uint8_t f[1514];
   uint8_t me[6];
   if (!mac(me)) return Status::NetUnreachable;
@@ -212,6 +217,10 @@ void ip_input(const uint8_t* f, uint32_t len) {
   if (dst != c.ip && dst != 0xffffffffu) return;
   const uint8_t* body = p + ihl;
   uint32_t blen = total - ihl;
+  if (p[9] == 17) {  // UDP
+    udp_input(src, dst, body, blen);
+    return;
+  }
   if (p[9] == kProtoIcmp && blen >= 8 && checksum(body, blen) == 0) {
     if (body[0] == kIcmpEcho) {
       uint8_t reply[1480];
