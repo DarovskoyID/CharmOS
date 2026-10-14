@@ -20,4 +20,17 @@ for block in 1024 4096; do
   "$e2fsck" -fn "$work/root.img"
   debugfs -R "cat /data/deep/dir/blob" "$work/root.img" 2>/dev/null | cmp - "$work/blob"
 done
-echo "mkdisk images pass e2fsck"
+# FAT32: ESP и корень FAT32 проходят fsck.fat (dosfstools), если он есть.
+fsckfat=$(command -v fsck.fat || { [[ -x /usr/sbin/fsck.fat ]] && echo /usr/sbin/fsck.fat; } || true)
+if [[ -n "$fsckfat" ]]; then
+  "$mkdisk" "$work/disk.img" 128 --esp 40 --root fat32     --put "2:/etc/hello.txt=$work/hello" --put "2:/A Long File Name With Spaces.data=$work/blob"     --put "1:/EFI/BOOT/readme.txt=$work/hello"
+  dd if="$work/disk.img" of="$work/esp.img" bs=512 skip=2048 count=$((40 * 2048)) status=none
+  start=$((2048 + 40 * 2048))
+  sectors=$(( $(stat -c %s "$work/disk.img") / 512 - 34 - start ))
+  dd if="$work/disk.img" of="$work/root.img" bs=512 skip="$start" count="$sectors" status=none
+  "$fsckfat" -n "$work/esp.img"
+  "$fsckfat" -n "$work/root.img"
+else
+  echo "fsck.fat not found, FAT check skipped"
+fi
+echo "mkdisk images pass e2fsck and fsck.fat"

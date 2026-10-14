@@ -70,6 +70,7 @@ class Fat32 final : public FileSystem {
   uint32_t root_cluster_ = 0;
   uint32_t fsinfo_sector_ = 0;
   uint32_t next_free_ = 2;
+  uint32_t free_count_ = 0;  // ведётся с монтирования (FSI_Free_Count)
   bool fsinfo_dirty_ = false;
 };
 

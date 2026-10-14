@@ -210,6 +210,9 @@ Status Fat32::mount(Io* io) {
       fsinfo_sector_ = 0;
     }
   }
+  auto free = free_clusters();
+  if (free.is_err()) return fail(free.error());
+  free_count_ = free.value();
   return ok();
 }
 
@@ -254,6 +257,7 @@ Result<uint32_t> Fat32::alloc_cluster(bool zero) {
         if ((buf[i] & kMask) != 0) continue;
         uint32_t found = c + i;
         if (fat_set(found, kEoc).is_err()) return Result<uint32_t>::err(FsError::IoError);
+        --free_count_;
         next_free_ = found + 1 < clusters_ + 2 ? found + 1 : 2;
         if (zero) {
           uint8_t z[512] = {};
@@ -276,6 +280,7 @@ Status Fat32::free_chain(uint32_t c) {
     auto next = fat_get(c);
     if (next.is_err()) return fail(next.error());
     if (fat_set(c, 0).is_err()) return fail(FsError::IoError);
+    ++free_count_;
     if (c < next_free_) next_free_ = c;
     if (next.value() >= kEocMin) return ok();
     if (next.value() == kBad || next.value() < 2) return fail(FsError::Corrupt);
@@ -762,9 +767,8 @@ Status Fat32::resize(Node file, uint64_t size) {
 
 Status Fat32::sync() {
   if (fsinfo_dirty_ && fsinfo_sector_ != 0) {
-    // Счётчик свободных кластеров не ведём: «неизвестно» (fatgen103, FSI_Free_Count).
     uint8_t fi[8];
-    put<uint32_t>(fi, 0xffffffffu);
+    put<uint32_t>(fi, free_count_);
     put<uint32_t>(fi + 4, next_free_);
     if (io_->write(uint64_t{fsinfo_sector_} * bytes_per_sector_ + 488, fi, 8).is_err()) {
       return fail(FsError::IoError);
@@ -821,8 +825,17 @@ Status Fat32::format(Io& io, uint32_t spc, const char* label) {
   bs[64] = 0x80;
   bs[66] = 0x29;
   put<uint32_t>(bs + 67, 0x43484d31);  // «CHM1»
-  __builtin_memset(bs + 71, ' ', 11);
-  for (int i = 0; i < 11 && label != nullptr && label[i] != '\0'; ++i) bs[71 + i] = static_cast<uint8_t>(upper(label[i]));
+  __builtin_memcpy(bs + 71, "NO NAME    ", 11);
+  bool has_label = label != nullptr && label[0] != '\0';
+  if (has_label) {
+    __builtin_memset(bs + 71, ' ', 11);
+    for (int i = 0; i < 11 && label[i] != '\0'; ++i) bs[71 + i] = static_cast<uint8_t>(upper(label[i]));
+    uint8_t vol[kEntry] = {};
+    __builtin_memcpy(vol, bs + 71, 11);
+    vol[11] = kAttrVolumeId;
+    put<uint16_t>(vol + 24, kDate1980);
+    if (io.write(root_off, vol, kEntry).is_err()) return fail(FsError::IoError);
+  }
   __builtin_memcpy(bs + 82, "FAT32   ", 8);
   bs[510] = 0x55, bs[511] = 0xaa;
   uint8_t fi[512] = {};
