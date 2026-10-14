@@ -24,6 +24,9 @@ constexpr uint32_t ipv4(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
 // Отправка IP-датаграммы с протоколом proto (через шлюз, если адрес вне сети).
 Status send_ip(uint32_t dst, uint8_t proto, const void* payload, uint32_t len, uint64_t deadline);
 
+// Узнать MAC следующего узла для dst (ARP), до срока. Ok — в кэше.
+Status resolve_route(uint32_t dst, uint64_t deadline);
+
 // Эхо-запрос ICMP; Ok — ответ пришёл до срока, *rtt_ns — время.
 Status ping(uint32_t dst, uint16_t seq, uint64_t deadline, uint64_t* rtt_ns);
 

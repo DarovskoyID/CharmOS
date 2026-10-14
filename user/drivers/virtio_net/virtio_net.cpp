@@ -133,7 +133,7 @@ extern "C" int64_t charm_main(Handle kernel) {
   EXPECT(pool.ok());
   auto hdrs = dma_alloc(dev, 4096, 0, &hdr_iova);
   EXPECT(hdrs.ok());
-  auto rings = vmo_create(4096);
+  auto rings = vmo_create(abin::kRingBytes);
   EXPECT(rings.ok());
   auto rings_map = vmo_map(static_cast<Handle>(rings.value), rights::kRead | rights::kWrite);
   EXPECT(rings_map.ok());

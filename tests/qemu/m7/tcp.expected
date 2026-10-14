@@ -1,0 +1,6 @@
+# M7: TCP в ядре (RFC 9293, RTO по RFC 6298, окно по RFC 5681) против эхо-
+# сервера на хосте: 8 соединений по 64 КиБ, затем 4 с потерей каждого 10-го сегмента.
+net: dhcp address 10.0.2.15
+ktest: tcp echo 8 connections x 64 KiB ok
+ktest: tcp echo with 1/10 segment loss ok
+ktest: PASS tcp

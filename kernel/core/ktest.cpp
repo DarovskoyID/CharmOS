@@ -14,6 +14,7 @@
 #include "../fs/vfs.hpp"
 #include "../net/ip.hpp"
 #include "../net/netif.hpp"
+#include "../net/tcp.hpp"
 #include "../net/udp.hpp"
 #include "../pci/iommu.hpp"
 #include "../pci/pci.hpp"
@@ -811,6 +812,69 @@ void test_net() {
   pass();
 }
 
+// Эхо по TCP с эхо-сервером на хосте (tools/qemu/tcp.sh, порт 7777; гость
+// видит хост как 10.0.2.2). Несколько соединений, затем с потерями.
+bool tcp_round(uint32_t conn_no, uint32_t bytes) {
+  int c;
+  uint64_t deadline = platform::now_ns() + 60'000'000'000ull;
+  if (auto cs = net::tcp_connect(net::ipv4(10, 0, 2, 2), 7777, deadline, &c); cs != net::Status::Ok) {
+    kprint("ktest: tcp connect {} failed: {}\n", conn_no, static_cast<uint64_t>(cs));
+    return false;
+  }
+  static uint8_t out[8192], in[8192];
+  uint32_t sent_total = 0, got_total = 0;
+  bool ok = true;
+  while (got_total < bytes && ok) {
+    if (sent_total < bytes) {
+      uint32_t n = bytes - sent_total < sizeof out ? bytes - sent_total : sizeof out;
+      for (uint32_t i = 0; i < n; ++i) out[i] = static_cast<uint8_t>((sent_total + i) * 7 + conn_no);
+      uint32_t s = 0;
+      if (auto ss = net::tcp_send(c, out, n, platform::now_ns() + 50'000'000, &s);
+          ss != net::Status::Ok && ss != net::Status::TimedOut) {
+        kprint("ktest: tcp send status {}\n", static_cast<uint64_t>(ss));
+        ok = false;
+      }
+      sent_total += s;
+    }
+    uint32_t g = 0;
+    net::Status rs = net::tcp_recv(c, in, sizeof in, platform::now_ns() + 50'000'000, &g);
+    if (rs != net::Status::Ok && rs != net::Status::TimedOut) {
+      kprint("ktest: tcp recv status {}\n", static_cast<uint64_t>(rs));
+      ok = false;
+    }
+    if (rs == net::Status::Ok && g == 0) ok = false;  // сервер закрыл раньше времени
+    for (uint32_t i = 0; i < g && ok; ++i) {
+      if (in[i] != static_cast<uint8_t>((got_total + i) * 7 + conn_no)) ok = false;
+    }
+    got_total += g;
+    if (platform::now_ns() > deadline) ok = false;
+  }
+  if (!ok) kprint("ktest: tcp round {} failed: sent={} got={}\n", conn_no, sent_total, got_total);
+  (void)net::tcp_shutdown(c, false, true);
+  net::tcp_release(c);
+  return ok && got_total == bytes;
+}
+
+void test_tcp() {
+  uint64_t deadline = platform::now_ns() + 20'000'000'000ull;
+  while (!net::link_up()) {
+    if (platform::now_ns() > deadline) fail("no link");
+    sched::sleep_ns(10'000'000);
+  }
+  if (net::dhcp_configure(platform::now_ns() + 10'000'000'000ull) != net::Status::Ok) fail("dhcp");
+  for (uint32_t i = 0; i < 8; ++i) {
+    if (!tcp_round(i, 64 * 1024)) fail("echo round failed");
+  }
+  kprint("ktest: tcp echo 8 connections x 64 KiB ok\n");
+  net::tcp_set_drop(10);  // каждый 10-й сегмент TCP (в обе стороны) теряется
+  for (uint32_t i = 0; i < 4; ++i) {
+    if (!tcp_round(100 + i, 64 * 1024)) fail("echo with loss failed");
+  }
+  net::tcp_set_drop(0);
+  kprint("ktest: tcp echo with 1/10 segment loss ok\n");
+  pass();
+}
+
 void test_fs_check() {
   run_with_root("bin/fs_check");
   pass();
@@ -850,6 +914,7 @@ constexpr Test kTests[] = {
     {"fs_check", &test_fs_check},
     {"fs_crash", &test_fs_crash},
     {"net", &test_net},
+    {"tcp", &test_tcp},
 };
 
 }  // namespace
@@ -859,7 +924,8 @@ void select(const Cmdline& cmdline) { g_selected = cmdline.get("ktest"); }
 bool needs_drivers() {
   return g_selected == StringView("drivers") || g_selected == StringView("blk") ||
          g_selected == StringView("fs") || g_selected == StringView("fs_check") ||
-         g_selected == StringView("fs_crash") || g_selected == StringView("net");
+         g_selected == StringView("fs_crash") || g_selected == StringView("net") ||
+         g_selected == StringView("tcp");
 }
 StringView selected() { return g_selected; }
 

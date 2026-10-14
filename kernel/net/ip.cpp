@@ -5,6 +5,7 @@
 #include "../sched/sched.hpp"
 #include "../sync/spinlock.hpp"
 #include "netif.hpp"
+#include "tcp.hpp"
 #include "udp.hpp"
 
 namespace kernel::net {
@@ -116,6 +117,11 @@ Status resolve(uint32_t dst, uint8_t* out, uint64_t deadline) {
 
 }  // namespace
 
+Status resolve_route(uint32_t dst, uint64_t deadline) {
+  uint8_t mac_out[6];
+  return resolve(dst, mac_out, deadline);
+}
+
 uint16_t checksum(const void* data, uint32_t len, uint32_t initial) {
   const auto* p = static_cast<const uint8_t*>(data);
   uint32_t sum = initial;
@@ -215,8 +221,14 @@ void ip_input(const uint8_t* f, uint32_t len) {
   if ((be16(p + 6) & 0x3fff) != 0) return;  // фрагменты не собираем (v1.4)
   uint32_t dst = get32(p + 16), src = get32(p + 12);
   if (dst != c.ip && dst != 0xffffffffu) return;
+  // Узел своей сети прислал IP-кадр — его MAC известен без ARP.
+  if (c.ip != 0 && (src & c.netmask) == (c.ip & c.netmask)) arp_learn(src, f + 6);
   const uint8_t* body = p + ihl;
   uint32_t blen = total - ihl;
+  if (p[9] == 6) {  // TCP
+    tcp_input(src, dst, body, blen);
+    return;
+  }
   if (p[9] == 17) {  // UDP
     udp_input(src, dst, body, blen);
     return;

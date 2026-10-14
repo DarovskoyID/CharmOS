@@ -1,0 +1,5 @@
+# M7: virtio-net на user-net; эхо-сервер на хосте — tcp.sh.
+-nic none
+-device intel-iommu
+-netdev user,id=n0
+-device virtio-net-pci,netdev=n0,disable-legacy=on,iommu_platform=on

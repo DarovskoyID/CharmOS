@@ -24,6 +24,7 @@ add_executable(kernel
   net/netif.cpp
   net/ip.cpp
   net/udp.cpp
+  net/tcp.cpp
   platform/platform.cpp
   proc/process.cpp
   proc/syscall.cpp

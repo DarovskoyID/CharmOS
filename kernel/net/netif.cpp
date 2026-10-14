@@ -29,16 +29,17 @@ struct Iface {
   uint32_t buffer_size;
   uint32_t buffer_count;
   uint64_t* pool;  // фреймы пула
-  uint64_t ring;   // фрейм страницы колец
+  uint64_t ring[2];  // фреймы VMO колец (2 страницы, net.md §3)
   ipc::Cap* notify;
   bool* kernel_owns;  // буфер у ядра (свободен для отправки)
 };
 
 constinit Iface g_if = {};
 
-NetRingHeader* header() { return mm::phys_to_virt<NetRingHeader>(g_if.ring); }
+NetRingHeader* header() { return mm::phys_to_virt<NetRingHeader>(g_if.ring[0]); }
 Slot* ring_slot(uint64_t base, uint32_t i) {
-  return mm::phys_to_virt<Slot>(g_if.ring + base) + (i % abin::kRingEntries);
+  uint64_t off = base + (i % abin::kRingEntries) * sizeof(Slot);  // слот не пересекает страницу
+  return mm::phys_to_virt<Slot>(g_if.ring[off / kPage] + off % kPage);
 }
 
 // Байты буфера b (буфер может пересекать границу страницы пула).
@@ -138,7 +139,7 @@ void serve(uint32_t pci_index, ipc::Cap* kernel_end, const char* name) {
             hello.buffer_size <= 8192 && hello.buffer_count >= abin::kMinBuffers &&
             hello.buffer_count <= abin::kMaxBuffers && hello.mtu >= 576 &&
             hello.mtu + 14u <= hello.buffer_size;
-  uint64_t pool_pages = 0, ring_pages = 0, ring_frame = 0;
+  uint64_t pool_pages = 0, ring_pages = 0, ring_frames[2] = {};
   auto pool_mem = mm::kmalloc(kMaxPoolPages * sizeof(uint64_t));
   auto owns_mem = mm::kmalloc(abin::kMaxBuffers);
   if (pool_mem.is_err() || owns_mem.is_err()) ok = false;
@@ -147,7 +148,8 @@ void serve(uint32_t pci_index, ipc::Cap* kernel_end, const char* name) {
     ok = ipc::vmo_frames(caps[0], pool, kMaxPoolPages, &pool_pages) == Status::Ok &&
          pool_pages * kPage >= uint64_t{hello.buffer_size} * hello.buffer_count &&
          pool_pages <= kMaxPoolPages &&
-         ipc::vmo_frames(caps[1], &ring_frame, 1, &ring_pages) == Status::Ok && ring_pages >= 1;
+         ipc::vmo_frames(caps[1], ring_frames, 2, &ring_pages) == Status::Ok &&
+         ring_pages * kPage >= abin::kRingBytes;
   }
   ipc::Cap* notify = nullptr;
   ipc::Cap* notify_driver = nullptr;
@@ -176,7 +178,8 @@ void serve(uint32_t pci_index, ipc::Cap* kernel_end, const char* name) {
     g_if.buffer_size = hello.buffer_size;
     g_if.buffer_count = hello.buffer_count;
     g_if.pool = pool;
-    g_if.ring = ring_frame;
+    g_if.ring[0] = ring_frames[0];
+    g_if.ring[1] = ring_frames[1];
     g_if.notify = notify;
     g_if.kernel_owns = static_cast<bool*>(owns_mem.value());
     for (uint32_t b = 0; b < hello.buffer_count; ++b) g_if.kernel_owns[b] = true;
@@ -232,7 +235,7 @@ void serve(uint32_t pci_index, ipc::Cap* kernel_end, const char* name) {
     sync::MutexGuard guard(g_if.lock);
     g_if.up = false;
     g_if.pool = nullptr;
-    g_if.ring = 0;
+    g_if.ring[0] = g_if.ring[1] = 0;
     g_if.notify = nullptr;
     g_if.kernel_owns = nullptr;
   }
