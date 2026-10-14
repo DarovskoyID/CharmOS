@@ -17,6 +17,8 @@ AbiType convert_memory_type(uint32_t efi_type) {
       return AbiType::BootloaderReclaimable;
     case efi::MemoryType::OsKernelImage:
       return AbiType::KernelImage;
+    case efi::MemoryType::OsInitrd:
+      return AbiType::Initrd;
     case efi::MemoryType::AcpiReclaim:
       return AbiType::AcpiReclaimable;
     case efi::MemoryType::AcpiNvs:

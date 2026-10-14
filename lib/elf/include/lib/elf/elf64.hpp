@@ -73,6 +73,7 @@ enum class Error : uint32_t {
   SegmentsOverlap,
   NoLoadSegments,
   EntryOutsideSegments, // e_entry не в исполняемом сегменте
+  SegmentAboveLimit,    // p_vaddr + p_memsz выше допустимой границы
 };
 
 const char* error_name(Error e);
@@ -92,5 +93,10 @@ struct Image {
 // без W+X, без пересечений, точка входа в исполняемом сегменте.
 // data должен быть выровнен на 8.
 Error parse_kernel_image(const void* data, size_t size, uint64_t min_vaddr, Image* out);
+
+// То же для произвольного образа: все PT_LOAD обязаны лежать в
+// [min_vaddr, max_vaddr) (для программ пользователя — нижняя половина).
+Error parse_image(const void* data, size_t size, uint64_t min_vaddr, uint64_t max_vaddr,
+                  Image* out);
 
 }  // namespace lib::elf

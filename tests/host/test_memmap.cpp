@@ -35,6 +35,7 @@ TEST(memmap_types) {
   CHECK(boot::convert_memory_type(uint32_t(MemoryType::AcpiReclaim)) ==
         AbiType::AcpiReclaimable);
   CHECK(boot::convert_memory_type(uint32_t(MemoryType::Unusable)) == AbiType::BadMemory);
+  CHECK(boot::convert_memory_type(uint32_t(MemoryType::OsInitrd)) == AbiType::Initrd);
   CHECK(boot::convert_memory_type(0x12345) == AbiType::Reserved);
 }
 

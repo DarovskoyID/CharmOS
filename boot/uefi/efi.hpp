@@ -89,6 +89,7 @@ enum class MemoryType : uint32_t {
   // 0x80000000..0xFFFFFFFF — для загрузчиков ОС (§7.2, AllocatePages).
   OsKernelImage = 0x80000001,
   OsBootloaderReclaimable = 0x80000002,
+  OsInitrd = 0x80000003,
 };
 
 // §7.2, GetMemoryMap. Шаг между дескрипторами — DescriptorSize, не sizeof.

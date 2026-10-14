@@ -25,3 +25,5 @@ charmos_host_test(test_cmdline test_cmdline.cpp ${CMAKE_SOURCE_DIR}/kernel/core/
 target_include_directories(test_cmdline PRIVATE ${CMAKE_SOURCE_DIR}/kernel/core)
 charmos_host_test(test_acpi test_acpi.cpp)
 target_link_libraries(test_acpi PRIVATE acpi)
+charmos_host_test(test_initrd test_initrd.cpp)
+target_link_libraries(test_initrd PRIVATE initrd)

@@ -50,8 +50,8 @@
 - Виртуальные адреса `PT_LOAD` обязаны лежать в `[kKernelBase, 2^64)`,
   `kKernelBase = 0xffffffff80000000` (верхние 2 ГиБ, `-mcmodel=kernel`).
 - Файлы на ESP: `\EFI\BOOT\BOOTX64.EFI` (загрузчик), `\charmos\kernel.elf`,
-  `\charmos\cmdline.txt` (необязателен; UTF-8, завершающие CR/LF отбрасываются), `\charmos\initrd` (необязателен, M1 не
-  использует, поле зарезервировано).
+  `\charmos\cmdline.txt` (необязателен; UTF-8, завершающие CR/LF отбрасываются), `\charmos\initrd` (необязателен;
+  загружается как есть в память типа `Initrd`, формат — docs/abi/initrd.md).
 
 ## 4. Виртуальная память при входе
 
@@ -136,7 +136,7 @@ struct BootInfo {
   uint64_t cmdline;            // физ. адрес UTF-8 строки с завершающим 0; 0 = нет
   uint64_t cmdline_length;     // без завершающего 0
 
-  uint64_t initrd_base;        // физ.; 0 = нет (в M1 всегда 0)
+  uint64_t initrd_base;        // физ.; 0 = нет (загрузчик кладёт файл как есть; формат — docs/abi/initrd.md)
   uint64_t initrd_size;
 
   uint64_t boot_time_tsc;      // TSC в момент перед прыжком в ядро

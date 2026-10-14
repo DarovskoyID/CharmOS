@@ -96,8 +96,15 @@ TEST(elf_no_load_segments) {
   CHECK(f.parse() == Error::NoLoadSegments);
 }
 
+TEST(elf_upper_limit) {
+  Fixture f;
+  Image img;
+  CHECK(parse_image(f.buf, sizeof f.buf, kBase, kBase + 0x7000, &img) == Error::None);
+  CHECK(parse_image(f.buf, sizeof f.buf, kBase, kBase + 0x6fff, &img) == Error::SegmentAboveLimit);
+}
+
 TEST(elf_error_names_defined) {
-  for (uint32_t i = 0; i <= static_cast<uint32_t>(Error::EntryOutsideSegments); ++i) {
+  for (uint32_t i = 0; i <= static_cast<uint32_t>(Error::SegmentAboveLimit); ++i) {
     CHECK(std::strcmp(error_name(static_cast<Error>(i)), "unknown") != 0);
   }
 }

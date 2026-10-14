@@ -36,11 +36,17 @@ const char* error_name(Error e) {
     case Error::SegmentsOverlap: return "segments overlap";
     case Error::NoLoadSegments: return "no PT_LOAD segments";
     case Error::EntryOutsideSegments: return "entry point not in executable segment";
+    case Error::SegmentAboveLimit: return "segment above address limit";
   }
   return "unknown";
 }
 
 Error parse_kernel_image(const void* data, size_t size, uint64_t min_vaddr, Image* out) {
+  return parse_image(data, size, min_vaddr, ~uint64_t{0}, out);
+}
+
+Error parse_image(const void* data, size_t size, uint64_t min_vaddr, uint64_t max_vaddr,
+                  Image* out) {
   if (size < sizeof(Elf64Ehdr)) return Error::TooSmall;
   const auto* bytes = static_cast<const uint8_t*>(data);
   const auto* eh = static_cast<const Elf64Ehdr*>(data);
@@ -80,6 +86,7 @@ Error parse_kernel_image(const void* data, size_t size, uint64_t min_vaddr, Imag
     uint64_t mem_end;
     if (!add_ok(p.p_vaddr, p.p_memsz, &mem_end)) return Error::SegmentOverflow;
     if (p.p_vaddr < min_vaddr) return Error::SegmentBelowBase;
+    if (mem_end > max_vaddr) return Error::SegmentAboveLimit;
     if ((p.p_flags & kPfW) != 0 && (p.p_flags & kPfX) != 0) return Error::SegmentWriteExec;
     if (p.p_vaddr % kPage != p.p_offset % kPage) return Error::SegmentMisaligned;
     if (p.p_memsz == 0) continue;

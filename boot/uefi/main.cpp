@@ -319,6 +319,9 @@ extern "C" uint64_t efi_main(efi::Handle image_handle, efi::SystemTable* st) {
   log_dec("CharmOS boot: kernel.elf bytes=", kernel_file.size);
   FileData cmdline = read_file(root, u"\\charmos\\cmdline.txt",
                                efi::MemoryType::OsBootloaderReclaimable, false, "cmdline.txt");
+  FileData initrd = read_file(root, u"\\charmos\\initrd", efi::MemoryType::OsInitrd, false,
+                              "initrd");
+  if (initrd.phys != 0) log_dec("CharmOS boot: initrd bytes=", initrd.size);
   if (cmdline.phys != 0) {
     auto* text = reinterpret_cast<char*>(cmdline.phys);
     while (cmdline.size > 0 &&
@@ -404,6 +407,8 @@ extern "C" uint64_t efi_main(efi::Handle image_handle, efi::SystemTable* st) {
   info->efi_system_table = reinterpret_cast<uint64_t>(st);
   info->cmdline = cmdline.phys;
   info->cmdline_length = cmdline.size;
+  info->initrd_base = initrd.phys;
+  info->initrd_size = initrd.size;
 
   asm volatile("cli");
   wrmsr(kMsrEfer, rdmsr(kMsrEfer) | kEferNxe);
