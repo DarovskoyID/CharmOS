@@ -24,14 +24,17 @@
 Всё запускается в WSL2 (Ubuntu), не в PowerShell.
 
 ```bash
-cmake -S . -B build -G Ninja && ninja -C build   # сборка
-tools/run.sh                                      # запуск в QEMU, serial в stdout
+bash tools/setup-wsl.sh                           # один раз: тулчейн в Ubuntu
+cmake -S . -B build -G Ninja && ninja -C build   # сборка (суперсборка: build/uefi, build/host)
+tools/run.sh                                      # запуск в QEMU/OVMF, serial в stdout
 tools/run.sh --gdb                                # с gdb-стабом на :1234
 tools/test.sh <фаза>                              # QEMU-тесты фазы, exit code = результат
-ctest --test-dir build/host                       # хост-тесты
+ctest --test-dir build/host --output-on-failure   # хост-тесты
 ```
 
-(Команды появятся в M0; пока их нет — первая задача их создать.)
+Из PowerShell/Git Bash: `wsl -d Ubuntu --cd /mnt/a/CharmOS -- <команда>`.
+Протокол теста: serial-вывод сверяется с `tests/qemu/<фаза>/*.expected`
+(строки по порядку), QEMU должен выйти с кодом 33 (`isa-debug-exit` 0x10).
 
 ## Жёсткие правила
 

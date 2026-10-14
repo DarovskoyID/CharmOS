@@ -1,0 +1,5 @@
+# M0: заглушка UEFI доходит до serial и выходит через isa-debug-exit.
+CharmOS M0: UEFI stub alive
+image_handle=0x
+system_table=0x
+CharmOS M0: OK
