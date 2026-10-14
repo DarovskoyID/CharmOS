@@ -26,6 +26,7 @@ add_executable(kernel
   net/udp.cpp
   net/tcp.cpp
   net/socket.cpp
+  net/dns.cpp
   platform/platform.cpp
   proc/process.cpp
   proc/syscall.cpp

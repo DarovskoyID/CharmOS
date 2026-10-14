@@ -3,11 +3,14 @@
 #include "../ipc/ipc.hpp"
 #include "../mm/heap.hpp"
 #include "../proc/uaccess.hpp"
+#include "../platform/platform.hpp"
 #include "../sched/sched.hpp"
 #include "../sync/spinlock.hpp"
 #include "ip.hpp"
 #include "netif.hpp"
+#include "dns.hpp"
 #include "tcp.hpp"
+#include "udp.hpp"
 
 namespace kernel::net {
 
@@ -17,7 +20,21 @@ namespace rights = abi::syscall::rights;
 
 constexpr uint64_t kTcp = 1, kUdp = 2;
 
-enum class Kind : uint8_t { Free, New, Listener, Conn };
+enum class Kind : uint8_t { Free, New, Listener, Conn, Udp };
+
+// Очередь принятых датаграмм UDP-сокета (до 8; переполнение — потеря, как в сети).
+constexpr uint32_t kUdpQueue = 8;
+constexpr uint32_t kUdpMax = 1472;
+struct Datagram {
+  uint32_t src;
+  uint16_t sport;
+  uint16_t len;
+  uint8_t data[kUdpMax];
+};
+struct UdpQueue {
+  Datagram d[kUdpQueue];
+  uint32_t head, count;
+};
 
 struct Sock {
   Kind kind;
@@ -25,6 +42,7 @@ struct Sock {
   uint16_t port;        // локальный порт после bind
   int conn;             // tcp-соединение (Listener/Conn)
   bool closing;         // хендл ушёл; соединение отпустит поток опроса
+  UdpQueue* udp;        // Kind::Udp
 };
 
 constexpr uint32_t kSockets = 128;
@@ -52,7 +70,7 @@ int alloc_sock(Kind kind, uint32_t net_rights, int conn) {
   sync::SpinGuard guard(g_lock);
   for (uint32_t i = 0; i < kSockets; ++i) {
     if (g_socks[i].kind == Kind::Free && !g_socks[i].closing) {
-      g_socks[i] = {kind, net_rights, 0, conn, false};
+      g_socks[i] = {kind, net_rights, 0, conn, false, nullptr};
       return static_cast<int>(i);
     }
   }
@@ -86,11 +104,52 @@ void reap_closed() {
       g_socks[i] = {};
     }
     if (s.kind == Kind::Listener || s.kind == Kind::Conn) tcp_release(s.conn);
+    if (s.kind == Kind::Udp) {
+      if (s.port != 0) udp_unlisten(s.port);
+      mm::kfree(s.udp);
+    }
   }
 }
 
+// Датаграмма на порт UDP-сокета (из потока интерфейса).
+void udp_dispatch(uint16_t port, uint32_t src, uint16_t sport, const uint8_t* data, uint32_t len) {
+  if (len > kUdpMax) return;
+  sync::SpinGuard guard(g_lock);
+  for (Sock& s : g_socks) {
+    if (s.kind != Kind::Udp || s.closing || s.port != port || s.udp == nullptr) continue;
+    UdpQueue& q = *s.udp;
+    if (q.count == kUdpQueue) return;
+    Datagram& d = q.d[(q.head + q.count) % kUdpQueue];
+    d.src = src;
+    d.sport = sport;
+    d.len = static_cast<uint16_t>(len);
+    __builtin_memcpy(d.data, data, len);
+    ++q.count;
+    return;
+  }
+}
+
+bool udp_bind_port(uint64_t id, uint16_t port) {
+  {
+    sync::SpinGuard guard(g_lock);
+    for (const Sock& s : g_socks) {
+      if (s.kind == Kind::Udp && !s.closing && s.port == port) return false;
+    }
+    g_socks[id].port = port;
+  }
+  return udp_listen(port, &udp_dispatch);
+}
+
+constinit uint16_t g_udp_ephemeral = 49152;
+
 bool ready(uint64_t id, uint32_t* packet) {
   Sock s = get(id);
+  if (s.kind == Kind::Udp) {
+    sync::SpinGuard guard(g_lock);
+    bool has = g_socks[id].udp != nullptr && g_socks[id].udp->count != 0;
+    *packet = has ? abi::syscall::kPacketSocketReadable : abi::syscall::kPacketSocketWritable;
+    return true;
+  }
   if (s.kind != Kind::Listener && s.kind != Kind::Conn) return false;
   if (tcp_readable(s.conn)) {
     *packet = abi::syscall::kPacketSocketReadable;
@@ -132,12 +191,27 @@ Status sys_socket_open(uint32_t net, uint64_t type, uint64_t* out) {
   uint32_t r;
   Status s = ipc::get_net(net, 0, &r);
   if (s != Status::Ok) return s;
-  if (type == kUdp) return Status::NotSupported;  // UDP-сокеты — следующий шаг M7
-  if (type != kTcp) return Status::InvalidArgs;
+  if (type != kTcp && type != kUdp) return Status::InvalidArgs;
   // Поток опроса — один раз; запуск (выделение памяти) — не под g_lock.
   if (!__atomic_exchange_n(&g_poller, true, __ATOMIC_ACQ_REL)) {
     ipc::set_socket_closed_hook(&closed);
     (void)sched::spawn("sockpoll", &poller, nullptr);
+  }
+  if (type == kUdp) {
+    auto q = mm::kmalloc(sizeof(UdpQueue));
+    if (q.is_err()) return Status::NoMemory;
+    auto* uq = static_cast<UdpQueue*>(q.value());
+    uq->head = uq->count = 0;
+    int id = alloc_sock(Kind::Udp, r, kNoConn);
+    if (id < 0) {
+      mm::kfree(uq);
+      return Status::NoMemory;
+    }
+    {
+      sync::SpinGuard guard(g_lock);
+      g_socks[id].udp = uq;
+    }
+    return ipc::install_socket(static_cast<uint64_t>(id), out);
   }
   int id = alloc_sock(Kind::New, r, kNoConn);
   if (id < 0) return Status::NoMemory;
@@ -151,8 +225,13 @@ Status sys_socket_bind(uint32_t h, uint64_t user_addr) {
   if (st != Status::Ok) return st;
   SockAddr a;
   if (!read_addr(user_addr, &a)) return Status::BadAddress;
-  if (s.kind != Kind::New || s.port != 0 || a.port == 0) return Status::InvalidArgs;
+  if ((s.kind != Kind::New && s.kind != Kind::Udp) || s.port != 0 || a.port == 0) return Status::InvalidArgs;
   if (a.ipv4 != 0 && a.ipv4 != config().ip) return Status::NetUnreachable;
+  if (s.kind == Kind::Udp) {
+    uint32_t need = a.port < 1024 ? rights::kNetListenLow : rights::kNetListen;
+    if ((s.net_rights & need) != need) return Status::AccessDenied;
+    return udp_bind_port(id, a.port) ? Status::Ok : Status::AddressInUse;
+  }
   s.port = a.port;
   set(id, s);
   return Status::Ok;
@@ -227,6 +306,28 @@ Status sys_socket_send(uint32_t h, uint64_t buf, uint64_t len, uint64_t user_to,
   Sock s;
   Status st = sock_of(h, rights::kWrite, &id, &s);
   if (st != Status::Ok) return st;
+  if (s.kind == Kind::Udp) {
+    if ((s.net_rights & rights::kNetConnect) == 0) return Status::AccessDenied;
+    SockAddr to;
+    if (user_to == 0 || !read_addr(user_to, &to)) return user_to == 0 ? Status::InvalidArgs : Status::BadAddress;
+    if (len > kUdpMax) return Status::InvalidArgs;
+    uint8_t dgram[kUdpMax];
+    if (len != 0 && !proc::copy_from_user(dgram, buf, len)) return Status::BadAddress;
+    if (s.port == 0) {  // временный порт для ответов
+      bool bound = false;
+      for (uint32_t tries = 0; tries < 1024 && !bound; ++tries) {
+        uint16_t p = g_udp_ephemeral++;
+        if (g_udp_ephemeral == 0) g_udp_ephemeral = 49152;
+        bound = udp_bind_port(id, p);
+      }
+      if (!bound) return Status::AddressInUse;
+      s = get(id);
+    }
+    st = udp_send(s.port, to.ipv4, to.port, dgram, static_cast<uint32_t>(len),
+                  platform::now_ns() + 2'000'000'000ull);
+    if (st == Status::Ok) *out = len;
+    return st;
+  }
   if (s.kind != Kind::Conn || user_to != 0) return Status::InvalidArgs;
   uint8_t chunk[2048];
   for (uint64_t done = 0; done < len;) {
@@ -248,6 +349,35 @@ Status sys_socket_recv(uint32_t h, uint64_t buf, uint64_t cap, uint64_t user_fro
   Sock s;
   Status st = sock_of(h, rights::kRead, &id, &s);
   if (st != Status::Ok) return st;
+  if (s.kind == Kind::Udp) {
+    for (;;) {
+      Datagram d;
+      bool have = false;
+      {
+        sync::SpinGuard guard(g_lock);
+        UdpQueue* q = g_socks[id].udp;
+        if (q != nullptr && q->count != 0) {
+          d = q->d[q->head];
+          q->head = (q->head + 1) % kUdpQueue;
+          --q->count;
+          have = true;
+        }
+      }
+      if (have) {
+        uint64_t n = d.len < cap ? d.len : cap;
+        if (n != 0 && !proc::copy_to_user(buf, d.data, n)) return Status::BadAddress;
+        if (user_from != 0) {
+          SockAddr a = {d.src, d.sport, 0};
+          if (!proc::copy_to_user(user_from, &a, sizeof a)) return Status::BadAddress;
+        }
+        *out = d.len;  // полная длина датаграммы (лишнее отброшено)
+        return Status::Ok;
+      }
+      if (deadline == 0) return Status::WouldBlock;
+      if (platform::now_ns() >= deadline) return Status::TimedOut;
+      sched::sleep_ns(1'000'000);
+    }
+  }
   if (s.kind != Kind::Conn || user_from != 0) return Status::InvalidArgs;
   uint8_t chunk[2048];
   uint32_t n = cap < sizeof chunk ? static_cast<uint32_t>(cap) : sizeof chunk;
@@ -278,11 +408,17 @@ Status sys_net_info(uint32_t net, uint64_t user_out) {
   return proc::copy_to_user(user_out, &info, sizeof info) ? Status::Ok : Status::BadAddress;
 }
 
-Status sys_dns_resolve(uint32_t net, uint64_t, uint64_t, uint64_t, uint64_t*) {
+Status sys_dns_resolve(uint32_t net, uint64_t name, uint64_t len, uint64_t deadline, uint64_t* out) {
   uint32_t r;
   Status st = ipc::get_net(net, rights::kNetResolve, &r);
   if (st != Status::Ok) return st;
-  return Status::NotSupported;  // DNS-клиент — следующий шаг M7
+  if (len == 0 || len > 253) return Status::InvalidArgs;
+  char buf[256];
+  if (!proc::copy_from_user(buf, name, len)) return Status::BadAddress;
+  uint32_t ip = 0;
+  st = dns_resolve(lib::core::StringView(buf, len), deadline, &ip);
+  if (st == Status::Ok) *out = ip;
+  return st;
 }
 
 }  // namespace kernel::net

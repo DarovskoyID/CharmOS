@@ -11,7 +11,7 @@ function(charmos_user_program name)
     LINK_DEPENDS ${CMAKE_SOURCE_DIR}/user/rt/user.ld)
 endfunction()
 
-foreach(prog hello sys fault kread fpu iso spin cap_a cap_b cap_c chan ping pong port fs_test fs_check tcp_echo)
+foreach(prog hello sys fault kread fpu iso spin cap_a cap_b cap_c chan ping pong port fs_test fs_check tcp_echo udp_test)
   charmos_user_program(${prog} tests/${prog}.cpp)
 endforeach()
 

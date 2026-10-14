@@ -92,7 +92,7 @@ void udp_input(uint32_t src, uint32_t dst, const uint8_t* seg, uint32_t len) {
       if (l.handler != nullptr && l.port == port) h = l.handler;
     }
   }
-  if (h != nullptr) h(src, be16(seg), seg + 8, len - 8);
+  if (h != nullptr) h(port, src, be16(seg), seg + 8, len - 8);
 }
 
 // --- DHCP (RFC 2131, 2132) -----------------------------------------------------------------
@@ -112,7 +112,7 @@ struct Reply {
 };
 constinit Reply g_reply = {};
 
-void dhcp_handler(uint32_t, uint16_t, const uint8_t* d, uint32_t len) {
+void dhcp_handler(uint16_t, uint32_t, uint16_t, const uint8_t* d, uint32_t len) {
   if (len < 240 || d[0] != 2) return;  // op = BOOTREPLY
   uint32_t xid;
   __builtin_memcpy(&xid, d + 4, 4);

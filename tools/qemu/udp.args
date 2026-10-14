@@ -1,0 +1,5 @@
+# M7: virtio-net на user-net; UDP-эхо и DNS-заглушка на хосте — udp.sh.
+-nic none
+-device intel-iommu
+-netdev user,id=n0
+-device virtio-net-pci,netdev=n0,disable-legacy=on,iommu_platform=on

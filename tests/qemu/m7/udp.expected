@@ -1,0 +1,5 @@
+# M7: dns_resolve (RFC 1035, заглушка на хосте) и UDP-сокеты из ring 3.
+[udp_test] udp_test: dns ok
+[udp_test] udp_test: udp echo ok
+ktest: udp_test exited with 0
+ktest: PASS udp

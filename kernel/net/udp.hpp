@@ -8,7 +8,8 @@ namespace kernel::net {
 
 using abi::syscall::Status;
 
-using UdpHandler = void (*)(uint32_t src, uint16_t src_port, const uint8_t* data, uint32_t len);
+using UdpHandler = void (*)(uint16_t local_port, uint32_t src, uint16_t src_port, const uint8_t* data,
+                           uint32_t len);
 
 // Обработчик датаграмм на локальный порт (порт — в порядке хоста).
 bool udp_listen(uint16_t port, UdpHandler handler);
