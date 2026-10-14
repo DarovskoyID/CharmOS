@@ -10,3 +10,6 @@
 | `elf-gabi.pdf` | ELF (Tool Interface Standard, gABI) | https://refspecs.linuxfoundation.org/elf/elf.pdf | M1 |
 | `x86-64-psabi.pdf` | System V ABI, AMD64 Architecture Processor Supplement | https://gitlab.com/x86-psABIs/x86-64-ABI | M1 |
 | `elf64.pdf` | ELF-64 Object File Format 1.5 (HP/Intel) — структуры Elf64_* (в `elf-gabi.pdf` только ELF32) | https://uclibc.org/docs/elf-64-gen.pdf | M1 |
+| `ioapic-82093aa.pdf` | Intel 82093AA I/O APIC datasheet (290566-001) | копия: https://pdos.csail.mit.edu/6.1810/2006/readings/ia32/ioapic.pdf (intel.com больше не отдаёт) | M2 |
+| `hpet-1.0a.pdf` | IA-PC HPET Specification 1.0a (Intel) | копия: https://sys-sideshow.cs.tu-dortmund.de/lehre/ws22/bsb/aufgaben/7/intel_hpet.pdf (intel.com больше не отдаёт) | M2 |
+| `acpi-6.5.pdf` | ACPI Specification 6.5 | https://uefi.org/specifications (вручную: Cloudflare) | M2 |

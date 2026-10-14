@@ -24,7 +24,9 @@ if(NOT DEFINED CHARMOS_TARGET)
     -DCMAKE_TOOLCHAIN_FILE=${CMAKE_SOURCE_DIR}/cmake/toolchain-uefi.cmake)
   charmos_subbuild(kernel
     -DCMAKE_TOOLCHAIN_FILE=${CMAKE_SOURCE_DIR}/cmake/toolchain-kernel.cmake)
-  charmos_subbuild(host -DCMAKE_BUILD_TYPE=Debug)
+  # Хост-тесты тем же clang, что и ядро: одинаковые диагностики и встроенные трейты.
+  charmos_subbuild(host -DCMAKE_BUILD_TYPE=Debug
+    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++)
   return()
 endif()
 
@@ -36,6 +38,7 @@ target_include_directories(abi INTERFACE ${CMAKE_SOURCE_DIR}/include)
 
 add_subdirectory(lib/core)
 add_subdirectory(lib/elf)
+add_subdirectory(lib/mm)
 
 if(CHARMOS_TARGET STREQUAL "uefi")
   add_subdirectory(boot/uefi)

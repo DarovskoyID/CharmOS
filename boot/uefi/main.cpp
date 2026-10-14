@@ -9,13 +9,17 @@
 
 #include "efi.hpp"
 #include "memmap.hpp"
-#include "paging.hpp"
+#include <arch/x86_64/paging.hpp>
 
 extern "C" [[noreturn]] void enter_kernel(uint64_t cr3, const void* gdtr, uint64_t stack_top,
                                           uint64_t entry, uint64_t boot_info_phys);
 
 namespace {
 
+using arch::x86_64::kLargePageSize;
+using arch::x86_64::kMapNoExec;
+using arch::x86_64::kMapWrite;
+using arch::x86_64::kPageSize;
 using arch::x86_64::Serial;
 
 constexpr uint64_t kKernelStackSize = 64 * 1024;
@@ -99,7 +103,7 @@ void copy(uint64_t dst, const void* src, uint64_t size) {
 uint64_t alloc_pages(efi::MemoryType type, uint64_t pages, const char* what) {
   efi::PhysicalAddress addr = 0;
   check(g_bs->allocate_pages(efi::AllocateType::AnyPages, type, pages, &addr), what);
-  zero(addr, pages * boot::kPageSize);
+  zero(addr, pages * kPageSize);
   return addr;
 }
 
@@ -109,12 +113,12 @@ uint64_t alloc_table_page(void*) {
                                          efi::MemoryType::OsBootloaderReclaimable, 1, &addr))) {
     return 0;
   }
-  zero(addr, boot::kPageSize);
+  zero(addr, kPageSize);
   return addr;
 }
 
 constexpr uint64_t pages_for(uint64_t bytes) {
-  return (bytes + boot::kPageSize - 1) / boot::kPageSize;
+  return (bytes + kPageSize - 1) / kPageSize;
 }
 
 // --- файлы -----------------------------------------------------------------
@@ -204,7 +208,7 @@ struct KernelImage {
   uint64_t phys_size = 0;
 };
 
-KernelImage load_kernel(const FileData& file, boot::PageTables& pt) {
+KernelImage load_kernel(const FileData& file, arch::x86_64::PageTables& pt) {
   lib::elf::Image img;
   lib::elf::Error err = lib::elf::parse_kernel_image(reinterpret_cast<const void*>(file.phys),
                                                      file.size, abi::boot::kKernelBase, &img);
@@ -215,23 +219,23 @@ KernelImage load_kernel(const FileData& file, boot::PageTables& pt) {
   for (uint16_t i = 0; i < img.phnum; ++i) {
     const lib::elf::Elf64Phdr& p = img.phdrs[i];
     if (p.p_type != lib::elf::kPtLoad || p.p_memsz == 0) continue;
-    uint64_t v0 = p.p_vaddr & ~(boot::kPageSize - 1);
-    uint64_t v1 = (p.p_vaddr + p.p_memsz + boot::kPageSize - 1) & ~(boot::kPageSize - 1);
-    uint64_t pages = (v1 - v0) / boot::kPageSize;
+    uint64_t v0 = p.p_vaddr & ~(kPageSize - 1);
+    uint64_t v1 = (p.p_vaddr + p.p_memsz + kPageSize - 1) & ~(kPageSize - 1);
+    uint64_t pages = (v1 - v0) / kPageSize;
     uint64_t phys = alloc_pages(efi::MemoryType::OsKernelImage, pages, "AllocatePages(kernel)");
     copy(phys + (p.p_vaddr - v0), reinterpret_cast<const void*>(file.phys + p.p_offset),
          p.p_filesz);
 
     uint64_t flags = 0;
-    if ((p.p_flags & lib::elf::kPfW) != 0) flags |= boot::kMapWrite;
-    if ((p.p_flags & lib::elf::kPfX) == 0) flags |= boot::kMapNoExec;
+    if ((p.p_flags & lib::elf::kPfW) != 0) flags |= kMapWrite;
+    if ((p.p_flags & lib::elf::kPfX) == 0) flags |= kMapNoExec;
     for (uint64_t j = 0; j < pages; ++j) {
-      if (!pt.map_4k(v0 + j * boot::kPageSize, phys + j * boot::kPageSize, flags)) {
+      if (!pt.map_4k(v0 + j * kPageSize, phys + j * kPageSize, flags)) {
         fail("map kernel segment");
       }
     }
     if (phys < k.phys_base) k.phys_base = phys;
-    k.phys_size += pages * boot::kPageSize;
+    k.phys_size += pages * kPageSize;
   }
   return k;
 }
@@ -278,14 +282,14 @@ uint64_t hhdm_top(const uint8_t* map, uint64_t count, uint64_t desc_size,
   uint64_t top = k4GiB;
   for (uint64_t i = 0; i < count; ++i) {
     const auto* d = reinterpret_cast<const efi::MemoryDescriptor*>(map + i * desc_size);
-    uint64_t end = d->physical_start + d->number_of_pages * boot::kPageSize;
+    uint64_t end = d->physical_start + d->number_of_pages * kPageSize;
     bool reserved =
         boot::convert_memory_type(d->type) == abi::boot::MemoryType::Reserved && end > k4GiB;
     if (!reserved && end > top) top = end;
   }
   uint64_t fb_end = fb.base + uint64_t{fb.pitch} * fb.height;
   if (fb.base != 0 && fb_end > top) top = fb_end;
-  return (top + boot::kLargePageSize - 1) & ~(boot::kLargePageSize - 1);
+  return (top + kLargePageSize - 1) & ~(kLargePageSize - 1);
 }
 
 }  // namespace
@@ -324,8 +328,8 @@ extern "C" uint64_t efi_main(efi::Handle image_handle, efi::SystemTable* st) {
     text[cmdline.size] = '\0';
   }
 
-  boot::PageTables pt;
-  if (!pt.init(&alloc_table_page, nullptr)) fail("page table allocation");
+  arch::x86_64::PageTables pt;
+  if (!pt.init(&alloc_table_page, nullptr, 0)) fail("page table allocation");
   KernelImage kernel = load_kernel(kernel_file, pt);
   log_hex("CharmOS boot: kernel entry=", kernel.entry);
 
@@ -333,7 +337,7 @@ extern "C" uint64_t efi_main(efi::Handle image_handle, efi::SystemTable* st) {
   uint64_t rsdp = find_rsdp();
 
   uint64_t stack = alloc_pages(efi::MemoryType::OsBootloaderReclaimable,
-                               kKernelStackSize / boot::kPageSize, "AllocatePages(stack)");
+                               kKernelStackSize / kPageSize, "AllocatePages(stack)");
   uint64_t info_phys = alloc_pages(efi::MemoryType::OsBootloaderReclaimable,
                                    pages_for(sizeof(abi::boot::BootInfo)), "AllocatePages(info)");
 
@@ -353,10 +357,10 @@ extern "C" uint64_t efi_main(efi::Handle image_handle, efi::SystemTable* st) {
 
   uint64_t top = hhdm_top(reinterpret_cast<const uint8_t*>(efi_map), map_size / desc_size,
                           desc_size, fb);
-  if (!pt.map_range(abi::boot::kHhdmBase, 0, top, boot::kMapWrite | boot::kMapNoExec)) {
+  if (!pt.map_range(abi::boot::kHhdmBase, 0, top, kMapWrite | kMapNoExec)) {
     fail("map HHDM");
   }
-  if (!pt.map_range(0, 0, k4GiB, boot::kMapWrite)) fail("map identity 4 GiB");
+  if (!pt.map_range(0, 0, k4GiB, kMapWrite)) fail("map identity 4 GiB");
 
   uint64_t region_cap = map_cap / desc_size + kMemoryMapSlack;
   uint64_t regions = alloc_pages(efi::MemoryType::OsBootloaderReclaimable,
