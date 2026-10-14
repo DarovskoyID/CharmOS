@@ -771,6 +771,25 @@ void test_fs() {
   pass();
 }
 
+// Драйвер диска убивается, пока fs_test работает с файлами: запросы
+// повторяются в новом запуске, программа завершается успешно, ФС цела
+// (её проверяет e2fsck в следующем сценарии).
+void killer(void*) {
+  sched::sleep_ns(30'000'000);
+  bool killed = devmgr::kill_driver(0x1b36, 0x0010);  // NVMe QEMU
+  kprint("ktest: nvme driver killed during I/O: {}\n", killed);
+}
+
+void test_fs_crash() {
+  if (sched::spawn("killer", &killer, nullptr).is_err()) fail("spawn killer");
+  run_with_root("bin/fs_test");
+  devmgr::DriverStats st = devmgr::stats(0x1b36, 0x0010);
+  kprint("ktest: nvme runs={} killed={}\n", st.runs, st.killed);
+  if (st.runs < 2 || st.killed < 1) fail("driver was not restarted");
+  if (fs::sync_all() != ipc::Status::Ok) fail("sync after restart");
+  pass();
+}
+
 void test_fs_check() {
   run_with_root("bin/fs_check");
   pass();
@@ -808,6 +827,7 @@ constexpr Test kTests[] = {
     {"blk", &test_blk},
     {"fs", &test_fs},
     {"fs_check", &test_fs_check},
+    {"fs_crash", &test_fs_crash},
 };
 
 }  // namespace
@@ -816,7 +836,8 @@ void select(const Cmdline& cmdline) { g_selected = cmdline.get("ktest"); }
 
 bool needs_drivers() {
   return g_selected == StringView("drivers") || g_selected == StringView("blk") ||
-         g_selected == StringView("fs") || g_selected == StringView("fs_check");
+         g_selected == StringView("fs") || g_selected == StringView("fs_check") ||
+         g_selected == StringView("fs_crash");
 }
 StringView selected() { return g_selected; }
 

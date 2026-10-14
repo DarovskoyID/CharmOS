@@ -1,0 +1,7 @@
+# M6: падение блочного драйвера во время файлового I/O: ядро живо, запросы
+# повторены в новом запуске, программа довела работу до конца.
+vfs: root is disk0p2 (ext2)
+ktest: nvme driver killed during I/O: true
+block: disk0 is nvme
+[fs_test] fs_test: files, directories, rights, sync ok
+ktest: PASS fs_crash

@@ -1,0 +1,4 @@
+# M6: образ после падения драйвера — e2fsck в хуке, затем загрузка.
+-device intel-iommu
+-drive if=none,id=n0,format=raw,file=build/disk-nvme.img
+-device nvme,serial=charm0001,drive=n0

@@ -1,0 +1,4 @@
+# M6: после падения драйвера во время I/O образ прошёл e2fsck, данные на месте.
+vfs: root is disk0p2 (ext2)
+[fs_check] fs_check: data survived reboot
+ktest: PASS fs_check
