@@ -264,7 +264,9 @@ const Function& function(uint32_t index) { return g_functions[index]; }
 
 namespace {
 
-// Источник вторичный: pci-reference.md §4 (MSI-X capability и таблица).
+// MSI-X: раскладка capability сверена с первоисточником — nvme-pcie-1.4.pdf,
+// рис. 42–46 (MXID, MXC, MTAB, MPBA); формат записи таблицы — pci-reference.md §4
+// (источник вторичный).
 constexpr uint16_t kMsixControl = 0x02;
 constexpr uint16_t kMsixTable = 0x04;
 constexpr uint16_t kMsixPba = 0x08;

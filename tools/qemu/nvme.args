@@ -1,0 +1,4 @@
+# M6: IOMMU и контроллер NVMe (корень ext2, образ — nvme.sh).
+-device intel-iommu
+-drive if=none,id=n0,format=raw,file=build/disk-nvme.img
+-device nvme,serial=charm0001,drive=n0

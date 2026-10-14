@@ -1,0 +1,8 @@
+# M6: драйвер NVMe в юзерспейсе (admin- и I/O-очереди, PRP, MSI-X, IOMMU),
+# корень ext2 на нём, файловые вызовы из ring 3. Перед этим образ FAT32,
+# записанный CharmOS в fs3_fat, прошёл fsck.fat.
+-> nvme
+block: disk0 is nvme
+vfs: root is disk0p2 (ext2)
+[fs_test] fs_test: files, directories, rights, sync ok
+ktest: PASS fs

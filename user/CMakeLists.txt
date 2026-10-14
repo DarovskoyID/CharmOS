@@ -25,3 +25,4 @@ endfunction()
 
 charmos_driver(edu)
 charmos_driver(virtio_blk)
+charmos_driver(nvme)

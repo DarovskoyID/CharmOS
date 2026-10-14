@@ -24,4 +24,5 @@
 | `nvme-nvm-cmdset-1.1.pdf` | NVM Express NVM Command Set 1.1 (2024-08-05) — Read/Write/Flush, Identify Namespace | https://nvmexpress.org/wp-content/uploads/NVM-Express-NVM-Command-Set-Specification-Revision-1.1-2024.08.05-Ratified.pdf | M6 |
 | `fatgen103.doc` | Microsoft EFI FAT32 File System Specification 1.03 (Word) | https://download.microsoft.com/download/1/6/1/161ba512-40e2-4cc9-843a-923143f3456c/fatgen103.doc | M6 |
 | `ext2-doc.html` | **Вторичный:** «The Second Extended File System», Dave Poirier (официальной спецификации ext2 нет) | https://www.nongnu.org/ext2-doc/ext2.html | M6 |
-| `ahci-1.3.1.pdf` | **НЕТ — положить вручную:** Serial ATA AHCI 1.3.1 (Intel; intel.com отвечает 403 на скачивание скриптом) | https://www.intel.com/content/www/us/en/io/serial-ata/serial-ata-ahci-spec-rev1-3-1.html | M6 |
+| `ahci-1.3.1.pdf` | Serial ATA AHCI 1.3.1 (Intel) — положен автором вручную (intel.com не отдаёт скриптом) | https://www.intel.com/content/www/us/en/io/serial-ata/serial-ata-ahci-spec-rev1-3-1.html | M6 |
+| `nvme-pcie-1.4.pdf` | NVMe over PCIe Transport Specification 1.4 (2026-07-31) — doorbell, PRP, MSI-X, регистры контроллера на PCIe; положен автором вручную. Ревизия новее базовой 2.1 — при расхождении сверять | https://nvmexpress.org/specifications/ | M6 |
