@@ -1,0 +1,5 @@
+# M7: Intel 82540EM (e1000) на user-net; эхо-сервер на хосте — tcp.sh.
+-nic none
+-device intel-iommu
+-netdev user,id=n0
+-device e1000,netdev=n0

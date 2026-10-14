@@ -1,0 +1,8 @@
+# M7: драйвер e1000 в юзерспейсе (опрос: INTx — в M9), DHCP и TCP-эхо с
+# потерями — те же тесты, что на virtio-net.
+-> e1000
+[e1000] e1000: ready
+net: dhcp address 10.0.2.15
+ktest: tcp echo 8 connections x 64 KiB ok
+ktest: tcp echo with 1/10 segment loss ok
+ktest: PASS tcp
