@@ -7,6 +7,7 @@
 #include "../mm/heap.hpp"
 #include "../mm/layout.hpp"
 #include "../mm/pmm.hpp"
+#include "../pci/pci.hpp"
 #include "../platform/platform.hpp"
 #include "../proc/process.hpp"
 #include "../proc/uaccess.hpp"
@@ -26,7 +27,7 @@ using arch::x86_64::kPageSize;
 
 // --- объекты ------------------------------------------------------------------------
 
-enum class Type : uint8_t { Endpoint, Vmo, Port };
+enum class Type : uint8_t { Endpoint, Vmo, Port, Device, Interrupt };
 
 struct Object {
   Type type;
@@ -68,6 +69,27 @@ struct Vmo {
   uint64_t size;
   uint64_t pages;
   uint64_t* frames;
+  bool mmio;  // BAR устройства: некэшируемо, фреймы не принадлежат VMO
+};
+
+struct Interrupt;
+
+struct Device {
+  Object base;
+  uint32_t pci_index;
+  Interrupt* irq;  // не больше одного живого объекта прерывания
+};
+
+struct Interrupt {
+  Object base;
+  Device* dev;     // держит ссылку
+  uint8_t vector;
+  bool masked;     // после доставки — до interrupt_ack
+  bool hw_mask;    // функция умеет маскировать вектор сама
+  uint64_t pending;
+  uint64_t last_ns;
+  Port* bound;
+  uint64_t bound_key;
 };
 
 enum class Where : uint8_t { Detached, Table, Message, Closed };
@@ -161,9 +183,9 @@ Cap* new_cap(Object* obj, uint32_t r, Cap* parent) {
 
 void release_object(Object* obj);
 
-void port_push(Port* port, uint64_t key, uint32_t type) {
+void port_push(Port* port, uint64_t key, uint32_t type, uint64_t d0 = 0, uint64_t d1 = 0) {
   uint32_t tail = (port->head + port->count) % abi::syscall::kPortMaxPackets;
-  port->packets[tail] = {key, type, 0, 0, 0};
+  port->packets[tail] = {key, type, 0, d0, d1};
   ++port->count;
   if (sched::Thread* t = port->waiters.pop()) sched::wake(t);
 }
@@ -176,6 +198,33 @@ void fire(Endpoint* ep, uint32_t type) {
   --port->armed;
   port_push(port, ep->bound_key, type);
   release_object(&port->base);
+}
+
+constinit Interrupt* g_vector_irq[256] = {};
+
+// Доставка срабатываний в порт: пакет, сброс счётчика, маска до ack.
+void deliver(Interrupt* irq) {
+  Port* port = irq->bound;
+  irq->bound = nullptr;
+  --port->armed;
+  port_push(port, irq->bound_key, abi::syscall::kPacketInterrupt, irq->pending, irq->last_ns);
+  irq->pending = 0;
+  irq->masked = true;
+  if (irq->hw_mask) pci::msi_set_mask(pci::function(irq->dev->pci_index), true);
+  release_object(&port->base);
+}
+
+void device_interrupt(arch::x86_64::InterruptFrame& frame) {
+  {
+    sync::SpinGuard guard(g_lock);
+    Interrupt* irq = g_vector_irq[frame.vector & 0xff];
+    if (irq != nullptr) {
+      ++irq->pending;
+      irq->last_ns = platform::now_ns();
+      if (!irq->masked && irq->bound != nullptr) deliver(irq);
+    }
+  }
+  platform::local_apic().eoi();
 }
 
 void destroy_message(Message* m) {
@@ -199,13 +248,34 @@ void release_object(Object* obj) {
   if (--obj->refs != 0) return;
   if (obj->type == Type::Vmo) {
     auto* v = reinterpret_cast<Vmo*>(obj);
-    for (uint64_t i = 0; i < v->pages; ++i) mm::free_frames(v->frames[i]);
+    for (uint64_t i = 0; i < v->pages && !v->mmio; ++i) mm::free_frames(v->frames[i]);
     mm::kfree(v->frames);
     mm::kfree(v);
     return;
   }
   if (obj->type == Type::Port) {
     mm::kfree(obj);  // подписки держат ссылку: сюда попадаем, когда их нет
+    return;
+  }
+  if (obj->type == Type::Interrupt) {
+    auto* irq = reinterpret_cast<Interrupt*>(obj);
+    pci::msi_disable(pci::function(irq->dev->pci_index));
+    g_vector_irq[irq->vector] = nullptr;
+    platform::free_device_vector(irq->vector);
+    if (irq->bound != nullptr) {
+      --irq->bound->armed;
+      release_object(&irq->bound->base);
+    }
+    irq->dev->irq = nullptr;
+    release_object(&irq->dev->base);
+    mm::kfree(irq);
+    return;
+  }
+  if (obj->type == Type::Device) {
+    // Драйвер ушёл: устройство перестаёт обращаться к памяти и шине.
+    pci::set_command_bits(pci::function(reinterpret_cast<Device*>(obj)->pci_index), 0,
+                          pci::kCommandBusMaster);
+    mm::kfree(obj);
     return;
   }
   auto* ep = reinterpret_cast<Endpoint*>(obj);
@@ -730,6 +800,7 @@ Status sys_vmo_map(uint32_t h, uint64_t req, uint64_t* out) {
   if (m == nullptr) return Status::NoMemory;
   uint64_t addr = p->ipc.map_next;
   uint64_t flags = arch::x86_64::kMapNoExec | ((req & rights::kWrite) != 0 ? arch::x86_64::kMapWrite : 0);
+  if (v->mmio) flags |= arch::x86_64::kMapCacheDisable;
   for (uint64_t i = 0; i < v->pages; ++i) {
     if (p->space.map_phys(addr + i * kPageSize, v->frames[i], flags).is_err()) {
       for (uint64_t k = 0; k < i; ++k) p->space.unmap(addr + k * kPageSize);
@@ -798,7 +869,23 @@ Status sys_object_bind(uint32_t port_h, uint32_t h, uint64_t key) {
   Cap* pc = lookup(p, port_h);
   Cap* oc = lookup(p, h);
   if (pc == nullptr || oc == nullptr) return Status::BadHandle;
-  if (pc->obj->type != Type::Port || oc->obj->type != Type::Endpoint) return Status::WrongType;
+  if (pc->obj->type != Type::Port) return Status::WrongType;
+  if (oc->obj->type == Type::Interrupt) {
+    if ((pc->rights & rights::kWrite) == 0 || (oc->rights & rights::kRead) == 0) {
+      return Status::AccessDenied;
+    }
+    auto* port = reinterpret_cast<Port*>(pc->obj);
+    auto* irq = reinterpret_cast<Interrupt*>(oc->obj);
+    if (irq->bound != nullptr) return Status::Busy;
+    if (port->count + port->armed >= abi::syscall::kPortMaxPackets) return Status::Busy;
+    irq->bound = port;
+    irq->bound_key = key;
+    ++port->armed;
+    ++port->base.refs;
+    if (!irq->masked && irq->pending != 0) deliver(irq);
+    return Status::Ok;
+  }
+  if (oc->obj->type != Type::Endpoint) return Status::WrongType;
   if ((pc->rights & rights::kWrite) == 0 || (oc->rights & rights::kRead) == 0) {
     return Status::AccessDenied;
   }
@@ -871,6 +958,182 @@ Status sys_port_wait(uint32_t port_h, uint64_t user_packet, uint64_t deadline) {
     }
     if (irq) arch::x86_64::sti();
   }
+}
+
+// --- устройства -------------------------------------------------------------------------
+
+Status create_device(uint32_t pci_index, Cap** out) {
+  auto* d = alloc_zeroed<Device>(sizeof(Device));
+  if (d == nullptr) return Status::NoMemory;
+  d->base.type = Type::Device;
+  d->pci_index = pci_index;
+  // Декодирование памяти включено; Bus Master — только вместе с DMA (IOMMU).
+  pci::set_command_bits(pci::function(pci_index), pci::kCommandMemory, pci::kCommandBusMaster);
+  sync::SpinGuard guard(g_lock);
+  Cap* c = new_cap(&d->base, rights::kDeviceDefault, nullptr);
+  if (c == nullptr) {
+    mm::kfree(d);
+    return Status::NoMemory;
+  }
+  *out = c;
+  return Status::Ok;
+}
+
+namespace {
+
+Device* device_from(uint32_t h, uint32_t need, Status* s) {
+  Cap* c = lookup(me(), h);
+  if (c == nullptr) {
+    *s = Status::BadHandle;
+  } else if (c->obj->type != Type::Device) {
+    *s = Status::WrongType;
+  } else if ((c->rights & need) != need) {
+    *s = Status::AccessDenied;
+  } else {
+    *s = Status::Ok;
+    return reinterpret_cast<Device*>(c->obj);
+  }
+  return nullptr;
+}
+
+Status install_new(Object* obj, uint32_t r, uint64_t* out) {
+  Cap* c = new_cap(obj, r, nullptr);
+  if (c == nullptr) return Status::NoMemory;
+  proc::Process* p = me();
+  auto h = p->ipc.table.insert(c);
+  if (h.is_err()) {
+    release_detached(c);
+    return Status::NoMemory;
+  }
+  c->where = Where::Table;
+  c->owner = p;
+  c->handle = h.value();
+  *out = h.value();
+  return Status::Ok;
+}
+
+}  // namespace
+
+Status sys_device_info(uint32_t h, uint64_t user_out) {
+  abi::syscall::DeviceInfo info = {};
+  {
+    sync::SpinGuard guard(g_lock);
+    Status s;
+    Device* d = device_from(h, rights::kRead, &s);
+    if (d == nullptr) return s;
+    const pci::Function& f = pci::function(d->pci_index);
+    info.segment = f.segment;
+    info.bus = f.bus;
+    info.device = f.device;
+    info.function = f.function;
+    info.revision = f.revision;
+    info.vendor = f.vendor;
+    info.device_id = f.device_id;
+    info.class_code = f.class_code;
+    info.irq_count = f.msi_cap != 0 ? 1 : 0;
+    info.flags = 0;  // DMA — вместе с IOMMU
+    for (int i = 0; i < 6; ++i) {
+      switch (f.bars[i].kind) {
+        case pci::BarKind::Mem32: info.bar_kind[i] = abi::syscall::kBarMem32; break;
+        case pci::BarKind::Mem64: info.bar_kind[i] = abi::syscall::kBarMem64; break;
+        case pci::BarKind::Io: info.bar_kind[i] = abi::syscall::kBarIo; break;
+        case pci::BarKind::Absent: info.bar_kind[i] = abi::syscall::kBarAbsent; break;
+      }
+      bool mem = f.bars[i].kind == pci::BarKind::Mem32 || f.bars[i].kind == pci::BarKind::Mem64;
+      info.bar_size[i] = mem ? f.bars[i].size : 0;
+    }
+  }
+  if (!proc::copy_to_user(user_out, &info, sizeof info)) return Status::BadAddress;
+  return Status::Ok;
+}
+
+Status sys_device_map_bar(uint32_t h, uint64_t bar, uint64_t* out) {
+  if (bar >= 6) return Status::InvalidArgs;
+  uint64_t base, size;
+  {
+    sync::SpinGuard guard(g_lock);
+    Status s;
+    Device* d = device_from(h, rights::kMap, &s);
+    if (d == nullptr) return s;
+    const pci::Bar& b = pci::function(d->pci_index).bars[bar];
+    if (b.kind == pci::BarKind::Io) return Status::NotSupported;
+    if (b.kind == pci::BarKind::Absent) return Status::InvalidArgs;
+    base = b.base;
+    size = b.size;
+  }
+  // BAR меньше страницы отображается страницей целиком: размер BAR степень
+  // двойки и выровнен по себе, но соседние BAR могут оказаться в той же
+  // странице (pci-reference.md §3) — такие устройства пока не поддерживаем.
+  if (base % kPageSize != 0) return Status::NotSupported;
+  uint64_t pages = (size + kPageSize - 1) / kPageSize;
+  auto* v = alloc_zeroed<Vmo>(sizeof(Vmo));
+  auto* frames = alloc_zeroed<uint64_t>(pages * sizeof(uint64_t));
+  if (v == nullptr || frames == nullptr) {
+    if (v != nullptr) mm::kfree(v);
+    if (frames != nullptr) mm::kfree(frames);
+    return Status::NoMemory;
+  }
+  for (uint64_t i = 0; i < pages; ++i) frames[i] = base + i * kPageSize;
+  v->base.type = Type::Vmo;
+  v->size = pages * kPageSize;
+  v->pages = pages;
+  v->frames = frames;
+  v->mmio = true;
+  sync::SpinGuard guard(g_lock);
+  Status s = install_new(&v->base, rights::kMmioDefault, out);
+  if (s != Status::Ok) {
+    mm::kfree(frames);
+    mm::kfree(v);
+  }
+  return s;
+}
+
+Status sys_device_irq(uint32_t h, uint64_t index, uint64_t* out) {
+  sync::SpinGuard guard(g_lock);
+  Status s;
+  Device* d = device_from(h, rights::kRead, &s);
+  if (d == nullptr) return s;
+  const pci::Function& f = pci::function(d->pci_index);
+  if (f.msi_cap == 0 || index != 0) return Status::OutOfRange;
+  if (d->irq != nullptr) return Status::Busy;
+  auto* irq = alloc_zeroed<Interrupt>(sizeof(Interrupt));
+  if (irq == nullptr) return Status::NoMemory;
+  uint8_t vector = platform::alloc_device_vector(&device_interrupt);
+  if (vector == 0) {
+    mm::kfree(irq);
+    return Status::NoMemory;
+  }
+  irq->base.type = Type::Interrupt;
+  irq->dev = d;
+  ++d->base.refs;
+  irq->vector = vector;
+  d->irq = irq;
+  s = install_new(&irq->base, rights::kInterruptDefault, out);
+  if (s != Status::Ok) {
+    // install_new уже освободил капабилити и объект (refs → 0).
+    return s;
+  }
+  g_vector_irq[vector] = irq;
+  irq->hw_mask = pci::msi_set_mask(f, false);
+  pci::msi_enable(f, smp::cpu(0).apic_id, vector);
+  // Сообщение MSI — запись устройства в память, без Bus Master его нет.
+  // ВРЕМЕННО: пока IOMMU не подключён, это же открывает устройству DMA в любую
+  // память; с IOMMU устройство будет в пустом домене до dma_alloc.
+  pci::set_command_bits(f, pci::kCommandBusMaster, 0);
+  return Status::Ok;
+}
+
+Status sys_interrupt_ack(uint32_t h) {
+  sync::SpinGuard guard(g_lock);
+  Cap* c = lookup(me(), h);
+  if (c == nullptr) return Status::BadHandle;
+  if (c->obj->type != Type::Interrupt) return Status::WrongType;
+  if ((c->rights & rights::kWrite) == 0) return Status::AccessDenied;
+  auto* irq = reinterpret_cast<Interrupt*>(c->obj);
+  irq->masked = false;
+  if (irq->hw_mask) pci::msi_set_mask(pci::function(irq->dev->pci_index), false);
+  if (irq->pending != 0 && irq->bound != nullptr) deliver(irq);
+  return Status::Ok;
 }
 
 }  // namespace kernel::ipc

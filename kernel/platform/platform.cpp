@@ -6,6 +6,7 @@
 
 #include "../core/cmdline.hpp"
 #include "../core/panic.hpp"
+#include "../sync/spinlock.hpp"
 #include "../mm/layout.hpp"
 #include "../mm/vmm.hpp"
 #include "../sched/sched.hpp"
@@ -219,6 +220,30 @@ void start_local_tick(uint32_t hz) {
     g_tick_hz = hz;
     kprint("timer: periodic tick {} Hz (count {})\n", hz, count);
   }
+}
+
+namespace {
+constexpr uint8_t kFirstDeviceVector = 0x30;
+constexpr uint8_t kLastDeviceVector = 0xef;
+constinit bool g_vector_used[256] = {};
+constinit sync::Spinlock g_vector_lock{sync::LockRank::Vectors, "platform.vectors"};
+}  // namespace
+
+uint8_t alloc_device_vector(arch::x86_64::InterruptHandler handler) {
+  sync::SpinGuard guard(g_vector_lock);
+  for (uint32_t v = kFirstDeviceVector; v <= kLastDeviceVector; ++v) {
+    if (g_vector_used[v]) continue;
+    g_vector_used[v] = true;
+    arch::x86_64::set_interrupt_handler(static_cast<uint8_t>(v), handler);
+    return static_cast<uint8_t>(v);
+  }
+  return 0;
+}
+
+void free_device_vector(uint8_t vector) {
+  sync::SpinGuard guard(g_vector_lock);
+  arch::x86_64::set_interrupt_handler(vector, nullptr);
+  g_vector_used[vector] = false;
 }
 
 uint64_t ticks() { return g_ticks; }

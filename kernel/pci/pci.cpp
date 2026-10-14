@@ -211,6 +211,52 @@ void pci_init(const abi::boot::BootInfo& info) {
   }
 }
 
+namespace {
+
+// Источник вторичный: pci-reference.md §4 (MSI capability).
+constexpr uint16_t kMsiControl = 0x02;
+constexpr uint16_t kMsiEnable = 1u << 0;
+constexpr uint16_t kMsiMultipleEnableMask = 0x7u << 4;
+constexpr uint16_t kMsi64Bit = 1u << 7;
+constexpr uint16_t kMsiPerVectorMask = 1u << 8;
+
+uint16_t msi_off(const Function& f, uint16_t rel) { return static_cast<uint16_t>(f.msi_cap + rel); }
+
+}  // namespace
+
+void set_command_bits(const Function& f, uint16_t set, uint16_t clear) {
+  uint16_t c = read16(f, kRegCommand);
+  write16(f, kRegCommand, static_cast<uint16_t>((c | set) & ~clear));
+}
+
+void msi_enable(const Function& f, uint32_t apic_id, uint8_t vector) {
+  uint16_t ctrl = read16(f, msi_off(f, kMsiControl));
+  bool wide = (ctrl & kMsi64Bit) != 0;
+  write16(f, msi_off(f, kMsiControl), static_cast<uint16_t>(ctrl & ~kMsiEnable));
+  // SDM §11.11.1: 0xFEE в битах 31:20, ID назначения в 19:12, RH = DM = 0.
+  write32(f, msi_off(f, 0x04), 0xfee00000u | ((apic_id & 0xff) << 12));
+  if (wide) write32(f, msi_off(f, 0x08), 0);
+  // SDM §11.11.2: вектор в 7:0, режим Fixed (000), фронт.
+  write16(f, msi_off(f, wide ? 0x0c : 0x08), vector);
+  if ((ctrl & kMsiPerVectorMask) != 0) write32(f, msi_off(f, wide ? 0x10 : 0x0c), 0);
+  ctrl = static_cast<uint16_t>((ctrl & ~kMsiMultipleEnableMask) | kMsiEnable);  // один вектор
+  write16(f, msi_off(f, kMsiControl), ctrl);
+  set_command_bits(f, kCommandIntxDisable, 0);
+}
+
+void msi_disable(const Function& f) {
+  uint16_t ctrl = read16(f, msi_off(f, kMsiControl));
+  write16(f, msi_off(f, kMsiControl), static_cast<uint16_t>(ctrl & ~kMsiEnable));
+}
+
+bool msi_set_mask(const Function& f, bool masked) {
+  uint16_t ctrl = read16(f, msi_off(f, kMsiControl));
+  if ((ctrl & kMsiPerVectorMask) == 0) return false;
+  bool wide = (ctrl & kMsi64Bit) != 0;
+  write32(f, msi_off(f, wide ? 0x10 : 0x0c), masked ? 1u : 0u);
+  return true;
+}
+
 uint32_t function_count() { return g_count; }
 const Function& function(uint32_t index) { return g_functions[index]; }
 

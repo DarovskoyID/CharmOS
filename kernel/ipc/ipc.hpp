@@ -52,6 +52,8 @@ Status kernel_send(Cap* endpoint, const void* bytes, uint64_t len, Cap* const* c
                    uint32_t count);
 // Закрывает отсоединённую капабилити, если ядро её не отдало.
 void release_detached(Cap* cap);
+// Капабилити Device на функцию PCI с индексом pci_index (для запуска драйвера).
+Status create_device(uint32_t pci_index, Cap** out);
 
 // --- системные вызовы (текущий процесс) -------------------------------------------
 Status sys_handle_close(uint32_t h);
@@ -68,5 +70,9 @@ Status sys_vmo_unmap(uint64_t addr);
 Status sys_port_create(uint64_t* out);
 Status sys_port_wait(uint32_t port, uint64_t user_packet, uint64_t deadline);
 Status sys_object_bind(uint32_t port, uint32_t h, uint64_t key);
+Status sys_device_info(uint32_t dev, uint64_t user_out);
+Status sys_device_map_bar(uint32_t dev, uint64_t bar, uint64_t* out);
+Status sys_device_irq(uint32_t dev, uint64_t index, uint64_t* out);
+Status sys_interrupt_ack(uint32_t irq);
 
 }  // namespace kernel::ipc

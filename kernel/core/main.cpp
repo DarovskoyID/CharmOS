@@ -10,6 +10,7 @@
 #include "../mm/layout.hpp"
 #include "../mm/pmm.hpp"
 #include "../mm/vmm.hpp"
+#include "../drivers/devmgr.hpp"
 #include "../pci/pci.hpp"
 #include "../platform/platform.hpp"
 #include "../proc/uaccess.hpp"
@@ -95,8 +96,17 @@ void page_fault_handler(arch::x86_64::InterruptFrame& frame) {
   kernel::unhandled_interrupt(frame);
 }
 
+constinit uint64_t g_initrd_phys = 0;
+constinit uint64_t g_initrd_size = 0;
+
 // Первый поток ядра: всё, что идёт после запуска планировщика.
 void kmain(void*) {
+  // Тесты ядра работают с устройствами сами; драйверы — только в обычной
+  // загрузке и в тесте драйверов.
+  if (kernel::ktest::selected().empty() ||
+      kernel::ktest::selected() == lib::core::StringView("drivers")) {
+    kernel::devmgr::start(g_initrd_phys, g_initrd_size);
+  }
   kernel::ktest::run_selected();
 
   uint64_t start = kernel::platform::ticks();
@@ -129,6 +139,8 @@ extern "C" [[noreturn]] void kernel_main(uint64_t boot_info_phys, uint64_t stack
   }
   kernel::ktest::select(cmdline);
   kernel::ktest::set_initrd(info.initrd_base, info.initrd_size);
+  g_initrd_phys = info.initrd_base;
+  g_initrd_size = info.initrd_size;
 
   kernel::mm::pmm_init(info);
   kernel::mm::vmm_init(info);

@@ -142,6 +142,22 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
     case Number::PortWait:
       set_result(f, kernel::ipc::sys_port_wait(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx));
       break;
+    case Number::DeviceInfo:
+      set_result(f, kernel::ipc::sys_device_info(static_cast<uint32_t>(f.rdi), f.rsi));
+      break;
+    case Number::DeviceMapBar: {
+      uint64_t v = 0;
+      set_result(f, kernel::ipc::sys_device_map_bar(static_cast<uint32_t>(f.rdi), f.rsi, &v), v);
+      break;
+    }
+    case Number::DeviceIrq: {
+      uint64_t v = 0;
+      set_result(f, kernel::ipc::sys_device_irq(static_cast<uint32_t>(f.rdi), f.rsi, &v), v);
+      break;
+    }
+    case Number::InterruptAck:
+      set_result(f, kernel::ipc::sys_interrupt_ack(static_cast<uint32_t>(f.rdi)));
+      break;
     case Number::ObjectBind:
       set_result(f, kernel::ipc::sys_object_bind(static_cast<uint32_t>(f.rdi),
                                                  static_cast<uint32_t>(f.rsi), f.rdx));

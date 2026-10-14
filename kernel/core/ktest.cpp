@@ -8,6 +8,7 @@
 #include "../mm/pmm.hpp"
 #include "../mm/vmm.hpp"
 #include "../mm/stack.hpp"
+#include "../drivers/devmgr.hpp"
 #include "../pci/pci.hpp"
 #include "../platform/platform.hpp"
 #include "../ipc/ipc.hpp"
@@ -661,6 +662,23 @@ void test_pci() {
   pass();
 }
 
+void test_drivers() {
+  // Ядро само нашло edu, запустило драйвер по манифесту; драйвер после
+  // проверок падает — ядро перезапускает его 5 раз и сдаётся.
+  uint64_t deadline = platform::now_ns() + 30'000'000'000ull;
+  devmgr::DriverStats s;
+  do {
+    sched::sleep_ns(50'000'000);
+    s = devmgr::stats(kEduVendor, kEduDevice);
+  } while (!s.finished && platform::now_ns() < deadline);
+  kprint("ktest: edu driver bound={} runs={} killed={} finished={}\n", s.bound, s.runs, s.killed,
+         s.finished);
+  if (!s.bound) fail("no driver bound to edu");
+  if (!s.finished) fail("supervisor did not finish");
+  if (s.runs != devmgr::kMaxRestarts + 1 || s.killed != s.runs) fail("wrong restart count");
+  pass();
+}
+
 struct Test {
   StringView name;
   void (*fn)();
@@ -689,6 +707,7 @@ constexpr Test kTests[] = {
     {"user", &test_user},
     {"ipc", &test_ipc},
     {"pci", &test_pci},
+    {"drivers", &test_drivers},
 };
 
 }  // namespace

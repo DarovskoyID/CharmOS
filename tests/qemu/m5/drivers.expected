@@ -1,0 +1,11 @@
+# Ядро находит edu, по манифесту запускает драйвер; драйвер проверяет MMIO и
+# прерывание MSI через порт, затем падает; ядро перезапускает его 5 раз и сдаётся.
+devmgr: 1 driver manifests
+devmgr: 0:3.0 0x1234:0x11e8 -> edu
+[edu] edu: MMIO ok, factorial via MSI ok
+devmgr: edu on 0:3.0 exited with -1000 (run 1)
+[edu] edu: MMIO ok, factorial via MSI ok
+devmgr: edu on 0:3.0 exited with -1000 (run 6)
+devmgr: edu on 0:3.0 failed 6 times, giving up
+ktest: edu driver bound=true runs=6 killed=6 finished=true
+ktest: PASS drivers

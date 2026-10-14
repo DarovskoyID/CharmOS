@@ -51,6 +51,14 @@ uint32_t read32(const Function& f, uint16_t offset);
 void write16(const Function& f, uint16_t offset, uint16_t value);
 void write32(const Function& f, uint16_t offset, uint32_t value);
 
+// MSI (один вектор). Формат адреса и данных — Intel SDM Vol. 3A §11.11
+// (первоисточник); раскладка capability — источник вторичный.
+void msi_enable(const Function& f, uint32_t apic_id, uint8_t vector);
+void msi_disable(const Function& f);
+// Маскирование вектора, если функция его поддерживает; false — не умеет.
+bool msi_set_mask(const Function& f, bool masked);
+void set_command_bits(const Function& f, uint16_t set, uint16_t clear);
+
 // Смещения заголовка (pci-reference.md §2).
 inline constexpr uint16_t kRegVendor = 0x00;
 inline constexpr uint16_t kRegCommand = 0x04;

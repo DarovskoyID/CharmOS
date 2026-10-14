@@ -53,6 +53,34 @@ inline constexpr uint32_t kPacketChannelReadable = 2;
 inline constexpr uint32_t kPacketPeerClosed = 3;
 inline constexpr uint32_t kPortMaxPackets = 64;
 
+// Описание устройства для драйвера (docs/abi/driver.md §6.1).
+struct DeviceInfo {
+  uint16_t segment;
+  uint8_t bus;
+  uint8_t device;
+  uint8_t function;
+  uint8_t revision;
+  uint16_t vendor;
+  uint16_t device_id;
+  uint16_t reserved0;
+  uint32_t class_code;   // класс << 16 | подкласс << 8 | prog-if
+  uint32_t irq_count;    // сколько индексов принимает device_irq
+  uint32_t flags;        // kDeviceDma: dma_alloc доступен
+  uint64_t bar_size[6];  // 0 — BAR отсутствует или это порты ввода-вывода
+  uint8_t bar_kind[6];   // kBarAbsent / kBarMem32 / kBarMem64 / kBarIo
+  uint8_t reserved1[2];
+};
+static_assert(sizeof(DeviceInfo) == 80);
+static_assert(__builtin_offsetof(DeviceInfo, class_code) == 12);
+static_assert(__builtin_offsetof(DeviceInfo, bar_size) == 24);
+static_assert(__builtin_offsetof(DeviceInfo, bar_kind) == 72);
+inline constexpr uint8_t kBarAbsent = 0;
+inline constexpr uint8_t kBarMem32 = 1;
+inline constexpr uint8_t kBarMem64 = 2;
+inline constexpr uint8_t kBarIo = 3;
+inline constexpr uint32_t kDeviceDma = 1u << 0;
+inline constexpr uint64_t kDmaContiguous = 1u << 0;  // флаг dma_alloc
+
 // Права хендла (docs/abi/ipc.md §3).
 namespace rights {
 inline constexpr uint32_t kDuplicate = 1u << 0;
@@ -63,6 +91,9 @@ inline constexpr uint32_t kMap = 1u << 4;
 inline constexpr uint32_t kAll = kDuplicate | kTransfer | kRead | kWrite | kMap;
 inline constexpr uint32_t kChannelDefault = kDuplicate | kTransfer | kRead | kWrite;
 inline constexpr uint32_t kPortDefault = kDuplicate | kTransfer | kRead | kWrite;
+inline constexpr uint32_t kDeviceDefault = kRead | kWrite | kMap;  // без Duplicate/Transfer
+inline constexpr uint32_t kInterruptDefault = kRead | kWrite;
+inline constexpr uint32_t kMmioDefault = kRead | kWrite | kMap;
 inline constexpr uint32_t kVmoDefault = kAll;
 }  // namespace rights
 

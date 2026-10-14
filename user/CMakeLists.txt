@@ -14,3 +14,13 @@ endfunction()
 foreach(prog hello sys fault kread fpu iso spin cap_a cap_b cap_c chan ping pong port)
   charmos_user_program(${prog} tests/${prog}.cpp)
 endforeach()
+
+# Драйверы: drivers/<имя>.elf и drivers/<имя>.toml (docs/abi/driver.md §7).
+function(charmos_driver name)
+  charmos_user_program(${name} drivers/${name}/${name}.cpp)
+  set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/drivers)
+  add_custom_command(TARGET ${name} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_SOURCE_DIR}/user/drivers/${name}/${name}.toml ${CMAKE_BINARY_DIR}/drivers/${name}.toml)
+endfunction()
+
+charmos_driver(edu)

@@ -6,6 +6,7 @@
 #include <abi/boot.hpp>
 #include <arch/x86_64/apic.hpp>
 #include <arch/x86_64/hpet.hpp>
+#include <arch/x86_64/idt.hpp>
 #include <lib/acpi/parse.hpp>
 
 namespace kernel {
@@ -44,6 +45,10 @@ uint64_t apic_timer_hz();  // частота счёта таймера APIC пр
 void start_local_tick(uint32_t hz);
 uint64_t ticks();
 uint32_t tick_hz();
+
+// Векторы для прерываний устройств (0x30..0xef). 0 — свободных нет.
+uint8_t alloc_device_vector(arch::x86_64::InterruptHandler handler);
+void free_device_vector(uint8_t vector);
 
 // Монотонное время в наносекундах (по TSC, откалиброванному по HPET).
 // Предполагается, что TSC всех CPU идут синхронно (в QEMU это так; проверка

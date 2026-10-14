@@ -49,6 +49,9 @@ rm -f "$esp/charmos/initrd"
 if [[ -x "$mkinitrd" ]] && compgen -G "$build/user/user/*.elf" >/dev/null; then
   initrd_args=()
   for f in "$build"/user/user/*.elf; do initrd_args+=("bin/$(basename "$f" .elf)=$f"); done
+  for f in "$build"/user/drivers/*.elf "$build"/user/drivers/*.toml; do
+    [[ -f "$f" ]] && initrd_args+=("drivers/$(basename "$f")=$f")
+  done
   "$mkinitrd" "$esp/charmos/initrd" "${initrd_args[@]}"
 fi
 cp "$ovmf_vars" "$build/ovmf_vars.fd"
