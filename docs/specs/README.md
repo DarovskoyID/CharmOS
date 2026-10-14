@@ -19,3 +19,9 @@
 | `vtd-5.2.pdf` | Intel VT-d Architecture Specification, rev. 5.20 (D51397-019) — IOMMU, таблица DMAR | https://cdrdv2-public.intel.com/919688/D51397-019-vt-directed-io-spec.pdf | M5 |
 | `pci-reference.md` | **Вторичный** референс по PCI/PCIe (сводка автора по открытым источникам): заголовок, BAR, MSI/MSI-X, MCFG, enumeration. Официальные спецификации PCI-SIG недоступны. Известные ошибки: у `edu` нет MSI-X; не указан 28-битный DMA `edu`. Расхождения с docs/abi — прав docs/abi | автор проекта | M5 |
 | `qemu-edu.rst` | Учебное устройство QEMU `edu` (1234:11e8): регистры, DMA, INTx/MSI | https://gitlab.com/qemu-project/qemu/-/raw/master/docs/specs/edu.rst | M5 |
+| `virtio-1.2.pdf` | Virtual I/O Device (VIRTIO) 1.2, Committee Specification 01 (OASIS, 2022-07-01) — virtio-pci, virtqueue, virtio-blk | https://docs.oasis-open.org/virtio/virtio/v1.2/cs01/virtio-v1.2-cs01.pdf | M6 |
+| `nvme-base-2.1.pdf` | NVM Express Base Specification 2.1 (2024-08-05) — контроллер, очереди, Admin-команды | https://nvmexpress.org/wp-content/uploads/NVM-Express-Base-Specification-Revision-2.1-2024.08.05-Ratified.pdf | M6 |
+| `nvme-nvm-cmdset-1.1.pdf` | NVM Express NVM Command Set 1.1 (2024-08-05) — Read/Write/Flush, Identify Namespace | https://nvmexpress.org/wp-content/uploads/NVM-Express-NVM-Command-Set-Specification-Revision-1.1-2024.08.05-Ratified.pdf | M6 |
+| `fatgen103.doc` | Microsoft EFI FAT32 File System Specification 1.03 (Word) | https://download.microsoft.com/download/1/6/1/161ba512-40e2-4cc9-843a-923143f3456c/fatgen103.doc | M6 |
+| `ext2-doc.html` | **Вторичный:** «The Second Extended File System», Dave Poirier (официальной спецификации ext2 нет) | https://www.nongnu.org/ext2-doc/ext2.html | M6 |
+| `ahci-1.3.1.pdf` | **НЕТ — положить вручную:** Serial ATA AHCI 1.3.1 (Intel; intel.com отвечает 403 на скачивание скриптом) | https://www.intel.com/content/www/us/en/io/serial-ata/serial-ata-ahci-spec-rev1-3-1.html | M6 |
