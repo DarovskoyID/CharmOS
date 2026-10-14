@@ -46,5 +46,9 @@ Status flush(uint32_t disk);
 void serve(uint32_t pci_index, ipc::Cap* kernel_end, const char* name);
 // Драйвер исчерпал перезапуски.
 void driver_failed(uint32_t pci_index);
+// Закрепляет номер диска за функцией при запуске драйверов (fs.md §3: диски
+// нумеруются в порядке запуска блочных драйверов, то есть в порядке PCI), а
+// не по тому, кто первым закончит рукопожатие.
+void reserve_disk(uint32_t pci_index);
 
 }  // namespace kernel::block

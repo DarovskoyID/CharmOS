@@ -1,0 +1,5 @@
+# M6: вторая загрузка с тем же образом, что ahci (без пересоздания).
+-device intel-iommu
+-device ahci,id=ahci1
+-drive if=none,id=s0,format=raw,file=build/disk-ahci.img
+-device ide-hd,drive=s0,bus=ahci1.0

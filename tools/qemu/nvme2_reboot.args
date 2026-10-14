@@ -1,0 +1,4 @@
+# M6: вторая загрузка с тем же образом, что nvme (без пересоздания).
+-device intel-iommu
+-drive if=none,id=n0,format=raw,file=build/disk-nvme.img
+-device nvme,serial=charm0001,drive=n0

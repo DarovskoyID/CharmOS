@@ -210,6 +210,7 @@ void start(uint64_t initrd_phys, uint64_t initrd_size) {
     const pci::Function& f = pci::function(i);
     kprint("devmgr: {}:{}.{} {x}:{x} -> {}\n", f.bus, f.device, f.function, f.vendor, f.device_id,
            d->manifest.name);
+    if (d->manifest.driver_class == lib::manifest::DriverClass::Block) block::reserve_disk(i);
     if (sched::spawn("devmgr", &supervise, &b).is_err()) {
       kprint("devmgr: cannot start supervisor\n");
     }

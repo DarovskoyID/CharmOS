@@ -1,0 +1,5 @@
+# M6: вторая загрузка (nvme): данные, записанные первой, на месте.
+block: disk0 is nvme
+vfs: root is disk0p2 (ext2)
+[fs_check] fs_check: data survived reboot
+ktest: PASS fs_check

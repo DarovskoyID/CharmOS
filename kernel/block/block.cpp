@@ -177,6 +177,7 @@ bool wait_online(uint32_t disk, uint64_t deadline_ns) {
 Status transfer(uint32_t disk, bool write, uint64_t lba, const uint64_t* pages, uint32_t count) {
   if (disk >= disk_count() || count == 0 || count > kMaxPages) return Status::InvalidArgs;
   Disk& d = g_disks[disk];
+  if (d.block_size == 0) return Status::NotSupported;  // драйвер ещё не рассказал о диске
   uint64_t per_page = kPageSize / d.block_size;
   if (lba > d.block_count || count * per_page > d.block_count - lba) return Status::OutOfRange;
   if (write && (d.flags & abi::block::kHelloReadOnly) != 0) return Status::AccessDenied;
@@ -205,8 +206,8 @@ void serve(uint32_t pci_index, ipc::Cap* kernel_end, const char* name) {
             (hello.block_size == 512 || hello.block_size == 4096) && hello.block_count != 0 &&
             hello.max_blocks >= kPageSize / hello.block_size * kMaxPages;
   Disk* d = find(pci_index);
-  if (ok && d != nullptr && (d->block_size != hello.block_size ||
-                             d->block_count != hello.block_count)) {
+  if (ok && d != nullptr && d->block_size != 0 &&
+      (d->block_size != hello.block_size || d->block_count != hello.block_count)) {
     ok = false;  // другой диск после перезапуска — запросы старого не повторять
   }
   if (!ok) {
@@ -256,6 +257,11 @@ void serve(uint32_t pci_index, ipc::Cap* kernel_end, const char* name) {
       __atomic_store_n(&g_count, g_count + 1, __ATOMIC_RELEASE);
     }
   }
+  if (d != nullptr && d->block_size == 0) {  // номер закреплён, параметры — из первого рукопожатия
+    d->block_size = hello.block_size;
+    d->block_count = hello.block_count;
+    d->flags = hello.flags;
+  }
   if (d != nullptr) {
     d->io.lock();
     for (uint64_t i = 0; i < abi::block::kRingPages; ++i) d->ring[i] = frames[i];
@@ -288,6 +294,17 @@ void serve(uint32_t pci_index, ipc::Cap* kernel_end, const char* name) {
   ipc::release_detached(ring);
   ipc::release_detached(notify);
   ipc::release_device(device);
+}
+
+void reserve_disk(uint32_t pci_index) {
+  sync::SpinGuard guard(g_lock);
+  for (uint32_t i = 0; i < g_count; ++i) {
+    if (g_disks[i].pci_index == pci_index) return;
+  }
+  if (g_count == kMaxDisks) return;
+  g_disks[g_count].pci_index = pci_index;
+  g_disks[g_count].used = true;
+  __atomic_store_n(&g_count, g_count + 1, __ATOMIC_RELEASE);
 }
 
 void driver_failed(uint32_t pci_index) {

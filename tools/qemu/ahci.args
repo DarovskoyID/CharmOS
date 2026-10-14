@@ -1,0 +1,6 @@
+# M6: IOMMU и второй контроллер AHCI с тестовым диском (встроенный AHCI q35
+# держит ESP; он идёт позже по PCI, поэтому тестовый диск — disk0).
+-device intel-iommu
+-device ahci,id=ahci1
+-drive if=none,id=s0,format=raw,file=build/disk-ahci.img
+-device ide-hd,drive=s0,bus=ahci1.0

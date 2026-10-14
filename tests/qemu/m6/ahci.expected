@@ -1,0 +1,7 @@
+# M6: драйвер AHCI в юзерспейсе (IDENTIFY, READ/WRITE DMA EXT, FLUSH, PRDT,
+# IOMMU), корень ext2 на SATA-диске, файловые вызовы из ring 3.
+-> ahci
+block: disk0 is ahci
+vfs: root is disk0p2 (ext2)
+[fs_test] fs_test: files, directories, rights, sync ok
+ktest: PASS fs
