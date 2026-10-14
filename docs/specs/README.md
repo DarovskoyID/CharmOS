@@ -16,3 +16,4 @@
 | `8259a.pdf` | Intel 8259A PIC datasheet (231468-003) — маскирование legacy PIC (OCW1) | копия: https://pdos.csail.mit.edu/6.1810/2004/readings/hardware/8259A.pdf | M2 |
 | `intel-sdm-vol2.pdf` | Intel SDM Vol. 2A–2D, Instruction Set Reference (325383) — SYSCALL/SYSRET, CPUID, SWAPGS | https://cdrdv2-public.intel.com/782156/325383-sdm-vol-2abcd.pdf | M3 |
 | `intel-sdm-vol4.pdf` | Intel SDM Vol. 4, Model-Specific Registers (335592) — адреса MSR (STAR/LSTAR/FMASK, GS_BASE) | https://cdrdv2-public.intel.com/782167/335592-sdm-vol-4.pdf | M3 |
+| `vtd-5.2.pdf` | Intel VT-d Architecture Specification, rev. 5.20 (D51397-019) — IOMMU, таблица DMAR | https://cdrdv2-public.intel.com/919688/D51397-019-vt-directed-io-spec.pdf | M5 |
