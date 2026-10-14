@@ -36,6 +36,19 @@ struct Thread {
   Thread* next;        // очередь готовых / ожидания / зомби
   uint64_t wake_ns;    // для Sleeping
   Thread* sleep_next;
+
+  // Поток процесса (ring 3). У потоков ядра всё нулевое.
+  uint64_t user_cr3;   // PML4 процесса
+  void* process;       // proc::Process
+  uint8_t* fpu;        // 512 байт FXSAVE, выровнено на 16 (владеет процесс)
+};
+
+// Пользовательский контекст для spawn: задаётся до того, как поток попадёт
+// в очередь, — первый же запуск идёт с CR3 процесса.
+struct UserContext {
+  uint64_t cr3;
+  void* process;
+  uint8_t* fpu;
 };
 
 using ThreadFn = void (*)(void* arg);
@@ -53,7 +66,12 @@ void init_this_cpu(uint32_t tick_hz);
 [[noreturn]] void idle_loop();
 
 lib::core::Result<Thread*, SchedError> spawn(const char* name, ThreadFn fn, void* arg,
-                                             int cpu = kAnyCpu);
+                                             int cpu = kAnyCpu,
+                                             const UserContext* user = nullptr);
+
+// Поток перестаёт быть потоком процесса (перед завершением процесса):
+// планировщик больше не трогает его CR3 и FPU.
+void detach_user_context();
 
 Thread* current();
 void yield();

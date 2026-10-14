@@ -11,6 +11,7 @@
 #include "../mm/pmm.hpp"
 #include "../mm/vmm.hpp"
 #include "../platform/platform.hpp"
+#include "../proc/uaccess.hpp"
 #include "../sched/sched.hpp"
 #include "../smp/smp.hpp"
 #include "boot_info.hpp"
@@ -88,6 +89,11 @@ void verify_handoff(const BootInfo& info, uint64_t stack_aligned) {
   kprint("boot: handoff verified\n");
 }
 
+void page_fault_handler(arch::x86_64::InterruptFrame& frame) {
+  if (kernel::proc::fixup_uaccess_fault(frame)) return;
+  kernel::unhandled_interrupt(frame);
+}
+
 // Первый поток ядра: всё, что идёт после запуска планировщика.
 void kmain(void*) {
   kernel::ktest::run_selected();
@@ -110,6 +116,7 @@ extern "C" [[noreturn]] void kernel_main(uint64_t boot_info_phys, uint64_t stack
   // Исключения ловим как можно раньше, чтобы любая ошибка дальше давала дамп.
   kernel::smp::early_init_bsp();
   arch::x86_64::set_fallback_handler(&kernel::unhandled_interrupt);
+  arch::x86_64::set_interrupt_handler(arch::x86_64::kVectorPageFault, &page_fault_handler);
   kprint("cpu: GDT, TSS and IDT loaded\n");
 
   verify_handoff(info, stack_aligned);
@@ -120,6 +127,7 @@ extern "C" [[noreturn]] void kernel_main(uint64_t boot_info_phys, uint64_t stack
         lib::core::StringView(phys_to_virt<const char>(info.cmdline), info.cmdline_length));
   }
   kernel::ktest::select(cmdline);
+  kernel::ktest::set_initrd(info.initrd_base, info.initrd_size);
 
   kernel::mm::pmm_init(info);
   kernel::mm::vmm_init(info);

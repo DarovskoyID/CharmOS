@@ -177,11 +177,32 @@ void schedule() {
     q.prev = prev;
     ++q.switches;
   }
+  // Состояние x87/SSE: ядро его не трогает (-mgeneral-regs-only), поэтому
+  // регистры принадлежат последнему пользовательскому потоку на этом CPU.
+  if (prev->fpu != nullptr) asm volatile("fxsave64 (%0)" : : "r"(prev->fpu) : "memory");
+  if (next->user_cr3 != 0) {
+    // Вход из ring 3 (прерывание — TSS.RSP0, syscall — gs:8) попадает на стек
+    // ядра этого потока.
+    c.kernel_rsp = next->stack.top;
+    arch::x86_64::set_kernel_entry_stack(c.descriptors, next->stack.top);
+    if (arch::x86_64::read_cr3() != next->user_cr3) arch::x86_64::write_cr3(next->user_cr3);
+  }
+  if (next->fpu != nullptr) asm volatile("fxrstor64 (%0)" : : "r"(next->fpu) : "memory");
   switch_context(&prev->rsp, next->rsp);
   finish_switch();
 }
 
-Result<Thread*, SchedError> spawn(const char* name, ThreadFn fn, void* arg, int cpu) {
+void detach_user_context() {
+  bool irq = save_and_cli();
+  Thread* me = local_rq().current;
+  me->fpu = nullptr;
+  me->process = nullptr;
+  me->user_cr3 = 0;
+  restore_if(irq);
+}
+
+Result<Thread*, SchedError> spawn(const char* name, ThreadFn fn, void* arg, int cpu,
+                                  const UserContext* user) {
   using R = Result<Thread*, SchedError>;
   uint32_t target;
   if (cpu == kAnyCpu) {
@@ -222,6 +243,11 @@ Result<Thread*, SchedError> spawn(const char* name, ThreadFn fn, void* arg, int 
   t->entry = fn;
   t->arg = arg;
   t->cpu = target;
+  if (user != nullptr) {
+    t->user_cr3 = user->cr3;
+    t->process = user->process;
+    t->fpu = user->fpu;
+  }
 
   // Начальный стек для switch_context: 6 сохраняемых регистров, затем адрес
   // возврата thread_start. После ret RSP = top - 16, кратен 16.

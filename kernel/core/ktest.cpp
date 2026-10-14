@@ -9,6 +9,8 @@
 #include "../mm/vmm.hpp"
 #include "../mm/stack.hpp"
 #include "../platform/platform.hpp"
+#include "../proc/process.hpp"
+#include <lib/initrd/initrd.hpp>
 #include "../smp/smp.hpp"
 #include "../sync/spinlock.hpp"
 #include "../sync/wait.hpp"
@@ -35,6 +37,8 @@ struct Expectation {
 };
 constinit Expectation g_expect;
 constinit bool g_expect_panic = false;
+constinit uint64_t g_initrd_phys = 0;
+constinit uint64_t g_initrd_size = 0;
 
 void expect(uint64_t vector, uint64_t error_mask = 0, uint64_t error_value = 0) {
   g_expect = {true, vector, false, 0, error_mask, error_value};
@@ -491,6 +495,59 @@ void test_guard() {
   fail("stack overflow not caught");
 }
 
+// --- процессы (ring 3) --------------------------------------------------------------
+
+void test_user() {
+  if (g_initrd_phys == 0) fail("no initrd");
+  lib::initrd::Archive archive;
+  auto opened = archive.open(mm::phys_to_virt<const void>(g_initrd_phys), g_initrd_size);
+  if (opened.is_err()) fail(lib::initrd::error_name(opened.error()));
+  kprint("ktest: initrd has {} files\n", archive.count());
+
+  struct Run {
+    const char* file;
+    int64_t want;
+    int cpu;  // пары на одном CPU — проверка изоляции и сохранения FPU
+  };
+  const bool many = smp::cpu_count() >= 4;
+  const Run runs[] = {
+      {"bin/hello", 0, sched::kAnyCpu},
+      {"bin/sys", 42, sched::kAnyCpu},
+      {"bin/fault", proc::kExitKilled, sched::kAnyCpu},
+      {"bin/kread", proc::kExitKilled, sched::kAnyCpu},
+      {"bin/fpu", 0, many ? 1 : 0},
+      {"bin/fpu", 0, many ? 1 : 0},
+      {"bin/iso", 0, many ? 2 : 0},
+      {"bin/iso", 0, many ? 2 : 0},
+      {"bin/spin", 7, many ? 3 : 0},
+  };
+  constexpr size_t kRuns = sizeof runs / sizeof runs[0];
+  uint64_t frames_before = mm::free_frame_count();
+
+  proc::Process* procs[kRuns] = {};
+  for (size_t i = 0; i < kRuns; ++i) {
+    lib::initrd::File f;
+    if (!archive.find(runs[i].file, &f)) fail("program missing from initrd");
+    auto p = proc::spawn_process(f.name.substr(4), f.data, f.size, runs[i].cpu);
+    if (p.is_err()) fail("spawn_process failed");
+    procs[i] = p.value();
+  }
+  bool ok = true;
+  for (size_t i = 0; i < kRuns; ++i) {
+    int64_t code = proc::wait_process(procs[i]);
+    kprint("ktest: {} exited with {} (want {})\n", runs[i].file, code, runs[i].want);
+    ok = ok && code == runs[i].want;
+  }
+  if (!ok) fail("unexpected exit code");
+
+  // Адресные пространства освобождены: фреймов не меньше, чем было (с
+  // допуском на рост кучи ядра, которая страниц не возвращает).
+  uint64_t frames_after = mm::free_frame_count();
+  kprint("ktest: free frames {} -> {}\n", frames_before, frames_after);
+  if (frames_after + 64 < frames_before) fail("process memory leaked");
+  pass();
+}
+
 struct Test {
   StringView name;
   void (*fn)();
@@ -516,6 +573,7 @@ constexpr Test kTests[] = {
     {"preempt", &test_preempt},
     {"sleep", &test_sleep},
     {"churn", &test_churn},
+    {"user", &test_user},
 };
 
 }  // namespace
@@ -539,6 +597,11 @@ bool exception_expected(const InterruptFrame& frame) {
 }
 
 bool panic_expected() { return g_expect_panic; }
+
+void set_initrd(uint64_t phys, uint64_t size) {
+  g_initrd_phys = phys;
+  g_initrd_size = size;
+}
 
 void run_selected() {
   if (g_selected.empty()) return;

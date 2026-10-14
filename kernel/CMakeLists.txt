@@ -5,6 +5,7 @@ add_executable(kernel
   core/ktest.cpp
   core/log.cpp
   core/panic.cpp
+  mm/address_space.cpp
   mm/heap.cpp
   mm/pmm.cpp
   mm/stack.cpp
@@ -14,6 +15,9 @@ add_executable(kernel
   sync/spinlock.cpp
   sync/wait.cpp
   platform/platform.cpp
+  proc/process.cpp
+  proc/syscall.cpp
+  proc/uaccess.cpp
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/ap_trampoline.S
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/apic.cpp
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/call_on_stack.S
@@ -23,9 +27,10 @@ add_executable(kernel
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/gdt.cpp
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/idt.cpp
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/isr.S
-  ${CMAKE_SOURCE_DIR}/arch/x86_64/src/paging.cpp)
+  ${CMAKE_SOURCE_DIR}/arch/x86_64/src/paging.cpp
+  ${CMAKE_SOURCE_DIR}/arch/x86_64/src/user.S)
 target_include_directories(kernel PRIVATE ${CMAKE_SOURCE_DIR}/arch/x86_64/include)
-target_link_libraries(kernel PRIVATE core mm acpi abi)
+target_link_libraries(kernel PRIVATE core mm acpi elf initrd abi)
 target_link_options(kernel PRIVATE
   -T ${CMAKE_CURRENT_SOURCE_DIR}/linker.ld
   -Wl,-z,max-page-size=4096)

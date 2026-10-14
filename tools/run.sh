@@ -42,6 +42,15 @@ mkdir -p "$esp/charmos"
 cp "$build/kernel/kernel/kernel.elf" "$esp/charmos/kernel.elf"
 rm -f "$esp/charmos/cmdline.txt"
 if [[ $has_cmdline -eq 1 ]]; then printf '%s\n' "$cmdline" >"$esp/charmos/cmdline.txt"; fi
+
+# initrd (docs/abi/initrd.md): все собранные программы пользователя как bin/<имя>.
+mkinitrd="$build/host/tools/mkinitrd/mkinitrd"
+rm -f "$esp/charmos/initrd"
+if [[ -x "$mkinitrd" ]] && compgen -G "$build/user/user/*.elf" >/dev/null; then
+  initrd_args=()
+  for f in "$build"/user/user/*.elf; do initrd_args+=("bin/$(basename "$f" .elf)=$f"); done
+  "$mkinitrd" "$esp/charmos/initrd" "${initrd_args[@]}"
+fi
 cp "$ovmf_vars" "$build/ovmf_vars.fd"
 
 args=(

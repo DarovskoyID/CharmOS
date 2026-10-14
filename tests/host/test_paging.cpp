@@ -83,3 +83,40 @@ TEST(paging_out_of_memory) {
   CHECK(pt.init(&Pool::alloc, &pool, 0));
   CHECK(!pt.map_4k(kHi, 0x1000, 0));
 }
+
+TEST(paging_user_flag_reaches_every_level) {
+  Pool pool(64);
+  PageTables pt;
+  pt.init(&Pool::alloc, &pool, 0);
+  CHECK(pt.map_4k(0x400000, 0x9000, arch::x86_64::kMapWrite));  // таблицы созданы без U/S
+  CHECK(pt.map_4k(0x401000, 0xa000, arch::x86_64::kMapUser));    // тот же путь, теперь user
+  auto* pml4 = reinterpret_cast<uint64_t*>(pt.root());
+  CHECK((pml4[0] & arch::x86_64::kMapUser) != 0);
+  uint64_t phys = 0, flags = 0;
+  CHECK(pt.translate(0x401000, &phys, &flags) && (flags & arch::x86_64::kMapUser) != 0);
+  CHECK(pt.translate(0x400000, &phys, &flags) && (flags & arch::x86_64::kMapUser) == 0);
+}
+
+namespace {
+struct Freed {
+  size_t count = 0;
+  static void free(void* ctx, uint64_t) { ++static_cast<Freed*>(ctx)->count; }
+};
+}  // namespace
+
+TEST(paging_destroy_lower_half) {
+  Pool pool(64);
+  PageTables pt;
+  pt.init(&Pool::alloc, &pool, 0);
+  CHECK(pt.map_4k(0x400000, 0x9000, arch::x86_64::kMapUser));
+  CHECK(pt.map_4k(0x401000, 0xa000, arch::x86_64::kMapUser));
+  CHECK(pt.map_4k(0x7ffffffff000ull, 0xb000, arch::x86_64::kMapUser));
+  CHECK(pt.map_4k(0xffffffff80000000ull, 0xc000, 0));  // верхняя половина — не трогать
+  Freed f;
+  pt.destroy_lower_half(&Freed::free, &f);
+  // 3 листа + (PDPT+PD+PT) для 0x400000 + (PDPT+PD+PT) для 0x7ffffffff000.
+  CHECK(f.count == 3 + 3 + 3);
+  uint64_t phys = 0, flags = 0;
+  CHECK(!pt.translate(0x400000, &phys, &flags));
+  CHECK(pt.translate(0xffffffff80000000ull, &phys, &flags) && phys == 0xc000);
+}

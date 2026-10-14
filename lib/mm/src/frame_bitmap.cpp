@@ -38,28 +38,41 @@ void FrameBitmap::mark_used(uint64_t base, uint64_t length) {
 }
 
 Result<uint64_t, FrameError> FrameBitmap::alloc(uint64_t count, uint64_t align_frames) {
-  return alloc_below(~uint64_t{0}, count, align_frames);
+  // Сначала выше preferred_start_ (память ниже дефицитна: код запуска AP и т.п.).
+  if (preferred_start_ != 0) {
+    auto r = alloc_from(preferred_start_, frame_count_, count, align_frames);
+    if (r.is_ok() || r.error() != FrameError::OutOfMemory) return r;
+  }
+  return alloc_from(0, frame_count_, count, align_frames);
 }
+
+void FrameBitmap::set_preferred_start(uint64_t phys) { preferred_start_ = phys / kFrameSize; }
 
 Result<uint64_t, FrameError> FrameBitmap::alloc_below(uint64_t limit_phys, uint64_t count,
                                                       uint64_t align_frames) {
+  uint64_t limit = limit_phys / kFrameSize;
+  return alloc_from(0, limit > frame_count_ ? frame_count_ : limit, count, align_frames);
+}
+
+Result<uint64_t, FrameError> FrameBitmap::alloc_from(uint64_t start_frame, uint64_t limit,
+                                                     uint64_t count, uint64_t align_frames) {
   using R = Result<uint64_t, FrameError>;
   if (count == 0 || align_frames == 0 || (align_frames & (align_frames - 1)) != 0) {
     return R::err(FrameError::InvalidArgument);
   }
   if (count > free_count_) return R::err(FrameError::OutOfMemory);
-  uint64_t limit = limit_phys / kFrameSize;
-  if (limit > frame_count_) limit = frame_count_;
-
   size_t words = words_for(frame_count_);
   if (count == 1 && align_frames == 1 && limit == frame_count_) {
-    // Быстрый путь: первое ненулевое слово начиная с подсказки.
-    for (size_t k = 0; k < words; ++k) {
-      size_t w = (hint_ + k) % words;
+    // Быстрый путь: первое ненулевое слово начиная с подсказки (не ниже start).
+    size_t first = static_cast<size_t>(start_frame / 64);
+    size_t span = words - first;
+    size_t from = hint_ >= first ? hint_ : first;
+    for (size_t k = 0; k < span; ++k) {
+      size_t w = first + (from - first + k) % span;
       if (words_[w] == 0) continue;
       uint64_t bit = static_cast<uint64_t>(__builtin_ctzll(words_[w]));
       uint64_t f = w * 64 + bit;
-      if (f >= frame_count_) continue;
+      if (f >= frame_count_ || f < start_frame) continue;
       clear(f);
       --free_count_;
       hint_ = w;
@@ -69,7 +82,8 @@ Result<uint64_t, FrameError> FrameBitmap::alloc_below(uint64_t limit_phys, uint6
   }
 
   // Непрерывный участок: линейный поиск по выровненным стартам.
-  for (uint64_t start = 0; start + count <= limit; start += align_frames) {
+  uint64_t first_start = (start_frame + align_frames - 1) / align_frames * align_frames;
+  for (uint64_t start = first_start; start + count <= limit; start += align_frames) {
     uint64_t run = 0;
     while (run < count && test(start + run)) ++run;
     if (run == count) {

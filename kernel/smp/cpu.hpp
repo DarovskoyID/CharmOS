@@ -18,6 +18,9 @@ inline constexpr uint32_t kMaxHeldLocks = 8;
 
 struct Cpu {
   Cpu* self;  // gs:0 — обязательно первое поле
+  // Используются syscall_entry.S по фиксированным смещениям (см. static_assert).
+  uint64_t kernel_rsp;  // gs:8 — вершина стека ядра текущего потока
+  uint64_t user_rsp;    // gs:16 — RSP пользователя на время входа в syscall
   uint32_t index;
   uint32_t apic_id;
   volatile bool online;
@@ -29,6 +32,9 @@ struct Cpu {
   const sync::Spinlock* held[kMaxHeldLocks];
   uint32_t held_count;
 };
+
+static_assert(__builtin_offsetof(Cpu, kernel_rsp) == 8);
+static_assert(__builtin_offsetof(Cpu, user_rsp) == 16);
 
 // Структура текущего процессора. До smp::early_init — недоступна.
 inline Cpu& this_cpu() {

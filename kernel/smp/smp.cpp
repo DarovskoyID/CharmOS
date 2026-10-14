@@ -10,6 +10,7 @@
 #include "../mm/stack.hpp"
 #include "../mm/vmm.hpp"
 #include "../platform/platform.hpp"
+#include "../proc/syscall.hpp"
 #include "../sched/sched.hpp"
 
 extern "C" const char ap_trampoline_start[], ap_trampoline_end[];
@@ -87,6 +88,7 @@ void late_init_bsp() {
   alloc_ist_stacks(c);
   c.apic_id = platform::local_apic().id();
   arch::x86_64::set_interrupt_handler(platform::kVectorWakeup, &wakeup_ipi_handler);
+  proc::init_syscall_this_cpu();
 }
 
 void start_aps() {
@@ -178,6 +180,7 @@ extern "C" void ap_entry(kernel::smp::Cpu* c) {
   arch::x86_64::load_idt();
   smp::install_gs(c);
   platform::init_this_cpu();
+  proc::init_syscall_this_cpu();
   kprint("smp: cpu {} online (apic {})\n", c->index, c->apic_id);
   __atomic_store_n(&c->online, true, __ATOMIC_RELEASE);
   sched::init_this_cpu(sched::kTickHz);

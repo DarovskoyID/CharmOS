@@ -86,6 +86,13 @@ void vmm_init(const abi::boot::BootInfo& info) {
     mapped += r.length;
   }
 
+  // Вся верхняя половина PML4 заполняется сразу: дальше отображения ядра
+  // добавляются только на нижних уровнях, и копии этих записей в адресных
+  // пространствах процессов не устаревают.
+  for (size_t i = 256; i < 512; ++i) {
+    if (!g_tables.ensure_pml4_entry(i)) panic("vmm: no memory for kernel PML4 entries");
+  }
+
   arch::x86_64::write_cr3(g_tables.root());
   kprint("vmm: kernel tables active, HHDM {} MiB, identity map dropped\n", mapped >> 20);
 }

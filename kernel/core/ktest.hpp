@@ -12,6 +12,8 @@ namespace kernel::ktest {
 
 // Запоминает выбранный тест. Вызывать до первого исключения.
 void select(const Cmdline& cmdline);
+// initrd из BootInfo (физ. адрес и размер; 0 — нет) — для тестов процессов.
+void set_initrd(uint64_t phys, uint64_t size);
 lib::core::StringView selected();
 
 // Тесты, которые вызывают исключение, ожидают его здесь.

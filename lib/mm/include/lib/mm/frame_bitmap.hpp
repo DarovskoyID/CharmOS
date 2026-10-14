@@ -45,6 +45,10 @@ class FrameBitmap {
   // DoubleFree, фреймы при этом не меняются.
   lib::core::Status<FrameError> free(uint64_t phys, uint64_t count = 1);
 
+  // Обычные alloc() сначала ищут не ниже phys (память под ним бережётся для
+  // alloc_below); если там пусто — ищут везде.
+  void set_preferred_start(uint64_t phys);
+
   bool is_free(uint64_t phys) const;
   uint64_t free_frames() const { return free_count_; }
   uint64_t frame_count() const { return frame_count_; }
@@ -57,7 +61,11 @@ class FrameBitmap {
   uint64_t* words_ = nullptr;
   uint64_t frame_count_ = 0;
   uint64_t free_count_ = 0;
-  uint64_t hint_ = 0;  // слово, с которого начинать поиск одиночных фреймов
+  uint64_t hint_ = 0;
+  uint64_t preferred_start_ = 0;  // во фреймах
+
+  lib::core::Result<uint64_t, FrameError> alloc_from(uint64_t start_frame, uint64_t limit,
+                                                     uint64_t count, uint64_t align_frames);  // слово, с которого начинать поиск одиночных фреймов
 };
 
 }  // namespace lib::mm

@@ -59,6 +59,7 @@ void pmm_init(const abi::boot::BootInfo& info) {
   g_frames.mark_used(bitmap_phys, bitmap_size);
   g_frames.mark_used(0, kFrameSize);  // физ. адрес 0 — признак «нет фрейма»
   g_total = g_frames.free_frames();
+  g_frames.set_preferred_start(1 << 20);  // ниже 1 МиБ — для трамплина AP
 
   kprint("pmm: {} MiB free, bitmap {} KiB at {x}\n", g_total * kFrameSize >> 20,
          bitmap_size >> 10, bitmap_phys);

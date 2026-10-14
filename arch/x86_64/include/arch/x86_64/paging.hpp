@@ -15,6 +15,9 @@ inline constexpr uint64_t kLargePageSize = 2ull << 20;
 // Права и тип кэширования листа. Промежуточные записи всегда P|RW,
 // ограничения задаются только в листе.
 inline constexpr uint64_t kMapWrite = 1ull << 1;
+// U/S: доступно из ring 3. SDM §4.6: адрес пользовательский, только если U/S=1
+// во всех записях пути, поэтому флаг ставится и в промежуточные записи.
+inline constexpr uint64_t kMapUser = 1ull << 2;
 inline constexpr uint64_t kMapCacheDisable = 1ull << 4;  // PCD: для MMIO
 inline constexpr uint64_t kMapNoExec = 1ull << 63;
 
@@ -40,9 +43,20 @@ class PageTables {
   // Физ. адрес и флаги листа, либо false, если не отображено.
   bool translate(uint64_t virt, uint64_t* phys, uint64_t* flags) const;
 
+  // Создаёт таблицу следующего уровня в PML4[index], если её нет. Ядро так
+  // заранее заполняет всю верхнюю половину: записи PML4 256..511 больше не
+  // меняются, и адресные пространства процессов копируют их один раз.
+  bool ensure_pml4_entry(size_t index);
+
+  // Освобождает нижнюю половину (PML4 0..255): каждый лист 4 КиБ — через
+  // free_page (это страницы процесса), каждую таблицу — тоже. Большие
+  // страницы в нижней половине не поддерживаются (процессы их не получают).
+  using PageFree = void (*)(void* ctx, uint64_t phys);
+  void destroy_lower_half(PageFree free_page, void* ctx);
+
  private:
   uint64_t* table(uint64_t phys) const;
-  uint64_t* next_table(uint64_t* table, size_t index);
+  uint64_t* next_table(uint64_t* table, size_t index, bool user);
 
   PageAllocator alloc_ = nullptr;
   void* ctx_ = nullptr;

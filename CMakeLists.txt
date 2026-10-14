@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-# Суперсборка: каждая цель (uefi, kernel, host, позже user) собирается
+# Суперсборка: каждая цель (uefi, kernel, user, host) собирается
 # отдельным подпроектом со своим toolchain-файлом.
 # Подпроект узнаётся по CHARMOS_TARGET.
 
@@ -24,6 +24,8 @@ if(NOT DEFINED CHARMOS_TARGET)
     -DCMAKE_TOOLCHAIN_FILE=${CMAKE_SOURCE_DIR}/cmake/toolchain-uefi.cmake)
   charmos_subbuild(kernel
     -DCMAKE_TOOLCHAIN_FILE=${CMAKE_SOURCE_DIR}/cmake/toolchain-kernel.cmake)
+  charmos_subbuild(user
+    -DCMAKE_TOOLCHAIN_FILE=${CMAKE_SOURCE_DIR}/cmake/toolchain-user.cmake)
   # Хост-тесты тем же clang, что и ядро: одинаковые диагностики и встроенные трейты.
   charmos_subbuild(host -DCMAKE_BUILD_TYPE=Debug
     -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++)
@@ -46,6 +48,8 @@ if(CHARMOS_TARGET STREQUAL "uefi")
   add_subdirectory(boot/uefi)
 elseif(CHARMOS_TARGET STREQUAL "kernel")
   add_subdirectory(kernel)
+elseif(CHARMOS_TARGET STREQUAL "user")
+  add_subdirectory(user)
 elseif(CHARMOS_TARGET STREQUAL "host")
   enable_testing()
   add_subdirectory(tests/host)
