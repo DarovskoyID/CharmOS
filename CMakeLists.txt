@@ -29,6 +29,9 @@ endif()
 project(CharmOS-${CHARMOS_TARGET} LANGUAGES C CXX ASM)
 include(${CMAKE_SOURCE_DIR}/cmake/flags.cmake)
 
+add_library(abi INTERFACE)
+target_include_directories(abi INTERFACE ${CMAKE_SOURCE_DIR}/include)
+
 add_subdirectory(lib/core)
 
 if(CHARMOS_TARGET STREQUAL "uefi")
