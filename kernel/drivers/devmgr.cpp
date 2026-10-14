@@ -8,9 +8,11 @@
 #include "../ipc/ipc.hpp"
 #include "../mm/heap.hpp"
 #include "../mm/layout.hpp"
+#include "../pci/iommu.hpp"
 #include "../pci/pci.hpp"
 #include "../proc/process.hpp"
 #include "../sched/sched.hpp"
+#include "../sync/spinlock.hpp"
 
 namespace kernel::devmgr {
 
@@ -29,7 +31,10 @@ struct Binding {
   uint32_t pci_index;
   const Driver* driver;
   volatile DriverStats stats;
+  proc::Process* running;  // под g_lock: процесс текущего запуска, пока не освобождён
 };
+
+constinit sync::Spinlock g_lock{sync::LockRank::DevMgr, "devmgr"};
 
 constinit Driver g_drivers[kMaxDrivers] = {};
 constinit uint32_t g_driver_count = 0;
@@ -92,6 +97,22 @@ const Driver* best_driver(const pci::Function& f) {
   return best;
 }
 
+void forget_process(void* arg) {
+  sync::SpinGuard guard(g_lock);
+  static_cast<Binding*>(arg)->running = nullptr;
+}
+
+// Ошибка трансляции DMA (docs/abi/driver.md §5): устройство гасится, драйвер
+// убивается, надзиратель перезапускает его как после любого падения.
+void on_dma_fault(uint32_t pci_index, uint64_t, uint8_t) {
+  pci::set_command_bits(pci::function(pci_index), 0, pci::kCommandBusMaster);
+  sync::SpinGuard guard(g_lock);
+  for (uint32_t i = 0; i < g_binding_count; ++i) {
+    Binding& b = g_bindings[i];
+    if (b.pci_index == pci_index && b.running != nullptr) proc::request_kill(b.running);
+  }
+}
+
 void supervise(void* arg) {
   auto* b = static_cast<Binding*>(arg);
   const pci::Function& f = pci::function(b->pci_index);
@@ -114,8 +135,12 @@ void supervise(void* arg) {
       ipc::release_detached(kernel_end);
       break;
     }
+    {
+      sync::SpinGuard guard(g_lock);
+      b->running = p.value();
+    }
     b->stats.runs = b->stats.runs + 1;
-    int64_t code = proc::wait_process(p.value());
+    int64_t code = proc::wait_process(p.value(), &forget_process, b);
     ipc::release_detached(kernel_end);
     b->stats.last_exit = code;
     if (code == proc::kExitKilled) b->stats.killed = b->stats.killed + 1;
@@ -144,6 +169,7 @@ void start(uint64_t initrd_phys, uint64_t initrd_size) {
     return;
   }
   load_manifests(archive);
+  pci::iommu::set_fault_handler(&on_dma_fault);
   kprint("devmgr: {} driver manifests\n", g_driver_count);
   for (uint32_t i = 0; i < pci::function_count(); ++i) {
     const Driver* d = best_driver(pci::function(i));

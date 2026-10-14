@@ -34,6 +34,7 @@ struct Process {
   ipc::ProcessIpc ipc;
   uint32_t cpu;               // где исполняется поток процесса (не мигрирует)
   uint32_t bootstrap_handle;  // RDI при старте (docs/abi/syscalls.md §7), 0 — нет
+  bool kill_requested;        // ядро решило убить процесс (см. request_kill)
 };
 
 // bootstrap — отсоединённая капабилити стартового канала (или nullptr);
@@ -44,7 +45,16 @@ lib::core::Result<Process*, ProcError> spawn_process(lib::core::StringView name,
                                                      ipc::Cap* bootstrap = nullptr);
 
 // Ждёт завершения, освобождает структуру процесса и возвращает код.
-int64_t wait_process(Process* p);
+// before_free(ctx) вызывается после завершения, но до освобождения.
+int64_t wait_process(Process* p, void (*before_free)(void*) = nullptr, void* ctx = nullptr);
+
+// Просит убить процесс (код kExitKilled). Можно из прерывания. Поток процесса
+// завершится при ближайшем выходе из системного вызова или по тику таймера в
+// ring 3; поток, заблокированный без срока, — когда проснётся.
+void request_kill(Process* p);
+// Из обработчиков, вернувшихся бы в ring 3: завершает текущий процесс, если
+// его просили убить.
+void check_kill();
 
 Process* current_process();
 

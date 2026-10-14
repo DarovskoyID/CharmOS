@@ -9,6 +9,7 @@
 #include "../mm/vmm.hpp"
 #include "../mm/stack.hpp"
 #include "../drivers/devmgr.hpp"
+#include "../pci/iommu.hpp"
 #include "../pci/pci.hpp"
 #include "../platform/platform.hpp"
 #include "../ipc/ipc.hpp"
@@ -676,6 +677,12 @@ void test_drivers() {
   if (!s.bound) fail("no driver bound to edu");
   if (!s.finished) fail("supervisor did not finish");
   if (s.runs != devmgr::kMaxRestarts + 1 || s.killed != s.runs) fail("wrong restart count");
+  // С IOMMU каждый запуск кончается ошибкой трансляции его же DMA.
+  if (pci::iommu::active()) {
+    uint64_t faults = pci::iommu::fault_count();
+    kprint("ktest: iommu faults={}\n", faults);
+    if (faults < s.runs) fail("fewer IOMMU faults than driver runs");
+  }
   pass();
 }
 

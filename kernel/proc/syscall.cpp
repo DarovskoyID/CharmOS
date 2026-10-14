@@ -158,6 +158,12 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
     case Number::InterruptAck:
       set_result(f, kernel::ipc::sys_interrupt_ack(static_cast<uint32_t>(f.rdi)));
       break;
+    case Number::DmaAlloc: {
+      uint64_t v = 0;
+      set_result(f, kernel::ipc::sys_dma_alloc(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, f.r10,
+                                               &v), v);
+      break;
+    }
     case Number::ObjectBind:
       set_result(f, kernel::ipc::sys_object_bind(static_cast<uint32_t>(f.rdi),
                                                  static_cast<uint32_t>(f.rsi), f.rdx));
@@ -170,6 +176,7 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
   // пользователя (SDM Vol. 2B, SYSRET). Адрес возврата из нижней половины
   // каноничен; иное возможно, только если SYSCALL стоял в самом конце нижней
   // половины, — такой процесс завершаем.
+  check_kill();
   if (f.rip >= abi::syscall::kUserTop) {
     kernel::kprint("proc: {} returned to non-canonical rip {X}, killed\n",
                    current_process()->name, f.rip);

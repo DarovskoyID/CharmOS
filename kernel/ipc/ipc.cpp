@@ -7,6 +7,7 @@
 #include "../mm/heap.hpp"
 #include "../mm/layout.hpp"
 #include "../mm/pmm.hpp"
+#include "../pci/iommu.hpp"
 #include "../pci/pci.hpp"
 #include "../platform/platform.hpp"
 #include "../proc/process.hpp"
@@ -70,6 +71,8 @@ struct Vmo {
   uint64_t pages;
   uint64_t* frames;
   bool mmio;  // BAR устройства: некэшируемо, фреймы не принадлежат VMO
+  struct Device* dma_dev;  // DMA-буфер: устройство (держит ссылку), в чьём домене он виден
+  uint64_t iova;           // адрес буфера для устройства
 };
 
 struct Interrupt;
@@ -78,6 +81,7 @@ struct Device {
   Object base;
   uint32_t pci_index;
   Interrupt* irq;  // не больше одного живого объекта прерывания
+  pci::iommu::Domain* domain;  // nullptr — IOMMU нет или функцию он не обслуживает
 };
 
 struct Interrupt {
@@ -121,6 +125,8 @@ struct Mapping {
 namespace {
 
 constinit sync::Spinlock g_lock{sync::LockRank::Ipc, "ipc"};
+// Последний созданный объект Device для функции PCI (под g_lock).
+constinit Device* g_current_device[pci::kMaxFunctions] = {};
 
 // Снятые отображения, чьи страницы ещё могут быть в TLB других CPU. Объекты
 // освобождаются после smp::flush_tlb для всех CPU из cpus.
@@ -248,9 +254,15 @@ void release_object(Object* obj) {
   if (--obj->refs != 0) return;
   if (obj->type == Type::Vmo) {
     auto* v = reinterpret_cast<Vmo*>(obj);
+    // DMA-буфер: сначала устройство теряет к нему доступ (с инвалидацией IOTLB).
+    if (v->dma_dev != nullptr && v->dma_dev->domain != nullptr && v->iova != 0) {
+      pci::iommu::unmap(v->dma_dev->domain, v->iova, v->pages);
+    }
     for (uint64_t i = 0; i < v->pages && !v->mmio; ++i) mm::free_frames(v->frames[i]);
     mm::kfree(v->frames);
+    Device* dev = v->dma_dev;
     mm::kfree(v);
+    if (dev != nullptr) release_object(&dev->base);
     return;
   }
   if (obj->type == Type::Port) {
@@ -272,9 +284,14 @@ void release_object(Object* obj) {
     return;
   }
   if (obj->type == Type::Device) {
-    // Драйвер ушёл: устройство перестаёт обращаться к памяти и шине.
-    pci::set_command_bits(pci::function(reinterpret_cast<Device*>(obj)->pci_index), 0,
-                          pci::kCommandBusMaster);
+    auto* d = reinterpret_cast<Device*>(obj);
+    // Драйвер ушёл: устройство перестаёт обращаться к памяти и шине — если
+    // функцией уже не управляет следующий запуск драйвера.
+    if (g_current_device[d->pci_index] == d) {
+      pci::set_command_bits(pci::function(d->pci_index), 0, pci::kCommandBusMaster);
+      g_current_device[d->pci_index] = nullptr;
+    }
+    if (d->domain != nullptr) pci::iommu::domain_destroy(d->domain);
     mm::kfree(obj);
     return;
   }
@@ -967,14 +984,29 @@ Status create_device(uint32_t pci_index, Cap** out) {
   if (d == nullptr) return Status::NoMemory;
   d->base.type = Type::Device;
   d->pci_index = pci_index;
-  // Декодирование памяти включено; Bus Master — только вместе с DMA (IOMMU).
+  // Декодирование памяти включено; Bus Master — только вместе с MSI или DMA.
   pci::set_command_bits(pci::function(pci_index), pci::kCommandMemory, pci::kCommandBusMaster);
+  // Свой домен IOMMU, пока пустой: устройство не видит никакой памяти
+  // (docs/abi/driver.md §5). Прежний запуск драйвера теряет функцию.
+  if (pci::iommu::active()) {
+    d->domain = pci::iommu::domain_create();
+    if (d->domain == nullptr) {
+      mm::kfree(d);
+      return Status::NoMemory;
+    }
+    if (!pci::iommu::attach(d->domain, pci_index)) {
+      pci::iommu::domain_destroy(d->domain);
+      d->domain = nullptr;
+    }
+  }
   sync::SpinGuard guard(g_lock);
   Cap* c = new_cap(&d->base, rights::kDeviceDefault, nullptr);
   if (c == nullptr) {
+    if (d->domain != nullptr) pci::iommu::domain_destroy(d->domain);
     mm::kfree(d);
     return Status::NoMemory;
   }
+  g_current_device[pci_index] = d;
   *out = c;
   return Status::Ok;
 }
@@ -1014,6 +1046,15 @@ Status install_new(Object* obj, uint32_t r, uint64_t* out) {
 
 }  // namespace
 
+namespace {
+
+// DMA выдаётся только в домен IOMMU, без него — лишь при явном iommu=off.
+bool dma_available(const Device* d) {
+  return d->domain != nullptr || pci::iommu::disabled_by_cmdline();
+}
+
+}  // namespace
+
 Status sys_device_info(uint32_t h, uint64_t user_out) {
   abi::syscall::DeviceInfo info = {};
   {
@@ -1031,7 +1072,7 @@ Status sys_device_info(uint32_t h, uint64_t user_out) {
     info.device_id = f.device_id;
     info.class_code = f.class_code;
     info.irq_count = f.msi_cap != 0 ? 1 : 0;
-    info.flags = 0;  // DMA — вместе с IOMMU
+    info.flags = dma_available(d) ? abi::syscall::kDeviceDma : 0;
     for (int i = 0; i < 6; ++i) {
       switch (f.bars[i].kind) {
         case pci::BarKind::Mem32: info.bar_kind[i] = abi::syscall::kBarMem32; break;
@@ -1116,9 +1157,9 @@ Status sys_device_irq(uint32_t h, uint64_t index, uint64_t* out) {
   g_vector_irq[vector] = irq;
   irq->hw_mask = pci::msi_set_mask(f, false);
   pci::msi_enable(f, smp::cpu(0).apic_id, vector);
-  // Сообщение MSI — запись устройства в память, без Bus Master его нет.
-  // ВРЕМЕННО: пока IOMMU не подключён, это же открывает устройству DMA в любую
-  // память; с IOMMU устройство будет в пустом домене до dma_alloc.
+  // Сообщение MSI — запись устройства в память, без Bus Master его нет. С
+  // IOMMU устройство при этом видит только свой домен (MSI идут мимо
+  // трансляции DMA). Без IOMMU изоляции DMA нет вовсе (DRIVERS.md §2.1).
   pci::set_command_bits(f, pci::kCommandBusMaster, 0);
   return Status::Ok;
 }
@@ -1133,6 +1174,90 @@ Status sys_interrupt_ack(uint32_t h) {
   irq->masked = false;
   if (irq->hw_mask) pci::msi_set_mask(pci::function(irq->dev->pci_index), false);
   if (irq->pending != 0 && irq->bound != nullptr) deliver(irq);
+  return Status::Ok;
+}
+
+Status sys_dma_alloc(uint32_t h, uint64_t size, uint64_t flags, uint64_t user_addr,
+                     uint64_t* out) {
+  if (size == 0 || size % kPageSize != 0 || size > abi::syscall::kVmoMaxSize) {
+    return Status::InvalidArgs;
+  }
+  if ((flags & ~abi::syscall::kDmaContiguous) != 0) return Status::InvalidArgs;
+  // Адрес результата проверяется до выделения: потом откатывать нечего.
+  uint64_t zero = 0;
+  if (!proc::copy_to_user(user_addr, &zero, sizeof zero)) return Status::BadAddress;
+  {
+    sync::SpinGuard guard(g_lock);
+    Status s;
+    Device* d = device_from(h, rights::kMap, &s);
+    if (d == nullptr) return s;
+    if (!dma_available(d)) return Status::NotSupported;
+  }
+  uint64_t pages = size / kPageSize;
+  // Без IOMMU адрес для устройства — физический: буфер обязан быть непрерывным.
+  bool contiguous = (flags & abi::syscall::kDmaContiguous) != 0 || !pci::iommu::active();
+  auto* v = alloc_zeroed<Vmo>(sizeof(Vmo));
+  auto* frames = alloc_zeroed<uint64_t>(pages * sizeof(uint64_t));
+  if (v == nullptr || frames == nullptr) {
+    if (v != nullptr) mm::kfree(v);
+    if (frames != nullptr) mm::kfree(frames);
+    return Status::NoMemory;
+  }
+  uint64_t got = 0;
+  if (contiguous) {
+    auto f = mm::alloc_frames(pages);
+    if (f.is_ok()) {
+      for (; got < pages; ++got) frames[got] = f.value() + got * kPageSize;
+    }
+  } else {
+    for (; got < pages; ++got) {
+      auto f = mm::alloc_frames();
+      if (f.is_err()) break;
+      frames[got] = f.value();
+    }
+  }
+  if (got != pages) {
+    for (uint64_t k = 0; k < got; ++k) mm::free_frames(frames[k]);
+    mm::kfree(frames);
+    mm::kfree(v);
+    return Status::NoMemory;
+  }
+  for (uint64_t i = 0; i < pages; ++i) {
+    __builtin_memset(mm::phys_to_virt<void>(frames[i]), 0, kPageSize);
+  }
+  v->base.type = Type::Vmo;
+  v->size = size;
+  v->pages = pages;
+  v->frames = frames;
+
+  uint64_t device_addr;
+  {
+    sync::SpinGuard guard(g_lock);
+    Status s;
+    Device* d = device_from(h, rights::kMap, &s);  // хендл могли закрыть
+    if (d == nullptr) {
+      v->base.refs = 1;
+      release_object(&v->base);
+      return s;
+    }
+    if (d->domain != nullptr) {
+      v->iova = pci::iommu::map(d->domain, frames, pages, true);
+      if (v->iova == 0) {
+        v->base.refs = 1;
+        release_object(&v->base);
+        return Status::NoMemory;
+      }
+      device_addr = v->iova;
+    } else {
+      device_addr = frames[0];  // iommu=off
+    }
+    v->dma_dev = d;
+    ++d->base.refs;
+    s = install_new(&v->base, rights::kVmoDefault, out);
+    if (s != Status::Ok) return s;  // install_new освободил VMO, а с ним ссылку и IOVA
+    pci::set_command_bits(pci::function(d->pci_index), pci::kCommandBusMaster, 0);
+  }
+  if (!proc::copy_to_user(user_addr, &device_addr, sizeof device_addr)) return Status::BadAddress;
   return Status::Ok;
 }
 

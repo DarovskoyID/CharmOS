@@ -5,7 +5,8 @@ using namespace charm;
 
 extern "C" int64_t charm_main() {
   auto ver = abi_version();
-  EXPECT(ver.ok() && ver.value == ((1u << 16) | 1u));
+  // Минорные версии совместимы снизу вверх: нужна 1.1 или новее.
+  EXPECT(ver.ok() && (ver.value >> 16) == 1 && (ver.value & 0xffff) >= 1);
 
   Handle ch[2];
   EXPECT(channel_create(ch) == Status::Ok);

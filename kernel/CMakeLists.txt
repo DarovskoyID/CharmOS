@@ -17,6 +17,7 @@ add_executable(kernel
   sync/spinlock.cpp
   sync/wait.cpp
   pci/pci.cpp
+  pci/iommu.cpp
   platform/platform.cpp
   proc/process.cpp
   proc/syscall.cpp

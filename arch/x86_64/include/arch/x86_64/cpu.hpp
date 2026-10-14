@@ -39,6 +39,12 @@ inline void invlpg(uint64_t virt) { asm volatile("invlpg (%0)" : : "r"(virt) : "
 inline void cli() { asm volatile("cli" ::: "memory"); }
 inline void sti() { asm volatile("sti" ::: "memory"); }
 inline void pause() { asm volatile("pause"); }
+// Выталкивает строку кэша с addr в память (SDM Vol. 2A, CLFLUSH). Порядок
+// относительно других записей — только через mfence (там же).
+inline void clflush(const volatile void* addr) {
+  asm volatile("clflush (%0)" : : "r"(addr) : "memory");
+}
+inline void mfence() { asm volatile("mfence" ::: "memory"); }
 
 inline uint64_t read_rbp() {
   uint64_t v;

@@ -122,8 +122,9 @@ Result<Process*, ProcError> spawn_process(StringView name, const void* elf, size
   return R::ok(p);
 }
 
-int64_t wait_process(Process* p) {
+int64_t wait_process(Process* p, void (*before_free)(void*), void* ctx) {
   p->exited.down();
+  if (before_free != nullptr) before_free(ctx);
   int64_t code = p->exit_code;
   free_process(p);
   return code;
@@ -143,6 +144,15 @@ void exit_current(int64_t code) {
   p->exit_code = code;
   p->exited.up();  // после этого p может быть освобождён ожидающим
   sched::exit_thread();
+}
+
+void request_kill(Process* p) { __atomic_store_n(&p->kill_requested, true, __ATOMIC_RELEASE); }
+
+void check_kill() {
+  Process* p = current_process();
+  if (p == nullptr || !__atomic_load_n(&p->kill_requested, __ATOMIC_ACQUIRE)) return;
+  kprint("proc: {} (pid {}) killed by kernel request\n", p->name, p->pid);
+  exit_current(kExitKilled);
 }
 
 void kill_current(const arch::x86_64::InterruptFrame& f) {

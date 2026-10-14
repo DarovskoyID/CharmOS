@@ -1,0 +1,17 @@
+# M5: IOMMU Intel VT-d. Драйвер edu в своём домене делает DMA в обе стороны
+# через буфер dma_alloc, затем пишет мимо домена: ошибка трансляции, ядро
+# гасит устройство, убивает драйвер и перезапускает его (5 раз, затем сдаётся).
+iommu: VT-d active, 1 units
+devmgr: 0:3.0 0x1234:0x11e8 -> edu
+[edu] edu: MMIO ok, factorial via MSI ok
+[edu] edu: DMA both ways via IOMMU ok
+iommu: fault 0:3.0: write not permitted at 0x8000000
+proc: edu (pid 1) killed by kernel request
+devmgr: edu on 0:3.0 exited with -1000 (run 1)
+[edu] edu: DMA both ways via IOMMU ok
+iommu: fault 0:3.0
+devmgr: edu on 0:3.0 exited with -1000 (run 6)
+devmgr: edu on 0:3.0 failed 6 times, giving up
+ktest: edu driver bound=true runs=6 killed=6 finished=true
+ktest: iommu faults=
+ktest: PASS drivers

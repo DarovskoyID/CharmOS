@@ -133,4 +133,33 @@ struct McfgInfo {
 
 lib::core::Status<AcpiError> parse_mcfg(const SdtHeader* mcfg, McfgInfo* out);
 
+// DMAR — блоки DMA remapping (docs/specs/vtd-5.2.pdf §8.1–8.3): заголовок 36
+// байт, HAW−1 по смещению 36, флаги по 37, структуры с 48. Разбираются только
+// DRHD (тип 0); остальные структуры пропускаются.
+struct DmarEndpoint {
+  uint8_t bus;
+  uint8_t device;
+  uint8_t function;
+};
+
+struct DmarUnit {
+  static constexpr size_t kMaxEndpoints = 16;
+  uint64_t register_base;
+  uint16_t segment;
+  bool include_all;     // INCLUDE_PCI_ALL: все устройства сегмента без своего блока
+  bool partial_scope;   // в области есть мосты или пути длиннее одного шага — не поддержаны
+  size_t endpoint_count;
+  DmarEndpoint endpoints[kMaxEndpoints];
+};
+
+struct DmarInfo {
+  static constexpr size_t kMaxUnits = 8;
+  uint8_t host_address_width;  // HAW (в таблице хранится HAW − 1)
+  uint8_t flags;
+  size_t count;
+  DmarUnit units[kMaxUnits];
+};
+
+lib::core::Status<AcpiError> parse_dmar(const SdtHeader* dmar, DmarInfo* out);
+
 }  // namespace lib::acpi

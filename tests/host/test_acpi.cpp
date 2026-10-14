@@ -204,3 +204,42 @@ TEST(acpi_parse_mcfg) {
   reinterpret_cast<SdtHeader*>(t)->length = 36 + 8 + 20;  // не кратно записи
   CHECK(parse_mcfg(reinterpret_cast<const SdtHeader*>(t), &info).error() == AcpiError::BadLength);
 }
+
+TEST(acpi_parse_dmar) {
+  // Заголовок 48 байт; DRHD с INCLUDE_PCI_ALL (как у QEMU intel-iommu);
+  // DRHD с одной конечной точкой 0:2.0 и одним мостом; RMRR (тип 1) пропускается.
+  alignas(8) uint8_t t[48 + 16 + (16 + 8 + 10) + 24] = {};
+  t[36] = 38;  // HAW − 1
+  t[37] = 1;
+  uint8_t* d = t + 48;
+  d[0] = 0;
+  d[2] = 16;
+  d[4] = 1;
+  uint64_t base0 = 0xfed90000;
+  std::memcpy(d + 8, &base0, 8);
+  d += 16;
+  d[0] = 0;
+  d[2] = 16 + 8 + 10;
+  d[6] = 1;  // сегмент 1
+  uint64_t base1 = 0xfed91000;
+  std::memcpy(d + 8, &base1, 8);
+  uint8_t ep[8] = {1, 8, 0, 0, 0, 0, 2, 0};  // конечная точка 0:2.0
+  std::memcpy(d + 16, ep, 8);
+  uint8_t br[10] = {2, 10, 0, 0, 0, 0, 1, 0, 0, 0};  // мост, путь из двух шагов
+  std::memcpy(d + 24, br, 10);
+  d += 34;
+  d[0] = 1;
+  d[2] = 24;
+  init_header(t, "DMAR", sizeof t);
+  DmarInfo info;
+  CHECK(parse_dmar(reinterpret_cast<const SdtHeader*>(t), &info).is_ok());
+  CHECK(info.host_address_width == 39 && info.flags == 1);
+  CHECK(info.count == 2);
+  CHECK(info.units[0].include_all && info.units[0].register_base == base0);
+  CHECK(info.units[0].endpoint_count == 0 && !info.units[0].partial_scope);
+  CHECK(!info.units[1].include_all && info.units[1].segment == 1);
+  CHECK(info.units[1].endpoint_count == 1 && info.units[1].endpoints[0].device == 2);
+  CHECK(info.units[1].partial_scope);
+  t[48 + 2] = 200;  // длина структуры за концом таблицы
+  CHECK(parse_dmar(reinterpret_cast<const SdtHeader*>(t), &info).error() == AcpiError::BadLength);
+}

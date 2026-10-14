@@ -136,4 +136,9 @@ inline Status object_bind(Handle port, Handle h, uint64_t key) {
   return syscall3(Number::ObjectBind, port, h, key).status;
 }
 
+// DMA-буфер устройства (docs/abi/driver.md §5): VMO и адрес для устройства.
+inline SysResult dma_alloc(Handle dev, uint64_t size, uint64_t flags, uint64_t* device_addr) {
+  return syscall5(Number::DmaAlloc, dev, size, flags, reinterpret_cast<uint64_t>(device_addr), 0);
+}
+
 }  // namespace charm

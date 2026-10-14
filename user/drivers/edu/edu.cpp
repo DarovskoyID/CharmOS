@@ -1,6 +1,8 @@
-// Драйвер учебного устройства QEMU edu (docs/specs/qemu-edu.rst), M5.1–5.2:
-// MMIO через BAR0 и прерывание MSI через порт. После проверок намеренно
-// падает — тест перезапуска драйвера ядром (docs/abi/driver.md §8).
+// Драйвер учебного устройства QEMU edu (docs/specs/qemu-edu.rst), M5:
+// MMIO через BAR0, прерывание MSI через порт, DMA через буфер dma_alloc.
+// После проверок намеренно ломается — тест перезапуска драйвера ядром
+// (docs/abi/driver.md §8): с IOMMU — DMA мимо своего домена (ядро убивает
+// драйвер по ошибке трансляции), без IOMMU — обращение по нулевому адресу.
 #include "../../tests/check.hpp"
 
 using namespace charm;
@@ -14,8 +16,15 @@ constexpr uint64_t kFactorial = 0x08;
 constexpr uint64_t kStatus = 0x20;
 constexpr uint64_t kIrqStatus = 0x24;
 constexpr uint64_t kIrqAck = 0x64;
+constexpr uint64_t kDmaSrc = 0x80;
+constexpr uint64_t kDmaDst = 0x88;
+constexpr uint64_t kDmaCount = 0x90;
+constexpr uint64_t kDmaCmd = 0x98;
 constexpr uint32_t kStatusIrqOnFactorial = 0x80;
 constexpr uint32_t kIrqFactorial = 0x01;
+constexpr uint64_t kDmaStart = 0x01;
+constexpr uint64_t kDmaToRam = 0x02;      // направление: из edu в память
+constexpr uint64_t kEduBuffer = 0x40000;  // внутренний буфер edu, 4096 байт
 
 }  // namespace
 
@@ -23,6 +32,8 @@ extern "C" int64_t charm_main(Handle kernel_channel) {
   char buf[16];
   Handle hs[1];
   uint32_t n, nh;
+  auto ver = abi_version();
+  EXPECT(ver.ok() && ver.value == ((1u << 16) | 2u));  // driver.md — v1.2
   EXPECT(read_msg(kernel_channel, buf, sizeof buf, hs, 1, &n, &nh) == Status::Ok);
   EXPECT(same(buf, n, "device") && nh == 1);
   Handle dev = hs[0];
@@ -68,7 +79,50 @@ extern "C" int64_t charm_main(Handle kernel_channel) {
   EXPECT(reg(kFactorial) == 3628800);
   print("edu: MMIO ok, factorial via MSI ok\n");
 
-  // Намеренное падение: ядро должно перезапустить драйвер.
-  *reinterpret_cast<volatile int*>(0) = 0;
-  return 0;
+  uint64_t dev_addr = 0;
+  if ((info.flags & abi::syscall::kDeviceDma) == 0) {
+    EXPECT(dma_alloc(dev, 4096, 0, &dev_addr).status == Status::NotSupported);
+    print("edu: no DMA without IOMMU\n");
+    // Намеренное падение: ядро должно перезапустить драйвер.
+    *reinterpret_cast<volatile int*>(0) = 0;
+    return 0;
+  }
+
+  // Регистры DMA 64-битные (qemu-edu.rst: смещения от 0x80 допускают 8 байт).
+  auto reg64 = [&](uint64_t off) -> volatile uint64_t& {
+    return reinterpret_cast<volatile uint64_t*>(map.value)[off / 8];
+  };
+  auto dma = [&](uint64_t src, uint64_t dst, uint64_t count, uint64_t cmd) {
+    reg64(kDmaSrc) = src;
+    reg64(kDmaDst) = dst;
+    reg64(kDmaCount) = count;
+    reg64(kDmaCmd) = cmd | kDmaStart;
+  };
+  auto dma_wait = [&]() {
+    uint64_t deadline = now_ns() + 2'000'000'000;
+    while ((reg64(kDmaCmd) & kDmaStart) != 0) {
+      if (now_ns() > deadline) return false;
+      yield();
+    }
+    return true;
+  };
+
+  auto dbuf = dma_alloc(dev, 4096, 0, &dev_addr);
+  EXPECT(dbuf.ok());
+  EXPECT(dev_addr != 0 && dev_addr + 4096 <= (1u << 28));  // edu: 28-битный DMA
+  auto bmap = vmo_map(static_cast<Handle>(dbuf.value), rights::kRead | rights::kWrite);
+  EXPECT(bmap.ok());
+  auto* mem = reinterpret_cast<volatile uint8_t*>(bmap.value);
+  for (uint32_t i = 0; i < 256; ++i) mem[i] = static_cast<uint8_t>(i * 7 + 1);
+  dma(dev_addr, kEduBuffer, 256, 0);  // память → edu
+  EXPECT(dma_wait());
+  dma(kEduBuffer, dev_addr + 2048, 256, kDmaToRam);  // edu → память
+  EXPECT(dma_wait());
+  for (uint32_t i = 0; i < 256; ++i) EXPECT(mem[2048 + i] == static_cast<uint8_t>(i * 7 + 1));
+  print("edu: DMA both ways via IOMMU ok\n");
+
+  // Намеренная ошибка: запись туда, где у домена ничего нет. Ядро гасит
+  // устройство и убивает драйвер, не дожидаясь его.
+  dma(kEduBuffer, 0x8000000, 256, kDmaToRam);
+  for (;;) asm volatile("" ::: "memory");  // без системных вызовов: убьёт тик таймера
 }

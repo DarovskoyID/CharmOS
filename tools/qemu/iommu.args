@@ -1,0 +1,3 @@
+# M5: IOMMU Intel VT-d (раньше остальных устройств) и учебное устройство edu.
+-device intel-iommu
+-device edu

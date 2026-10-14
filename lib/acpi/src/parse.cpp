@@ -232,4 +232,48 @@ lib::core::Status<AcpiError> parse_mcfg(const SdtHeader* mcfg, McfgInfo* out) {
   return ok();
 }
 
+lib::core::Status<AcpiError> parse_dmar(const SdtHeader* dmar, DmarInfo* out) {
+  constexpr size_t kStructsOffset = 48;
+  if (dmar->length < kStructsOffset) return fail(AcpiError::BadLength);
+  const auto* t = reinterpret_cast<const uint8_t*>(dmar);
+  *out = {};
+  out->host_address_width = static_cast<uint8_t>(t[36] + 1);
+  out->flags = t[37];
+  size_t off = kStructsOffset;
+  while (off < dmar->length) {
+    if (dmar->length - off < 4) return fail(AcpiError::BadLength);
+    uint16_t type = read<uint16_t>(t + off);
+    uint16_t len = read<uint16_t>(t + off + 2);
+    if (len < 4 || len > dmar->length - off) return fail(AcpiError::BadLength);
+    if (type == 0) {  // DRHD, §8.3
+      if (len < 16) return fail(AcpiError::BadLength);
+      if (out->count == DmarInfo::kMaxUnits) return fail(AcpiError::TooMany);
+      DmarUnit& u = out->units[out->count++];
+      u.include_all = (t[off + 4] & 1) != 0;
+      u.segment = read<uint16_t>(t + off + 6);
+      u.register_base = read<uint64_t>(t + off + 8);
+      // Device Scope, §8.3.1: тип 1, длина 1, 2 резерв, 4 нумерация, 5 стартовая
+      // шина, с 6 — пары {устройство, функция}.
+      size_t s = off + 16;
+      while (s < off + len) {
+        if (off + len - s < 6) return fail(AcpiError::BadLength);
+        uint8_t stype = t[s];
+        uint8_t slen = t[s + 1];
+        if (slen < 6 || slen > off + len - s || (slen - 6) % 2 != 0) {
+          return fail(AcpiError::BadLength);
+        }
+        if (stype == 1 && slen == 8) {
+          if (u.endpoint_count == DmarUnit::kMaxEndpoints) return fail(AcpiError::TooMany);
+          u.endpoints[u.endpoint_count++] = {t[s + 5], t[s + 6], t[s + 7]};
+        } else if (stype == 1 || stype == 2) {
+          u.partial_scope = true;
+        }
+        s += slen;
+      }
+    }
+    off += len;
+  }
+  return ok();
+}
+
 }  // namespace lib::acpi

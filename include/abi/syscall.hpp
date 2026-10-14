@@ -1,6 +1,6 @@
 #pragma once
-// Syscall ABI v1.1. Нормативные документы — docs/abi/syscalls.md (v1.0) и
-// docs/abi/ipc.md (дополнение v1.1).
+// Syscall ABI v1.2. Нормативные документы — docs/abi/syscalls.md (v1.0),
+// docs/abi/ipc.md (дополнение v1.1) и docs/abi/driver.md (дополнение v1.2).
 // Номера вызовов и коды статусов никогда не переиспользуются и не меняют смысл.
 
 #include <stdint.h>
@@ -8,7 +8,7 @@
 namespace abi::syscall {
 
 inline constexpr uint16_t kVersionMajor = 1;
-inline constexpr uint16_t kVersionMinor = 1;
+inline constexpr uint16_t kVersionMinor = 2;
 
 // §5
 enum class Number : uint64_t {
@@ -28,7 +28,7 @@ enum class Number : uint64_t {
   VmoMap = 12,
   VmoUnmap = 13,
   HandleRevoke = 14,
-  // v1.2 (docs/abi/driver.md §6). abi_version сообщает 1.2, когда готовы все.
+  // v1.2 (docs/abi/driver.md §6)
   PortCreate = 15,
   PortWait = 16,
   ObjectBind = 17,

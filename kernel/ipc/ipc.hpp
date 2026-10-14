@@ -74,5 +74,7 @@ Status sys_device_info(uint32_t dev, uint64_t user_out);
 Status sys_device_map_bar(uint32_t dev, uint64_t bar, uint64_t* out);
 Status sys_device_irq(uint32_t dev, uint64_t index, uint64_t* out);
 Status sys_interrupt_ack(uint32_t irq);
+Status sys_dma_alloc(uint32_t dev, uint64_t size, uint64_t flags, uint64_t user_addr,
+                     uint64_t* out);
 
 }  // namespace kernel::ipc
