@@ -84,6 +84,9 @@ void sleep_ns(uint64_t ns);
 // schedule(). wake может прийти в любой момент после block_current — поток
 // не потеряется.
 void block_current();
+// То же со сроком (абсолютное время now_ns): по истечении поток просыпается
+// сам. Бесконечный срок (UINT64_MAX) — обычное block_current.
+void block_current_until(uint64_t deadline_ns);
 void wake(Thread* t);
 // Переключается на следующий готовый поток. Прерывания должны быть запрещены,
 // spinlock'и — отпущены.

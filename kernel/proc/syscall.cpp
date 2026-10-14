@@ -5,6 +5,7 @@
 #include <arch/x86_64/gdt.hpp>
 
 #include "../core/log.hpp"
+#include "../ipc/ipc.hpp"
 #include "../platform/platform.hpp"
 #include "../sched/sched.hpp"
 #include "process.hpp"
@@ -92,6 +93,46 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
       break;
     case Number::Nanosleep:
       sys_nanosleep(f);
+      break;
+    case Number::HandleClose:
+      set_result(f, kernel::ipc::sys_handle_close(static_cast<uint32_t>(f.rdi)));
+      break;
+    case Number::HandleDuplicate: {
+      uint64_t v = 0;
+      set_result(f, kernel::ipc::sys_handle_duplicate(static_cast<uint32_t>(f.rdi), f.rsi, &v), v);
+      break;
+    }
+    case Number::HandleRevoke: {
+      uint64_t v = 0;
+      set_result(f, kernel::ipc::sys_handle_revoke(static_cast<uint32_t>(f.rdi), &v), v);
+      break;
+    }
+    case Number::ChannelCreate:
+      set_result(f, kernel::ipc::sys_channel_create(f.rdi));
+      break;
+    case Number::ChannelWrite:
+      set_result(f, kernel::ipc::sys_channel_write(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx,
+                                                   f.r10, f.r8));
+      break;
+    case Number::ChannelRead: {
+      uint64_t v = 0;
+      Status s = kernel::ipc::sys_channel_read(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, f.r10,
+                                               f.r8, f.r9, &v);
+      set_result(f, s, v);
+      break;
+    }
+    case Number::VmoCreate: {
+      uint64_t v = 0;
+      set_result(f, kernel::ipc::sys_vmo_create(f.rdi, &v), v);
+      break;
+    }
+    case Number::VmoMap: {
+      uint64_t v = 0;
+      set_result(f, kernel::ipc::sys_vmo_map(static_cast<uint32_t>(f.rdi), f.rsi, &v), v);
+      break;
+    }
+    case Number::VmoUnmap:
+      set_result(f, kernel::ipc::sys_vmo_unmap(f.rdi));
       break;
     default:
       set_result(f, Status::NotSupported);

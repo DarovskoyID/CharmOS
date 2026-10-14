@@ -40,6 +40,10 @@ class PageTables {
   // virt и phys оба выровнены, иначе 4 КиБ. size кратен 4 КиБ.
   bool map_range(uint64_t virt, uint64_t phys, uint64_t size, uint64_t flags);
 
+  // Снимает отображение страницы 4 КиБ (таблицы не освобождаются). Возвращает
+  // физ. адрес снятой страницы или 0, если её не было. TLB сбрасывает вызывающий.
+  uint64_t unmap_4k(uint64_t virt);
+
   // Физ. адрес и флаги листа, либо false, если не отображено.
   bool translate(uint64_t virt, uint64_t* phys, uint64_t* flags) const;
 

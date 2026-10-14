@@ -62,6 +62,13 @@ void alloc_ist_stacks(Cpu& c) {
 
 void wakeup_ipi_handler(arch::x86_64::InterruptFrame&) { platform::local_apic().eoi(); }
 
+void tlb_ipi_handler(arch::x86_64::InterruptFrame&) {
+  arch::x86_64::write_cr3(arch::x86_64::read_cr3());
+  Cpu& c = this_cpu();
+  __atomic_fetch_add(&c.tlb_flushes, 1, __ATOMIC_RELEASE);
+  platform::local_apic().eoi();
+}
+
 }  // namespace
 
 bool percpu_ready() { return g_percpu; }
@@ -88,6 +95,7 @@ void late_init_bsp() {
   alloc_ist_stacks(c);
   c.apic_id = platform::local_apic().id();
   arch::x86_64::set_interrupt_handler(platform::kVectorWakeup, &wakeup_ipi_handler);
+  arch::x86_64::set_interrupt_handler(platform::kVectorTlbFlush, &tlb_ipi_handler);
   proc::init_syscall_this_cpu();
 }
 
@@ -169,6 +177,21 @@ void start_aps() {
   }
   mm::free_frames(t, 4);
   kprint("smp: {} CPUs online\n", g_count);
+}
+
+void flush_tlb(uint32_t cpu) {
+  if (cpu == this_cpu().index) {
+    arch::x86_64::write_cr3(arch::x86_64::read_cr3());
+    return;
+  }
+  if (this_cpu().held_count != 0) panic("smp: flush_tlb while holding {}", this_cpu().held[0]->name());
+  Cpu& target = g_cpus[cpu];
+  uint64_t before = __atomic_load_n(&target.tlb_flushes, __ATOMIC_ACQUIRE);
+  platform::local_apic().send_fixed(target.apic_id, platform::kVectorTlbFlush);
+  bool irq = (arch::x86_64::read_rflags() & arch::x86_64::kRflagsIf) != 0;
+  arch::x86_64::sti();
+  while (__atomic_load_n(&target.tlb_flushes, __ATOMIC_ACQUIRE) == before) arch::x86_64::pause();
+  if (!irq) arch::x86_64::cli();
 }
 
 }  // namespace kernel::smp

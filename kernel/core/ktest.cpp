@@ -9,6 +9,7 @@
 #include "../mm/vmm.hpp"
 #include "../mm/stack.hpp"
 #include "../platform/platform.hpp"
+#include "../ipc/ipc.hpp"
 #include "../proc/process.hpp"
 #include <lib/initrd/initrd.hpp>
 #include "../smp/smp.hpp"
@@ -554,6 +555,58 @@ void test_user() {
   pass();
 }
 
+// --- капабилити и IPC (M4) ------------------------------------------------------------
+
+void test_ipc() {
+  if (g_initrd_phys == 0) fail("no initrd");
+  lib::initrd::Archive archive;
+  if (archive.open(mm::phys_to_virt<const void>(g_initrd_phys), g_initrd_size).is_err()) {
+    fail("bad initrd");
+  }
+  auto pair = [](ipc::Cap** a, ipc::Cap** b) {
+    if (ipc::create_channel(a, b) != ipc::Status::Ok) fail("create_channel");
+  };
+  ipc::Cap *ab0, *ab1, *ac0, *ac1, *pp0, *pp1;
+  pair(&ab0, &ab1);
+  pair(&ac0, &ac1);
+  pair(&pp0, &pp1);
+  // Конец A↔C попадает к A первым сообщением в его стартовом канале.
+  if (ipc::kernel_send(ab1, "ac", 2, &ac0, 1) != ipc::Status::Ok) fail("kernel_send");
+
+  struct Run {
+    const char* file;
+    ipc::Cap* bootstrap;
+    int cpu;
+    int64_t want;
+  };
+  const bool many = smp::cpu_count() >= 3;
+  const Run runs[] = {
+      {"bin/cap_a", ab0, sched::kAnyCpu, 0},
+      {"bin/cap_b", ab1, sched::kAnyCpu, proc::kExitKilled},  // тронул отозванное
+      {"bin/cap_c", ac1, sched::kAnyCpu, 0},
+      {"bin/chan", nullptr, sched::kAnyCpu, 0},
+      {"bin/ping", pp0, many ? 1 : 0, 0},
+      {"bin/pong", pp1, many ? 2 : 0, 0},
+  };
+  constexpr size_t kRuns = sizeof runs / sizeof runs[0];
+  proc::Process* procs[kRuns] = {};
+  for (size_t i = 0; i < kRuns; ++i) {
+    lib::initrd::File f;
+    if (!archive.find(runs[i].file, &f)) fail("program missing from initrd");
+    auto p = proc::spawn_process(f.name.substr(4), f.data, f.size, runs[i].cpu, runs[i].bootstrap);
+    if (p.is_err()) fail("spawn_process failed");
+    procs[i] = p.value();
+  }
+  bool ok = true;
+  for (size_t i = 0; i < kRuns; ++i) {
+    int64_t code = proc::wait_process(procs[i]);
+    kprint("ktest: {} exited with {} (want {})\n", runs[i].file, code, runs[i].want);
+    ok = ok && code == runs[i].want;
+  }
+  if (!ok) fail("unexpected exit code");
+  pass();
+}
+
 struct Test {
   StringView name;
   void (*fn)();
@@ -580,6 +633,7 @@ constexpr Test kTests[] = {
     {"sleep", &test_sleep},
     {"churn", &test_churn},
     {"user", &test_user},
+    {"ipc", &test_ipc},
 };
 
 }  // namespace

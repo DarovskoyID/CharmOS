@@ -17,6 +17,7 @@ namespace kernel::sync {
 enum class LockRank : uint8_t {
   // Внешние подсистемы: берут блокировки памяти ниже по списку.
   Test = 5,       // ktest
+  Ipc = 8,        // все объекты IPC и хендлы → куча, vmm, pmm, очереди планировщика
   Heap = 10,      // куча → vmm → pmm
   MmStacks = 11,  // стеки ядра → vmm → pmm
   Vmm = 20,       // таблицы страниц ядра → pmm

@@ -312,6 +312,22 @@ void block_current() {
   q.current->state = State::Blocked;
 }
 
+void block_current_until(uint64_t deadline_ns) {
+  if (deadline_ns == ~uint64_t{0}) {
+    block_current();
+    return;
+  }
+  RunQueue& q = local_rq();
+  sync::SpinGuard guard(q.lock);
+  Thread* me = q.current;
+  me->state = State::Sleeping;
+  me->wake_ns = deadline_ns;
+  Thread** p = &q.sleepers;
+  while (*p != nullptr && (*p)->wake_ns <= deadline_ns) p = &(*p)->sleep_next;
+  me->sleep_next = *p;
+  *p = me;
+}
+
 void wake(Thread* t) {
   uint32_t target = t->cpu;
   bool woke = false;

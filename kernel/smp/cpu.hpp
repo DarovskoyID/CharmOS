@@ -28,6 +28,9 @@ struct Cpu {
   arch::x86_64::CpuDescriptors descriptors;
   uint64_t ist_tops[arch::x86_64::kIstCount];
 
+  // Сброс TLB по запросу другого CPU (smp::flush_tlb): счётчик обработанных.
+  volatile uint64_t tlb_flushes;
+
   // Проверка порядка захвата блокировок (kernel/sync/spinlock.hpp).
   const sync::Spinlock* held[kMaxHeldLocks];
   uint32_t held_count;

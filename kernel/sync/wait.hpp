@@ -15,6 +15,8 @@ class WaitList {
  public:
   void push(sched::Thread* t);
   sched::Thread* pop();
+  // Убирает поток, если он в очереди (ожидание истекло по сроку).
+  bool remove(sched::Thread* t);
   bool empty() const { return head_ == nullptr; }
 
  private:

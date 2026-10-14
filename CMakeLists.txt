@@ -43,6 +43,7 @@ add_subdirectory(lib/elf)
 add_subdirectory(lib/mm)
 add_subdirectory(lib/acpi)
 add_subdirectory(lib/initrd)
+add_subdirectory(lib/cap)
 
 if(CHARMOS_TARGET STREQUAL "uefi")
   add_subdirectory(boot/uefi)

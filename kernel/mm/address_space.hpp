@@ -19,6 +19,11 @@ class AddressSpace {
   // через HHDM).
   lib::core::Status<VmError> map_new(uint64_t virt, uint64_t flags, uint64_t* phys_out);
 
+  // Отображает существующий фрейм (страница VMO) с правами пользователя.
+  lib::core::Status<VmError> map_phys(uint64_t virt, uint64_t phys, uint64_t flags);
+  // Снимает отображение, не освобождая фрейм. TLB сбрасывает вызывающий.
+  void unmap(uint64_t virt);
+
   uint64_t root() const { return pt_.root(); }
 
   // Освобождает все страницы процесса, таблицы и PML4. CR3 текущего CPU не

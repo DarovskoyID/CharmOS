@@ -17,7 +17,8 @@ namespace kernel::platform {
 // Векторы, занятые платформой.
 inline constexpr uint8_t kVectorTimer = 0x20;
 inline constexpr uint8_t kVectorTest = 0x40;  // ktest маршрутизации через I/O APIC
-inline constexpr uint8_t kVectorWakeup = 0xf0;  // IPI: разбудить CPU (smp::run_on_all_cpus)
+inline constexpr uint8_t kVectorWakeup = 0xf0;    // IPI: разбудить CPU (планировщик)
+inline constexpr uint8_t kVectorTlbFlush = 0xf1;  // IPI: сбросить TLB (smp::flush_tlb)
 inline constexpr uint8_t kVectorApicError = 0xfe;
 inline constexpr uint8_t kVectorSpurious = 0xff;
 

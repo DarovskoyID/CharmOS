@@ -1,0 +1,15 @@
+# M4: капабилити и IPC. A даёт B урезанный доступ к странице (только чтение),
+# B читает; C перебирает 16383 поддельных хендла — все отвергнуты; A отзывает
+# доступ — у B пропадают и хендл, и отображение (обращение к нему убивает B).
+# chan — все ошибки каналов и VMO; ping/pong — замер обмена между CPU.
+[cap_b] cap_b: read the shared page
+[cap_a] cap_a: revoked B's access
+[cap_b] cap_b: handle revoked, touching the old mapping
+killed: #PF page fault at rip=
+ktest: bin/cap_a exited with 0 (want 0)
+ktest: bin/cap_b exited with -1000 (want -1000)
+ktest: bin/cap_c exited with 0 (want 0)
+ktest: bin/chan exited with 0 (want 0)
+ktest: bin/ping exited with 0 (want 0)
+ktest: bin/pong exited with 0 (want 0)
+ktest: PASS ipc

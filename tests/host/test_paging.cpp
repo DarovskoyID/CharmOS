@@ -120,3 +120,16 @@ TEST(paging_destroy_lower_half) {
   CHECK(!pt.translate(0x400000, &phys, &flags));
   CHECK(pt.translate(0xffffffff80000000ull, &phys, &flags) && phys == 0xc000);
 }
+
+TEST(paging_unmap_4k) {
+  Pool pool(64);
+  PageTables pt;
+  pt.init(&Pool::alloc, &pool, 0);
+  CHECK(pt.map_4k(0x400000, 0x9000, arch::x86_64::kMapUser));
+  CHECK(pt.unmap_4k(0x400000) == 0x9000);
+  uint64_t phys = 0, flags = 0;
+  CHECK(!pt.translate(0x400000, &phys, &flags));
+  CHECK(pt.unmap_4k(0x400000) == 0);       // уже снято
+  CHECK(pt.unmap_4k(0x7f0000000000ull) == 0);  // таблиц нет
+  CHECK(pt.map_4k(0x400000, 0xa000, 0));    // слот снова свободен
+}

@@ -9,7 +9,7 @@
 #include "../mm/heap.hpp"
 #include "../mm/layout.hpp"
 
-extern "C" [[noreturn]] void enter_user(uint64_t rip, uint64_t rsp);
+extern "C" [[noreturn]] void enter_user(uint64_t rip, uint64_t rsp, uint64_t arg);
 
 namespace kernel::proc {
 
@@ -59,7 +59,7 @@ bool load_segments(Process* p, const lib::elf::Image& img, const uint8_t* file) 
 
 void process_main(void* arg) {
   auto* p = static_cast<Process*>(arg);
-  enter_user(p->entry, kUserStackTop);
+  enter_user(p->entry, kUserStackTop, p->bootstrap_handle);
 }
 
 void free_process(Process* p) {
@@ -69,7 +69,8 @@ void free_process(Process* p) {
 
 }  // namespace
 
-Result<Process*, ProcError> spawn_process(StringView name, const void* elf, size_t size, int cpu) {
+Result<Process*, ProcError> spawn_process(StringView name, const void* elf, size_t size, int cpu,
+                                          ipc::Cap* bootstrap) {
   using R = Result<Process*, ProcError>;
   lib::elf::Image img;
   auto err = lib::elf::parse_image(elf, size, kUserImageMin, kUserStackTop - kUserStackSize, &img);
@@ -90,8 +91,9 @@ Result<Process*, ProcError> spawn_process(StringView name, const void* elf, size
   p->entry = img.entry;
 
   auto fpu = mm::kmalloc(512);
-  if (fpu.is_err() || p->space.create().is_err()) {
+  if (fpu.is_err() || ipc::init_process(p) != ipc::Status::Ok || p->space.create().is_err()) {
     if (fpu.is_ok()) mm::kfree(fpu.value());
+    if (p->ipc.slots != nullptr) mm::kfree(p->ipc.slots);
     mm::kfree(p);
     return R::err(ProcError::OutOfMemory);
   }
@@ -102,12 +104,21 @@ Result<Process*, ProcError> spawn_process(StringView name, const void* elf, size
   for (uint64_t v = kUserStackTop - kUserStackSize; ok && v < kUserStackTop; v += kPageSize) {
     ok = p->space.map_new(v, kMapWrite | kMapNoExec, nullptr).is_ok();
   }
+  if (ok && bootstrap != nullptr) ok = ipc::install(p, bootstrap, &p->bootstrap_handle) == ipc::Status::Ok;
   sched::UserContext user{p->space.root(), p, p->fpu};
-  if (!ok || sched::spawn(p->name, &process_main, p, cpu, &user).is_err()) {
+  auto thread = ok ? sched::spawn(p->name, &process_main, p, cpu, &user)
+                   : lib::core::Result<sched::Thread*, sched::SchedError>::err(
+                         sched::SchedError::OutOfMemory);
+  if (thread.is_err()) {
+    // Стартовую капабилити (если её уже поставили в таблицу) не уничтожаем:
+    // она возвращается вызывающему отсоединённой.
+    if (p->bootstrap_handle != 0) (void)p->ipc.table.remove(p->bootstrap_handle);
+    ipc::teardown_process(p);
     p->space.destroy();
     free_process(p);
     return R::err(ProcError::OutOfMemory);
   }
+  p->cpu = thread.value()->cpu;
   return R::ok(p);
 }
 
@@ -127,6 +138,7 @@ void exit_current(int64_t code) {
   arch::x86_64::cli();
   arch::x86_64::write_cr3(mm::kernel_root());
   sched::detach_user_context();
+  ipc::teardown_process(p);  // до destroy: страницы VMO не принадлежат процессу
   p->space.destroy();
   p->exit_code = code;
   p->exited.up();  // после этого p может быть освобождён ожидающим

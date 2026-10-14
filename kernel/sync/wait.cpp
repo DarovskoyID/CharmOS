@@ -23,6 +23,22 @@ sched::Thread* WaitList::pop() {
   return t;
 }
 
+bool WaitList::remove(sched::Thread* t) {
+  sched::Thread* prev = nullptr;
+  for (sched::Thread* cur = head_; cur != nullptr; prev = cur, cur = cur->next) {
+    if (cur != t) continue;
+    if (prev != nullptr) {
+      prev->next = cur->next;
+    } else {
+      head_ = cur->next;
+    }
+    if (tail_ == cur) tail_ = prev;
+    cur->next = nullptr;
+    return true;
+  }
+  return false;
+}
+
 namespace {
 
 // Общая часть ожидания: вызывающий держит lock (прерывания запрещены),

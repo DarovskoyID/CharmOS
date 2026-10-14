@@ -56,8 +56,9 @@ syscall_entry:
     swapgs
     sysretq
 
-// [[noreturn]] void enter_user(uint64_t rip, uint64_t rsp)
-// Первый вход потока в ring 3 (docs/abi/syscalls.md §7): все GPR = 0.
+// [[noreturn]] void enter_user(uint64_t rip, uint64_t rsp, uint64_t arg)
+// Первый вход потока в ring 3 (docs/abi/syscalls.md §7): RDI = arg
+// (стартовый хендл), остальные GPR = 0.
     .globl enter_user
     .type enter_user, @function
 enter_user:
@@ -67,12 +68,12 @@ enter_user:
     pushq   $0x202              // RFLAGS: IF
     pushq   $0x23               // CS = код пользователя | RPL 3
     pushq   %rdi                // RIP
+    mov     %rdx, %rdi          // стартовый хендл
     xor     %eax, %eax
     xor     %ebx, %ebx
     xor     %ecx, %ecx
     xor     %edx, %edx
     xor     %esi, %esi
-    xor     %edi, %edi
     xor     %ebp, %ebp
     xor     %r8d, %r8d
     xor     %r9d, %r9d

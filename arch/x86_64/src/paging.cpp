@@ -115,6 +115,20 @@ bool PageTables::translate(uint64_t virt, uint64_t* phys, uint64_t* flags) const
   return false;
 }
 
+uint64_t PageTables::unmap_4k(uint64_t virt) {
+  uint64_t* t = table(pml4_);
+  for (int level = 3; level > 0; --level) {
+    uint64_t e = t[index(virt, level)];
+    if ((e & kPresent) == 0 || (e & kPageSizeBit) != 0) return 0;
+    t = table(e & kAddrMask);
+  }
+  uint64_t& e = t[index(virt, 0)];
+  if ((e & kPresent) == 0) return 0;
+  uint64_t phys = e & kAddrMask;
+  e = 0;
+  return phys;
+}
+
 bool PageTables::ensure_pml4_entry(size_t i) {
   return next_table(table(pml4_), i, false) != nullptr;
 }

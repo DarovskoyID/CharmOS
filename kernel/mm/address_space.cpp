@@ -42,6 +42,16 @@ Status<VmError> AddressSpace::map_new(uint64_t virt, uint64_t flags, uint64_t* p
   return lib::core::ok_status<VmError>();
 }
 
+Status<VmError> AddressSpace::map_phys(uint64_t virt, uint64_t phys, uint64_t flags) {
+  if (virt >= abi::syscall::kUserTop) return Status<VmError>::err(VmError::OutOfAddressSpace);
+  if (!pt_.map_4k(virt, phys, flags | arch::x86_64::kMapUser)) {
+    return Status<VmError>::err(VmError::AlreadyMapped);
+  }
+  return lib::core::ok_status<VmError>();
+}
+
+void AddressSpace::unmap(uint64_t virt) { (void)pt_.unmap_4k(virt); }
+
 void AddressSpace::destroy() {
   pt_.destroy_lower_half(&free_frame, nullptr);
   free_frames(pt_.root());

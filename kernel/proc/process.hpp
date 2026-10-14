@@ -6,6 +6,7 @@
 #include <lib/core/result.hpp>
 #include <lib/core/string_view.hpp>
 
+#include "../ipc/ipc.hpp"
 #include "../mm/address_space.hpp"
 #include "../sched/sched.hpp"
 #include "../sync/wait.hpp"
@@ -30,11 +31,17 @@ struct Process {
   uint8_t* fpu;  // начальное, затем сохраняемое состояние FXSAVE потока
   int64_t exit_code;
   sync::Semaphore exited{"proc.exited", 0};
+  ipc::ProcessIpc ipc;
+  uint32_t cpu;               // где исполняется поток процесса (не мигрирует)
+  uint32_t bootstrap_handle;  // RDI при старте (docs/abi/syscalls.md §7), 0 — нет
 };
 
+// bootstrap — отсоединённая капабилити стартового канала (или nullptr);
+// при успехе переходит процессу, при ошибке остаётся у вызывающего.
 lib::core::Result<Process*, ProcError> spawn_process(lib::core::StringView name,
                                                      const void* elf, size_t size,
-                                                     int cpu = sched::kAnyCpu);
+                                                     int cpu = sched::kAnyCpu,
+                                                     ipc::Cap* bootstrap = nullptr);
 
 // Ждёт завершения, освобождает структуру процесса и возвращает код.
 int64_t wait_process(Process* p);
