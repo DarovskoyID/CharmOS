@@ -9,12 +9,15 @@ add_executable(kernel
   mm/pmm.cpp
   mm/stack.cpp
   mm/vmm.cpp
+  sched/sched.cpp
   smp/smp.cpp
   sync/spinlock.cpp
+  sync/wait.cpp
   platform/platform.cpp
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/ap_trampoline.S
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/apic.cpp
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/call_on_stack.S
+  ${CMAKE_SOURCE_DIR}/arch/x86_64/src/context_switch.S
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/hpet.cpp
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/kernel_entry.S
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/gdt.cpp

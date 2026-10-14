@@ -18,9 +18,4 @@ void late_init_bsp();
 // Запускает все процессоры из MADT (по одному) и ждёт их выхода в ядро.
 void start_aps();
 
-// Выполняет fn(arg) на всех запущенных CPU (на BSP — в вызывающем потоке),
-// возвращается, когда все закончили. Пока нет планировщика — через IPI,
-// который будит AP из hlt.
-void run_on_all_cpus(void (*fn)(void* arg), void* arg);
-
 }  // namespace kernel::smp

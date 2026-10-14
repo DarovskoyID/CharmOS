@@ -10,6 +10,7 @@
 #include "../mm/stack.hpp"
 #include "../mm/vmm.hpp"
 #include "../platform/platform.hpp"
+#include "../sched/sched.hpp"
 
 extern "C" const char ap_trampoline_start[], ap_trampoline_end[];
 extern "C" const char ap_tramp_gdtr[], ap_tramp_gdt[], ap_tramp_far32[], ap_tramp_far64[];
@@ -58,30 +59,7 @@ void alloc_ist_stacks(Cpu& c) {
   }
 }
 
-// Работа для run_on_all_cpus.
-constinit void (*volatile g_work_fn)(void*) = nullptr;
-constinit void* volatile g_work_arg = nullptr;
-constinit volatile uint64_t g_work_generation = 0;
-constinit volatile uint32_t g_work_done = 0;
-
 void wakeup_ipi_handler(arch::x86_64::InterruptFrame&) { platform::local_apic().eoi(); }
-
-[[noreturn]] void ap_idle(Cpu& c) {
-  uint64_t seen = g_work_generation;
-  for (;;) {
-    arch::x86_64::cli();
-    if (g_work_generation != seen) {
-      seen = g_work_generation;
-      arch::x86_64::sti();
-      g_work_fn(g_work_arg);
-      __atomic_fetch_add(&g_work_done, 1, __ATOMIC_ACQ_REL);
-      continue;
-    }
-    // sti; hlt атомарны: прерывание между ними не потеряется (SDM, STI).
-    asm volatile("sti; hlt" ::: "memory");
-    (void)c;
-  }
-}
 
 }  // namespace
 
@@ -191,16 +169,6 @@ void start_aps() {
   kprint("smp: {} CPUs online\n", g_count);
 }
 
-void run_on_all_cpus(void (*fn)(void*), void* arg) {
-  g_work_fn = fn;
-  g_work_arg = arg;
-  __atomic_store_n(&g_work_done, 0, __ATOMIC_RELEASE);
-  __atomic_fetch_add(&g_work_generation, 1, __ATOMIC_ACQ_REL);
-  if (g_count > 1) platform::local_apic().send_fixed_all_but_self(platform::kVectorWakeup);
-  fn(arg);
-  while (__atomic_load_n(&g_work_done, __ATOMIC_ACQUIRE) != g_count - 1) arch::x86_64::pause();
-}
-
 }  // namespace kernel::smp
 
 extern "C" void ap_entry(kernel::smp::Cpu* c) {
@@ -212,5 +180,6 @@ extern "C" void ap_entry(kernel::smp::Cpu* c) {
   platform::init_this_cpu();
   kprint("smp: cpu {} online (apic {})\n", c->index, c->apic_id);
   __atomic_store_n(&c->online, true, __ATOMIC_RELEASE);
-  smp::ap_idle(*c);
+  sched::init_this_cpu(sched::kTickHz);
+  sched::idle_loop();
 }

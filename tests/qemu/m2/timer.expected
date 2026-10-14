@@ -1,3 +1,4 @@
-# Периодический тик 100 Гц, частота сверена по HPET (±10%), TSC сверен с HPET (2%).
+# Тик планировщика 100 Гц на CPU 0, частота сверена по HPET (±10%), TSC сверен с HPET (2%).
 timer: periodic tick 100 Hz
+ktest: running timer
 ktest: PASS timer

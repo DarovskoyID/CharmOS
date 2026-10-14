@@ -38,8 +38,15 @@ const arch::x86_64::IoApic* io_apic_for(uint32_t gsi);
 uint64_t tsc_hz();
 uint64_t apic_timer_hz();  // частота счёта таймера APIC при делителе 16
 
-// Периодический тик таймера APIC с частотой hz; включает прерывания.
-void start_tick(uint32_t hz);
+// Периодический тик таймера APIC текущего CPU с частотой hz (прерывания не
+// включает). Каждый тик вызывает sched::on_timer_tick. ticks() считает тики CPU 0.
+void start_local_tick(uint32_t hz);
 uint64_t ticks();
+uint32_t tick_hz();
+
+// Монотонное время в наносекундах (по TSC, откалиброванному по HPET).
+// Предполагается, что TSC всех CPU идут синхронно (в QEMU это так; проверка
+// invariant TSC — после появления SDM Vol. 3B, см. ROADMAP).
+uint64_t now_ns();
 
 }  // namespace kernel::platform

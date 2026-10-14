@@ -1,0 +1,4 @@
+# Сон не короче заказанного; спящие просыпаются в порядке сроков.
+ktest: sleep 50 ms took
+ktest: 6 sleepers woke in deadline order
+ktest: PASS sleep

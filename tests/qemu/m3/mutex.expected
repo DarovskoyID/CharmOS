@@ -1,0 +1,3 @@
+# 32 потока на разных CPU под одним мьютексом, с уступанием CPU внутри секции.
+ktest: 32 threads on 4 CPUs, counter 9600 (want 9600)
+ktest: PASS mutex

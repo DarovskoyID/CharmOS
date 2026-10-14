@@ -11,6 +11,8 @@
 #include "../platform/platform.hpp"
 #include "../smp/smp.hpp"
 #include "../sync/spinlock.hpp"
+#include "../sync/wait.hpp"
+#include <lib/core/math.hpp>
 #include "log.hpp"
 
 namespace kernel::ktest {
@@ -156,7 +158,9 @@ void test_mm() {
   if (big.is_err() || big.value() % (2 << 20) != 0) fail("pmm: aligned contiguous alloc");
   mm::free_frames(big.value(), 512);
 
-  // Куча: случайные выделения с проверкой содержимого.
+  // Куча: случайные выделения с проверкой содержимого. В куче уже живут
+  // структуры потоков (kmain), поэтому сравниваем с объёмом до стресса.
+  size_t heap_before = mm::heap_used_bytes();
   constexpr int kSlots = 512;
   static constinit uint8_t* ptr[kSlots] = {};
   static constinit size_t len[kSlots] = {};
@@ -181,7 +185,9 @@ void test_mm() {
   for (int i = 0; i < kSlots; ++i) {
     if (ptr[i] != nullptr) mm::kfree(ptr[i]);
   }
-  if (!mm::heap_check() || mm::heap_used_bytes() != 0) fail("heap: inconsistent after stress");
+  if (!mm::heap_check() || mm::heap_used_bytes() != heap_before) {
+    fail("heap: inconsistent after stress");
+  }
   kprint("ktest: heap 50000 ops ok, mapped {} KiB\n", mm::heap_mapped_bytes() >> 10);
 
   auto huge = mm::kmalloc(size_t{2} << 30);  // больше предела кучи
@@ -208,32 +214,24 @@ void test_acpi() {
 }
 
 void test_timer() {
-  // 100 Гц, а не 1000: под QEMU без KVM (CI) эмулятор не успевает доставить
-  // каждое прерывание с периодом 1 мс, и пропущенные периодические тики
-  // теряются — это проверяло бы скорость эмулятора, а не ядро.
-  constexpr uint32_t kHz = 100;
+  // Тик планировщика (sched::kTickHz) уже идёт на всех CPU; меряем его на CPU 0.
   constexpr uint64_t kWindowNs = 500'000'000;
-  platform::start_tick(kHz);
+  const uint32_t hz = platform::tick_hz();
   const auto& hpet = platform::hpet();
   uint64_t h0 = hpet.counter();
   uint64_t tsc0 = arch::x86_64::rdtsc();
   uint64_t t0 = platform::ticks();
-  while (hpet.elapsed(h0, hpet.counter()) < hpet.ns_to_ticks(kWindowNs)) {
-    asm volatile("hlt");  // будит прерывание таймера
-  }
+  sched::sleep_ns(kWindowNs);
   uint64_t t1 = platform::ticks();
   uint64_t tsc1 = arch::x86_64::rdtsc();
   uint64_t ns = hpet.ticks_to_ns(hpet.elapsed(h0, hpet.counter()));
-  arch::x86_64::cli();
-  platform::local_apic().timer_stop();
 
   uint64_t ticks = t1 - t0;
   uint64_t measured_hz = ticks * 1'000'000'000 / ns;
-  uint64_t tsc_ns = (tsc1 - tsc0) * 1'000'000'000 / platform::tsc_hz();
-  kprint("ktest: {} ticks in {} us -> {} Hz; TSC says {} us\n", ticks, ns / 1000, measured_hz,
-         tsc_ns / 1000);
-  // Допуск 10%: в эмуляторе таймер может немного «плыть».
-  if (measured_hz < kHz * 9 / 10 || measured_hz > kHz * 11 / 10) fail("tick rate off by >10%");
+  uint64_t tsc_ns = lib::core::mul_div(tsc1 - tsc0, 1'000'000'000, platform::tsc_hz());
+  kprint("ktest: {} ticks in {} us -> {} Hz (want {}); TSC says {} us\n", ticks, ns / 1000,
+         measured_hz, hz, tsc_ns / 1000);
+  if (measured_hz < hz * 9 / 10 || measured_hz > hz * 11 / 10) fail("tick rate off by >10%");
   uint64_t diff = tsc_ns > ns ? tsc_ns - ns : ns - tsc_ns;
   if (diff * 50 > ns) fail("TSC and HPET disagree by >2%");
   pass();
@@ -301,6 +299,13 @@ void count_under_lock(void*) {
   g_counter.per_cpu[me] = kIncrements;
 }
 
+constinit sync::Semaphore g_done{"ktest.done", 0};
+
+void count_thread(void* arg) {
+  count_under_lock(arg);
+  g_done.up();
+}
+
 void test_smp() {
   uint32_t n = smp::cpu_count();
   size_t expected = 0;
@@ -310,12 +315,146 @@ void test_smp() {
   for (uint32_t i = 0; i < n; ++i) {
     if (smp::cpu(i).self != &smp::cpu(i) || !smp::cpu(i).online) fail("bad per-CPU data");
   }
-  smp::run_on_all_cpus(&count_under_lock, nullptr);
+  for (uint32_t i = 0; i < n; ++i) {
+    if (sched::spawn("counter", &count_thread, nullptr, static_cast<int>(i)).is_err()) {
+      fail("spawn failed");
+    }
+  }
+  for (uint32_t i = 0; i < n; ++i) g_done.down();
   for (uint32_t i = 0; i < n; ++i) {
     if (g_counter.per_cpu[i] != kIncrements) fail("a CPU did not run the work");
   }
   kprint("ktest: {} CPUs x {} locked increments = {}\n", n, kIncrements, g_counter.counter);
   if (g_counter.counter != n * kIncrements) fail("lost updates under spinlock");
+  pass();
+}
+
+// --- планировщик -------------------------------------------------------------------
+
+constexpr int kMutexThreads = 32;
+constexpr int kMutexRounds = 300;
+constinit sync::Mutex g_mutex{"ktest.mutex"};
+constinit volatile uint64_t g_mutex_counter = 0;
+constinit volatile uint32_t g_ran_on[kMutexThreads] = {};
+
+void mutex_thread(void* arg) {
+  auto idx = reinterpret_cast<uint64_t>(arg);
+  g_ran_on[idx] = smp::this_cpu().index;
+  for (int i = 0; i < kMutexRounds; ++i) {
+    sync::MutexGuard guard(g_mutex);
+    uint64_t v = g_mutex_counter;
+    if ((i & 7) == 0) sched::yield();  // уступить CPU внутри критической секции
+    g_mutex_counter = v + 1;
+  }
+  g_done.up();
+}
+
+void test_mutex() {
+  for (int i = 0; i < kMutexThreads; ++i) {
+    auto r = sched::spawn("mutex", &mutex_thread, reinterpret_cast<void*>(uint64_t(i)));
+    if (r.is_err()) fail("spawn failed");
+  }
+  for (int i = 0; i < kMutexThreads; ++i) g_done.down();
+  bool used[smp::kMaxCpus] = {};
+  uint32_t cpus = 0;
+  for (int i = 0; i < kMutexThreads; ++i) {
+    if (!used[g_ran_on[i]]) {
+      used[g_ran_on[i]] = true;
+      ++cpus;
+    }
+  }
+  kprint("ktest: {} threads on {} CPUs, counter {} (want {})\n", kMutexThreads, cpus,
+         g_mutex_counter, kMutexThreads * kMutexRounds);
+  if (g_mutex_counter != uint64_t{kMutexThreads} * kMutexRounds) fail("mutex lost updates");
+  if (smp::cpu_count() > 1 && cpus < 2) fail("threads were not spread across CPUs");
+  pass();
+}
+
+constinit volatile uint64_t g_spin_count[2] = {};
+constinit volatile bool g_spin_stop = false;
+
+void spinner(void* arg) {
+  auto idx = reinterpret_cast<uint64_t>(arg);
+  // Никогда не уступает CPU сам: прогресс второго потока возможен только
+  // через вытеснение по тику.
+  while (!g_spin_stop) g_spin_count[idx] = g_spin_count[idx] + 1;
+  g_done.up();
+}
+
+void test_preempt() {
+  int cpu = smp::cpu_count() > 1 ? 1 : 0;
+  for (uint64_t i = 0; i < 2; ++i) {
+    if (sched::spawn("spinner", &spinner, reinterpret_cast<void*>(i), cpu).is_err()) {
+      fail("spawn failed");
+    }
+  }
+  sched::sleep_ns(300'000'000);
+  uint64_t a = g_spin_count[0], b = g_spin_count[1];
+  g_spin_stop = true;
+  g_done.down();
+  g_done.down();
+  uint64_t switches = sched::context_switches(static_cast<uint32_t>(cpu));
+  kprint("ktest: spinners on cpu {}: {} and {} iterations, {} switches\n", cpu, a, b, switches);
+  if (a == 0 || b == 0) fail("a spinner never ran: no preemption");
+  pass();
+}
+
+constexpr int kSleepers = 6;
+constinit volatile int g_wake_order[kSleepers] = {};
+constinit volatile int g_wake_pos = 0;
+
+void sleeper(void* arg) {
+  auto i = static_cast<int>(reinterpret_cast<uint64_t>(arg));
+  // Обратный порядок запуска: проснуться должны по длительности сна.
+  sched::sleep_ns(uint64_t(kSleepers - i) * 30'000'000);
+  int pos = __atomic_fetch_add(&g_wake_pos, 1, __ATOMIC_ACQ_REL);
+  g_wake_order[pos] = i;
+  g_done.up();
+}
+
+void test_sleep() {
+  uint64_t t0 = platform::now_ns();
+  sched::sleep_ns(50'000'000);
+  uint64_t slept = platform::now_ns() - t0;
+  kprint("ktest: sleep 50 ms took {} us\n", slept / 1000);
+  if (slept < 50'000'000) fail("woke up early");
+  // Верхняя граница щедрая: тик 10 мс, плюс задержки эмулятора на CI.
+  if (slept > 250'000'000) fail("woke up far too late");
+
+  for (int i = 0; i < kSleepers; ++i) {
+    // Все на одном CPU, чтобы порядок определялся только сроками.
+    if (sched::spawn("sleeper", &sleeper, reinterpret_cast<void*>(uint64_t(i)), 0).is_err()) {
+      fail("spawn failed");
+    }
+  }
+  for (int i = 0; i < kSleepers; ++i) g_done.down();
+  for (int i = 0; i < kSleepers; ++i) {
+    if (g_wake_order[i] != kSleepers - 1 - i) fail("sleepers woke out of order");
+  }
+  kprint("ktest: {} sleepers woke in deadline order\n", kSleepers);
+  pass();
+}
+
+void churn_thread(void*) { g_done.up(); }
+
+void test_churn() {
+  constexpr int kBatch = 50;
+  constexpr int kRounds = 40;
+  size_t heap_after_first = 0;
+  uint64_t created0 = sched::threads_created();
+  for (int round = 0; round < kRounds; ++round) {
+    for (int i = 0; i < kBatch; ++i) {
+      if (sched::spawn("churn", &churn_thread, nullptr).is_err()) fail("spawn failed");
+    }
+    for (int i = 0; i < kBatch; ++i) g_done.down();
+    sched::sleep_ns(20'000'000);  // дать завершившимся уйти с CPU в зомби
+    if (round == 0) heap_after_first = mm::heap_used_bytes();
+  }
+  size_t heap_now = mm::heap_used_bytes();
+  kprint("ktest: {} threads created and exited, heap {} -> {} bytes\n",
+         sched::threads_created() - created0, heap_after_first, heap_now);
+  // Структуры и стеки завершённых потоков переиспользуются: память не растёт.
+  if (heap_now > heap_after_first + 64 * sizeof(sched::Thread)) fail("thread memory leaks");
   pass();
 }
 
@@ -373,6 +512,10 @@ constexpr Test kTests[] = {
     {"smp", &test_smp},
     {"lockorder", &test_lock_order},
     {"guard", &test_guard},
+    {"mutex", &test_mutex},
+    {"preempt", &test_preempt},
+    {"sleep", &test_sleep},
+    {"churn", &test_churn},
 };
 
 }  // namespace

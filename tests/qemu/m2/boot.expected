@@ -10,5 +10,5 @@ lapic:
 ioapic: id=
 tsc: 
 timer: periodic tick
-timer: 10 ticks received
+ticks in 100 ms on cpu 0, 4 CPUs scheduling
 CharmOS kernel: init done

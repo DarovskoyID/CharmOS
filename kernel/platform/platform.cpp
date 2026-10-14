@@ -8,6 +8,8 @@
 #include "../core/panic.hpp"
 #include "../mm/layout.hpp"
 #include "../mm/vmm.hpp"
+#include "../sched/sched.hpp"
+#include "../smp/cpu.hpp"
 
 namespace kernel::platform {
 
@@ -99,9 +101,14 @@ void spurious_handler(InterruptFrame&) {
   // Ложное прерывание: EOI не нужен (SDM §11.9).
 }
 
+constinit uint32_t g_tick_hz = 0;
+
 void timer_handler(InterruptFrame&) {
-  g_ticks = g_ticks + 1;
+  if (smp::this_cpu().index == 0) g_ticks = g_ticks + 1;
+  // EOI до планировщика: schedule() может переключить поток, и обработчик
+  // «вернётся» нескоро — без EOI таймер этого CPU замолчал бы.
   g_lapic.eoi();
+  sched::on_timer_tick();
 }
 
 void init_interrupt_controllers(bool force_xapic) {
@@ -202,16 +209,21 @@ const IoApic* io_apic_for(uint32_t gsi) {
 uint64_t tsc_hz() { return g_tsc_hz; }
 uint64_t apic_timer_hz() { return g_apic_timer_hz; }
 
-void start_tick(uint32_t hz) {
+void start_local_tick(uint32_t hz) {
   uint64_t count = g_apic_timer_hz / hz;
   if (count == 0 || count > 0xffffffffu) panic("timer: cannot program {} Hz", hz);
   arch::x86_64::set_interrupt_handler(kVectorTimer, &timer_handler);
   g_lapic.timer_periodic(kVectorTimer, arch::x86_64::kApicTimerDivide16,
                          static_cast<uint32_t>(count));
-  arch::x86_64::sti();
-  kprint("timer: periodic tick {} Hz (count {})\n", hz, count);
+  if (smp::this_cpu().index == 0) {
+    g_tick_hz = hz;
+    kprint("timer: periodic tick {} Hz (count {})\n", hz, count);
+  }
 }
 
 uint64_t ticks() { return g_ticks; }
+uint32_t tick_hz() { return g_tick_hz; }
+
+uint64_t now_ns() { return lib::core::mul_div(arch::x86_64::rdtsc(), 1'000'000'000, g_tsc_hz); }
 
 }  // namespace kernel::platform

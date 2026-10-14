@@ -11,6 +11,7 @@
 #include "../mm/pmm.hpp"
 #include "../mm/vmm.hpp"
 #include "../platform/platform.hpp"
+#include "../sched/sched.hpp"
 #include "../smp/smp.hpp"
 #include "boot_info.hpp"
 #include "cmdline.hpp"
@@ -87,6 +88,19 @@ void verify_handoff(const BootInfo& info, uint64_t stack_aligned) {
   kprint("boot: handoff verified\n");
 }
 
+// Первый поток ядра: всё, что идёт после запуска планировщика.
+void kmain(void*) {
+  kernel::ktest::run_selected();
+
+  uint64_t start = kernel::platform::ticks();
+  kernel::sched::sleep_ns(100'000'000);
+  kprint("timer: {} ticks in 100 ms on cpu 0, {} CPUs scheduling\n",
+         kernel::platform::ticks() - start, kernel::smp::cpu_count());
+
+  kprint("CharmOS kernel: init done\n");
+  arch::x86_64::qemu_exit(arch::x86_64::kExitSuccess);
+}
+
 }  // namespace
 
 extern "C" [[noreturn]] void kernel_main(uint64_t boot_info_phys, uint64_t stack_aligned) {
@@ -114,12 +128,7 @@ extern "C" [[noreturn]] void kernel_main(uint64_t boot_info_phys, uint64_t stack
   kernel::smp::late_init_bsp();
   kernel::smp::start_aps();
 
-  kernel::ktest::run_selected();
-
-  kernel::platform::start_tick(1000);
-  while (kernel::platform::ticks() < 10) asm volatile("hlt");
-  kprint("timer: {} ticks received\n", kernel::platform::ticks());
-
-  kprint("CharmOS kernel: init done\n");
-  arch::x86_64::qemu_exit(arch::x86_64::kExitSuccess);
+  kernel::sched::init_this_cpu(kernel::sched::kTickHz);
+  if (kernel::sched::spawn("kmain", &kmain, nullptr, 0).is_err()) panic("cannot start kmain");
+  kernel::sched::idle_loop();
 }
