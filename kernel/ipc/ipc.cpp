@@ -26,7 +26,7 @@ using arch::x86_64::kPageSize;
 
 // --- объекты ------------------------------------------------------------------------
 
-enum class Type : uint8_t { Endpoint, Vmo };
+enum class Type : uint8_t { Endpoint, Vmo, Port };
 
 struct Object {
   Type type;
@@ -41,6 +41,8 @@ struct Message {
   uint8_t data[];
 };
 
+struct Port;
+
 struct Endpoint {
   Object base;  // первым: Object* ↔ Endpoint*
   Endpoint* peer;  // nullptr — другой конец закрыт
@@ -48,6 +50,17 @@ struct Endpoint {
   Message* tail;
   uint32_t count;
   sync::WaitList readers;
+  Port* bound;  // однократная подписка (держит ссылку на порт)
+  uint64_t bound_key;
+};
+
+struct Port {
+  Object base;
+  abi::syscall::PortPacket packets[abi::syscall::kPortMaxPackets];
+  uint32_t head;
+  uint32_t count;  // в очереди
+  uint32_t armed;  // активных подписок: count + armed ≤ kPortMaxPackets
+  sync::WaitList waiters;
 };
 
 struct Vmo {
@@ -148,6 +161,23 @@ Cap* new_cap(Object* obj, uint32_t r, Cap* parent) {
 
 void release_object(Object* obj);
 
+void port_push(Port* port, uint64_t key, uint32_t type) {
+  uint32_t tail = (port->head + port->count) % abi::syscall::kPortMaxPackets;
+  port->packets[tail] = {key, type, 0, 0, 0};
+  ++port->count;
+  if (sched::Thread* t = port->waiters.pop()) sched::wake(t);
+}
+
+// Сработала подписка на конце канала: пакет в порт, подписка снята.
+void fire(Endpoint* ep, uint32_t type) {
+  Port* port = ep->bound;
+  if (port == nullptr) return;
+  ep->bound = nullptr;
+  --port->armed;
+  port_push(port, ep->bound_key, type);
+  release_object(&port->base);
+}
+
 void destroy_message(Message* m) {
   for (uint32_t i = 0; i < m->ncaps; ++i) {
     Cap* c = m->caps[i];
@@ -174,12 +204,23 @@ void release_object(Object* obj) {
     mm::kfree(v);
     return;
   }
+  if (obj->type == Type::Port) {
+    mm::kfree(obj);  // подписки держат ссылку: сюда попадаем, когда их нет
+    return;
+  }
   auto* ep = reinterpret_cast<Endpoint*>(obj);
+  if (ep->bound != nullptr) {
+    Port* port = ep->bound;
+    ep->bound = nullptr;
+    --port->armed;
+    release_object(&port->base);
+  }
   if (ep->peer != nullptr) {
     Endpoint* peer = ep->peer;
     peer->peer = nullptr;
     // Читатели другого конца получат PeerClosed, когда очередь опустеет.
     while (sched::Thread* t = peer->readers.pop()) sched::wake(t);
+    fire(peer, abi::syscall::kPacketPeerClosed);
   }
   while (Message* m = ep->head) {
     ep->head = m->next;
@@ -353,6 +394,7 @@ Status kernel_send(Cap* endpoint, const void* bytes, uint64_t len, Cap* const* c
   peer->tail = m;
   ++peer->count;
   if (sched::Thread* t = peer->readers.pop()) sched::wake(t);
+  fire(peer, abi::syscall::kPacketChannelReadable);
   return Status::Ok;
 }
 
@@ -521,6 +563,7 @@ Status sys_channel_write(uint32_t h, uint64_t bytes, uint64_t len, uint64_t hand
       peer->tail = m;
       ++peer->count;
       if (sched::Thread* t = peer->readers.pop()) sched::wake(t);
+      fire(peer, abi::syscall::kPacketChannelReadable);
       m = nullptr;
     }
   }
@@ -722,6 +765,112 @@ Status sys_vmo_unmap(uint64_t addr) {
   }
   finish_pending(pend);
   return Status::Ok;
+}
+
+// --- порты ------------------------------------------------------------------------------
+
+Status sys_port_create(uint64_t* out) {
+  auto* port = alloc_zeroed<Port>(sizeof(Port));
+  if (port == nullptr) return Status::NoMemory;
+  port->base.type = Type::Port;
+  sync::SpinGuard guard(g_lock);
+  Cap* c = new_cap(&port->base, rights::kPortDefault, nullptr);
+  if (c == nullptr) {
+    mm::kfree(port);
+    return Status::NoMemory;
+  }
+  proc::Process* p = me();
+  auto h = p->ipc.table.insert(c);
+  if (h.is_err()) {
+    release_detached(c);
+    return Status::NoMemory;
+  }
+  c->where = Where::Table;
+  c->owner = p;
+  c->handle = h.value();
+  *out = h.value();
+  return Status::Ok;
+}
+
+Status sys_object_bind(uint32_t port_h, uint32_t h, uint64_t key) {
+  sync::SpinGuard guard(g_lock);
+  proc::Process* p = me();
+  Cap* pc = lookup(p, port_h);
+  Cap* oc = lookup(p, h);
+  if (pc == nullptr || oc == nullptr) return Status::BadHandle;
+  if (pc->obj->type != Type::Port || oc->obj->type != Type::Endpoint) return Status::WrongType;
+  if ((pc->rights & rights::kWrite) == 0 || (oc->rights & rights::kRead) == 0) {
+    return Status::AccessDenied;
+  }
+  auto* port = reinterpret_cast<Port*>(pc->obj);
+  auto* ep = reinterpret_cast<Endpoint*>(oc->obj);
+  if (ep->bound != nullptr) return Status::Busy;
+  if (port->count + port->armed >= abi::syscall::kPortMaxPackets) return Status::Busy;
+  // Событие уже наступило — пакет сразу.
+  if (ep->head != nullptr) {
+    port_push(port, key, abi::syscall::kPacketChannelReadable);
+    return Status::Ok;
+  }
+  if (ep->peer == nullptr) {
+    port_push(port, key, abi::syscall::kPacketPeerClosed);
+    return Status::Ok;
+  }
+  ep->bound = port;
+  ep->bound_key = key;
+  ++port->armed;
+  ++port->base.refs;
+  return Status::Ok;
+}
+
+Status sys_port_wait(uint32_t port_h, uint64_t user_packet, uint64_t deadline) {
+  for (;;) {
+    bool irq = g_lock.lock();
+    proc::Process* p = me();
+    Cap* c = lookup(p, port_h);
+    Status s = Status::Ok;
+    if (c == nullptr) {
+      s = Status::BadHandle;
+    } else if (c->obj->type != Type::Port) {
+      s = Status::WrongType;
+    } else if ((c->rights & rights::kRead) == 0) {
+      s = Status::AccessDenied;
+    }
+    if (s != Status::Ok) {
+      g_lock.unlock(irq);
+      return s;
+    }
+    auto* port = reinterpret_cast<Port*>(c->obj);
+    if (port->count != 0) {
+      if (!proc::copy_to_user(user_packet, &port->packets[port->head],
+                              sizeof(abi::syscall::PortPacket))) {
+        g_lock.unlock(irq);
+        return Status::BadAddress;
+      }
+      port->head = (port->head + 1) % abi::syscall::kPortMaxPackets;
+      --port->count;
+      g_lock.unlock(irq);
+      return Status::Ok;
+    }
+    if (deadline == 0) {
+      g_lock.unlock(irq);
+      return Status::WouldBlock;
+    }
+    if (deadline != ~uint64_t{0} && platform::now_ns() >= deadline) {
+      g_lock.unlock(irq);
+      return Status::TimedOut;
+    }
+    sched::Thread* self = sched::current();
+    port->waiters.push(self);
+    sched::block_current_until(deadline);
+    g_lock.unlock(false);
+    sched::schedule();
+    {
+      sync::SpinGuard guard(g_lock);
+      Cap* again = lookup(p, port_h);
+      if (again != nullptr && again->obj == &port->base) port->waiters.remove(self);
+    }
+    if (irq) arch::x86_64::sti();
+  }
 }
 
 }  // namespace kernel::ipc

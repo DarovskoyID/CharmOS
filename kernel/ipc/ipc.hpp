@@ -65,5 +65,8 @@ Status sys_channel_read(uint32_t h, uint64_t bytes, uint64_t cap, uint64_t handl
 Status sys_vmo_create(uint64_t size, uint64_t* out);
 Status sys_vmo_map(uint32_t h, uint64_t rights, uint64_t* out);
 Status sys_vmo_unmap(uint64_t addr);
+Status sys_port_create(uint64_t* out);
+Status sys_port_wait(uint32_t port, uint64_t user_packet, uint64_t deadline);
+Status sys_object_bind(uint32_t port, uint32_t h, uint64_t key);
 
 }  // namespace kernel::ipc

@@ -1,6 +1,6 @@
 # Процессы из initrd в ring 3: системные вызовы, ошибки указателей, изоляция памяти,
 # сохранение FPU, вытеснение; падение процесса не роняет ядро; память возвращается.
-ktest: initrd has 13 files
+ktest: initrd has 14 files
 ktest: bin/hello exited with 0 (want 0)
 ktest: bin/sys exited with 42 (want 42)
 ktest: bin/fault exited with -1000 (want -1000)

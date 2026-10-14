@@ -126,4 +126,14 @@ inline SysResult vmo_create(uint64_t size) { return syscall1(Number::VmoCreate, 
 inline SysResult vmo_map(Handle h, uint32_t r) { return syscall2(Number::VmoMap, h, r); }
 inline Status vmo_unmap(uint64_t addr) { return syscall1(Number::VmoUnmap, addr).status; }
 
+// --- v1.2: порты (docs/abi/driver.md §4) -----------------------------------------
+using abi::syscall::PortPacket;
+inline SysResult port_create() { return syscall0(Number::PortCreate); }
+inline Status port_wait(Handle port, PortPacket* out, uint64_t deadline) {
+  return syscall3(Number::PortWait, port, reinterpret_cast<uint64_t>(out), deadline).status;
+}
+inline Status object_bind(Handle port, Handle h, uint64_t key) {
+  return syscall3(Number::ObjectBind, port, h, key).status;
+}
+
 }  // namespace charm

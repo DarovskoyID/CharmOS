@@ -12,4 +12,5 @@ ktest: bin/cap_c exited with 0 (want 0)
 ktest: bin/chan exited with 0 (want 0)
 ktest: bin/ping exited with 0 (want 0)
 ktest: bin/pong exited with 0 (want 0)
+ktest: bin/port exited with 0 (want 0)
 ktest: PASS ipc

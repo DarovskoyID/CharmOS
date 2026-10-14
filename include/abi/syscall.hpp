@@ -28,7 +28,30 @@ enum class Number : uint64_t {
   VmoMap = 12,
   VmoUnmap = 13,
   HandleRevoke = 14,
+  // v1.2 (docs/abi/driver.md §6). abi_version сообщает 1.2, когда готовы все.
+  PortCreate = 15,
+  PortWait = 16,
+  ObjectBind = 17,
+  DeviceInfo = 18,
+  DeviceMapBar = 19,
+  DeviceIrq = 20,
+  InterruptAck = 21,
+  DmaAlloc = 22,
 };
+
+// Пакет порта (docs/abi/driver.md §4).
+struct PortPacket {
+  uint64_t key;
+  uint32_t type;
+  uint32_t reserved;
+  uint64_t data0;
+  uint64_t data1;
+};
+static_assert(sizeof(PortPacket) == 32);
+inline constexpr uint32_t kPacketInterrupt = 1;
+inline constexpr uint32_t kPacketChannelReadable = 2;
+inline constexpr uint32_t kPacketPeerClosed = 3;
+inline constexpr uint32_t kPortMaxPackets = 64;
 
 // Права хендла (docs/abi/ipc.md §3).
 namespace rights {
@@ -39,6 +62,7 @@ inline constexpr uint32_t kWrite = 1u << 3;
 inline constexpr uint32_t kMap = 1u << 4;
 inline constexpr uint32_t kAll = kDuplicate | kTransfer | kRead | kWrite | kMap;
 inline constexpr uint32_t kChannelDefault = kDuplicate | kTransfer | kRead | kWrite;
+inline constexpr uint32_t kPortDefault = kDuplicate | kTransfer | kRead | kWrite;
 inline constexpr uint32_t kVmoDefault = kAll;
 }  // namespace rights
 

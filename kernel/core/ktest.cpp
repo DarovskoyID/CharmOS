@@ -590,6 +590,7 @@ void test_ipc() {
       {"bin/chan", nullptr, sched::kAnyCpu, 0},
       {"bin/ping", pp0, many ? 1 : 0, 0},
       {"bin/pong", pp1, many ? 2 : 0, 0},
+      {"bin/port", nullptr, sched::kAnyCpu, 0},
   };
   constexpr size_t kRuns = sizeof runs / sizeof runs[0];
   proc::Process* procs[kRuns] = {};
