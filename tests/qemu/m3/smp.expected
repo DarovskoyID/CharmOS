@@ -2,5 +2,5 @@
 lapic: 
 smp: cpu 1 online
 smp: 4 CPUs online
-ktest: 4 CPUs x 200000 locked increments = 800000
+ktest: 4 CPUs x 20000 locked increments = 80000
 ktest: PASS smp

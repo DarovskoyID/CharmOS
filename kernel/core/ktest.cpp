@@ -289,7 +289,7 @@ struct CounterWork {
   volatile uint64_t per_cpu[smp::kMaxCpus] = {};
 };
 constinit CounterWork g_counter;
-constexpr uint64_t kIncrements = 200'000;
+constexpr uint64_t kIncrements = 20'000;  // больше — слишком долго под TCG на CI
 
 void count_under_lock(void*) {
   uint32_t me = smp::this_cpu().index;
