@@ -1,0 +1,5 @@
+# M7: IOMMU и virtio-net на QEMU user-net (встроенная сетевая карта q35 выключена).
+-nic none
+-device intel-iommu
+-netdev user,id=n0
+-device virtio-net-pci,netdev=n0,disable-legacy=on,iommu_platform=on

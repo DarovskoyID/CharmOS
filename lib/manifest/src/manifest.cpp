@@ -121,8 +121,13 @@ R Parser::run() {
       if (peek() != '"') return fail("unterminated string");
       StringView value = text_.substr(start, pos_ - start);
       ++pos_;
-      if (value != StringView("block")) return fail("unknown class");
-      m.driver_class = DriverClass::Block;
+      if (value == StringView("block")) {
+        m.driver_class = DriverClass::Block;
+      } else if (value == StringView("net")) {
+        m.driver_class = DriverClass::Net;  // docs/abi/net.md §1, v1.4
+      } else {
+        return fail("unknown class");
+      }
       has_class = true;
     } else if (current == nullptr) {
       if (key != StringView("name")) return fail("unknown top-level key");

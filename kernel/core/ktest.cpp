@@ -12,6 +12,8 @@
 #include "../drivers/devmgr.hpp"
 #include "../fs/cache.hpp"
 #include "../fs/vfs.hpp"
+#include "../net/ip.hpp"
+#include "../net/netif.hpp"
 #include "../pci/iommu.hpp"
 #include "../pci/pci.hpp"
 #include "../platform/platform.hpp"
@@ -790,6 +792,25 @@ void test_fs_crash() {
   pass();
 }
 
+void test_net() {
+  // QEMU user-net (slirp): сеть 10.0.2.0/24, шлюз 10.0.2.2. Пока без DHCP —
+  // адрес задан статически (DHCP — следующий шаг M7).
+  uint64_t deadline = platform::now_ns() + 20'000'000'000ull;
+  while (!net::link_up()) {
+    if (platform::now_ns() > deadline) fail("no link");
+    sched::sleep_ns(10'000'000);
+  }
+  net::configure({net::ipv4(10, 0, 2, 15), net::ipv4(255, 255, 255, 0), net::ipv4(10, 0, 2, 2),
+                  net::ipv4(10, 0, 2, 3)});
+  for (uint16_t seq = 1; seq <= 3; ++seq) {
+    uint64_t rtt = 0;
+    auto s = net::ping(net::ipv4(10, 0, 2, 2), seq, platform::now_ns() + 2'000'000'000ull, &rtt);
+    if (s != net::Status::Ok) fail("ping 10.0.2.2 failed");
+    kprint("ktest: ping 10.0.2.2 seq={} ok\n", seq);
+  }
+  pass();
+}
+
 void test_fs_check() {
   run_with_root("bin/fs_check");
   pass();
@@ -828,6 +849,7 @@ constexpr Test kTests[] = {
     {"fs", &test_fs},
     {"fs_check", &test_fs_check},
     {"fs_crash", &test_fs_crash},
+    {"net", &test_net},
 };
 
 }  // namespace
@@ -837,7 +859,7 @@ void select(const Cmdline& cmdline) { g_selected = cmdline.get("ktest"); }
 bool needs_drivers() {
   return g_selected == StringView("drivers") || g_selected == StringView("blk") ||
          g_selected == StringView("fs") || g_selected == StringView("fs_check") ||
-         g_selected == StringView("fs_crash");
+         g_selected == StringView("fs_crash") || g_selected == StringView("net");
 }
 StringView selected() { return g_selected; }
 

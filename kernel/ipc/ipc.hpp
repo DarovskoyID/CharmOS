@@ -63,6 +63,13 @@ Status create_device(uint32_t pci_index, Cap** out);
 // нужны. *len — длина сообщения (и при BufferTooSmall). deadline — как у
 // channel_read.
 Status kernel_recv(Cap* endpoint, void* buf, uint64_t cap, uint32_t* len, uint64_t deadline);
+// То же, но хендлы сообщения (до ncap) переходят ядру отсоединёнными
+// капабилити; *got — сколько. Лишние закрываются.
+Status kernel_recv_caps(Cap* endpoint, void* buf, uint64_t cap, uint32_t* len, Cap** caps,
+                        uint32_t ncap, uint32_t* got, uint64_t deadline);
+// Физические фреймы VMO (не MMIO): до max штук в out, *pages — всего страниц.
+// WrongType — не VMO или BAR.
+Status vmo_frames(Cap* vmo, uint64_t* out, uint64_t max, uint64_t* pages);
 
 // VMO из pages свежих обнулённых страниц для ядра: *out — отсоединённая
 // капабилити (права kVmoDefault без Duplicate), frames[i] — физ. адреса.

@@ -28,7 +28,7 @@ struct Match {
 };
 
 // Класс драйвера (docs/abi/block.md §1, v1.3): что ядро делает после старта.
-enum class DriverClass : uint8_t { None, Block };
+enum class DriverClass : uint8_t { None, Block, Net };
 
 struct Manifest {
   char name[kMaxName];  // с завершающим 0

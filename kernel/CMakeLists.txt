@@ -21,6 +21,8 @@ add_executable(kernel
   block/block.cpp
   fs/cache.cpp
   fs/vfs.cpp
+  net/netif.cpp
+  net/ip.cpp
   platform/platform.cpp
   proc/process.cpp
   proc/syscall.cpp

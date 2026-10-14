@@ -136,6 +136,11 @@ enum class Status : uint64_t {
   NotFound = 15,
   AlreadyExists = 16,
   NoSpace = 17,
+  // v1.4 (docs/abi/socket.md §4)
+  ConnectionRefused = 18,
+  ConnectionReset = 19,
+  NetUnreachable = 20,
+  AddressInUse = 21,
 };
 
 // §4

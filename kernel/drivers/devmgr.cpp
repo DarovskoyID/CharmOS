@@ -5,6 +5,7 @@
 #include <lib/manifest/manifest.hpp>
 
 #include "../block/block.hpp"
+#include "../net/netif.hpp"
 #include "../core/log.hpp"
 #include "../ipc/ipc.hpp"
 #include "../mm/heap.hpp"
@@ -114,6 +115,12 @@ void block_serve(void* arg) {
   s->done.up();
 }
 
+void net_serve(void* arg) {
+  auto* s = static_cast<BlockServe*>(arg);
+  net::serve(s->pci_index, s->kernel_end, s->name);
+  s->done.up();
+}
+
 void forget_process(void* arg) {
   sync::SpinGuard guard(g_lock);
   static_cast<Binding*>(arg)->running = nullptr;
@@ -156,12 +163,15 @@ void supervise(void* arg) {
       sync::SpinGuard guard(g_lock);
       b->running = p.value();
     }
-    bool block = b->driver->manifest.driver_class == lib::manifest::DriverClass::Block;
+    // Блочный и сетевой классы: поток ядра обслуживает стартовый канал драйвера.
+    auto cls = b->driver->manifest.driver_class;
+    bool block = cls != lib::manifest::DriverClass::None;
     if (block) {
       b->block.pci_index = b->pci_index;
       b->block.kernel_end = kernel_end;
       b->block.name = name;
-      if (sched::spawn("block", &block_serve, &b->block).is_err()) {
+      auto fn = cls == lib::manifest::DriverClass::Net ? &net_serve : &block_serve;
+      if (sched::spawn(cls == lib::manifest::DriverClass::Net ? "net" : "block", fn, &b->block).is_err()) {
         kprint("devmgr: {}: cannot start block service\n", name);
         block = false;
       }

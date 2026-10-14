@@ -1348,6 +1348,13 @@ Status sys_device_vendor_cap(uint32_t h, uint64_t index, uint64_t user_buf, uint
 // --- для ядра: блочный слой ---------------------------------------------------------
 
 Status kernel_recv(Cap* endpoint, void* buf, uint64_t cap, uint32_t* len, uint64_t deadline) {
+  uint32_t got;
+  return kernel_recv_caps(endpoint, buf, cap, len, nullptr, 0, &got, deadline);
+}
+
+Status kernel_recv_caps(Cap* endpoint, void* buf, uint64_t cap, uint32_t* len, Cap** caps,
+                        uint32_t ncap, uint32_t* got, uint64_t deadline) {
+  *got = 0;
   auto* ep = reinterpret_cast<Endpoint*>(endpoint->obj);
   for (;;) {
     bool irq = g_lock.lock();
@@ -1362,7 +1369,16 @@ Status kernel_recv(Cap* endpoint, void* buf, uint64_t cap, uint32_t* len, uint64
       if (ep->head == nullptr) ep->tail = nullptr;
       --ep->count;
       m->next = nullptr;
-      destroy_message(m);  // закрывает хендлы сообщения
+      // Хендлы — ядру (сколько просили), остальное закроет destroy_message.
+      for (uint32_t i = 0; i < m->ncaps && *got < ncap; ++i) {
+        Cap* t = m->caps[i];
+        if (t == nullptr) continue;
+        t->where = Where::Detached;
+        t->msg = nullptr;
+        caps[(*got)++] = t;
+        m->caps[i] = nullptr;
+      }
+      destroy_message(m);
       g_lock.unlock(irq);
       return Status::Ok;
     }
@@ -1501,6 +1517,16 @@ Status get_fs_node(uint32_t h, uint32_t need, uint64_t* node, bool* dir, uint32_
   *node = n->node;
   *dir = n->dir;
   *r = c->rights;
+  return Status::Ok;
+}
+
+Status vmo_frames(Cap* vmo, uint64_t* out, uint64_t max, uint64_t* pages) {
+  sync::SpinGuard guard(g_lock);
+  if (vmo->obj->type != Type::Vmo) return Status::WrongType;
+  auto* v = reinterpret_cast<Vmo*>(vmo->obj);
+  if (v->mmio) return Status::WrongType;
+  *pages = v->pages;
+  for (uint64_t i = 0; i < v->pages && i < max; ++i) out[i] = v->frames[i];
   return Status::Ok;
 }
 

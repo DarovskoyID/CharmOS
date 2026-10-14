@@ -1,0 +1,7 @@
+# M7: драйвер virtio-net в юзерспейсе, кольца docs/abi/net.md, ARP/IPv4/ICMP
+# в ядре: эхо-запросы к шлюзу QEMU user-net получают ответы.
+-> virtio_net
+net: interface virtio_net mac
+ktest: ping 10.0.2.2 seq=1 ok
+ktest: ping 10.0.2.2 seq=3 ok
+ktest: PASS net

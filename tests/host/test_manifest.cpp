@@ -68,7 +68,9 @@ TEST(manifest_class) {
   CHECK(r.is_ok() && r.value().driver_class == lib::manifest::DriverClass::Block);
   CHECK(parse(StringView("name = \"e\"\n[[match]]\nvendor = 1\n")).value().driver_class ==
         lib::manifest::DriverClass::None);
-  CHECK(fails_at("name = \"a\"\nclass = \"net\"\n", 2));                 // неизвестный класс
+  CHECK(parse(StringView("name = \"n\"\nclass = \"net\"\n[[match]]\nvendor = 1\n")).value().driver_class ==
+        lib::manifest::DriverClass::Net);
+  CHECK(fails_at("name = \"a\"\nclass = \"usb\"\n", 2));                 // неизвестный класс
   CHECK(fails_at("name = \"a\"\nclass = \"block\"\nclass = \"block\"\n", 3));
   CHECK(fails_at("name = \"a\"\n[[match]]\nclass = \"block\"\n", 3));     // только сверху
 }
