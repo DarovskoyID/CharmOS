@@ -75,6 +75,13 @@ Status clone_detached(Cap* cap, Cap** out);
 void* acquire_device(uint32_t pci_index, pci::iommu::Domain** domain);
 void release_device(void* device);
 
+// --- узлы ФС (docs/abi/fs.md): объект ядра «файл/каталог» по id узла ----------------------
+// Хук вызывается, когда объект узла освобождён (VFS ведёт счётчик открытых).
+void set_fs_node_closed_hook(void (*hook)(uint64_t node));
+Status create_fs_node(uint64_t node, bool dir, uint32_t rights, Cap** out);
+Status install_fs_node(uint64_t node, bool dir, uint32_t rights, uint64_t* out);
+Status get_fs_node(uint32_t h, uint32_t need, uint64_t* node, bool* dir, uint32_t* rights);
+
 // --- системные вызовы (текущий процесс) -------------------------------------------
 Status sys_handle_close(uint32_t h);
 Status sys_handle_duplicate(uint32_t h, uint64_t rights, uint64_t* out);

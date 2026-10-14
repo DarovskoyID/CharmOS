@@ -33,7 +33,7 @@ extern "C" int64_t charm_main(Handle kernel_channel) {
   Handle hs[1];
   uint32_t n, nh;
   auto ver = abi_version();
-  EXPECT(ver.ok() && ver.value == ((1u << 16) | 2u));  // driver.md — v1.2
+  EXPECT(ver.ok() && (ver.value >> 16) == 1 && (ver.value & 0xffff) >= 2);  // driver.md — v1.2+
   EXPECT(read_msg(kernel_channel, buf, sizeof buf, hs, 1, &n, &nh) == Status::Ok);
   EXPECT(same(buf, n, "device") && nh == 1);
   Handle dev = hs[0];

@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <abi/fs.hpp>
 #include <abi/syscall.hpp>
 
 namespace charm {
@@ -135,6 +136,31 @@ inline Status port_wait(Handle port, PortPacket* out, uint64_t deadline) {
 inline Status object_bind(Handle port, Handle h, uint64_t key) {
   return syscall3(Number::ObjectBind, port, h, key).status;
 }
+
+// --- v1.3: файлы и каталоги (docs/abi/fs.md) -----------------------------------------
+inline SysResult fs_open(Handle dir, const char* path, uint64_t len, uint64_t flags) {
+  return syscall5(Number::FsOpen, dir, reinterpret_cast<uint64_t>(path), len, flags, 0);
+}
+inline SysResult fs_open(Handle dir, const char* path, uint64_t flags) {
+  return fs_open(dir, path, length(path), flags);
+}
+inline SysResult file_read(Handle f, void* buf, uint64_t len, uint64_t offset) {
+  return syscall5(Number::FileRead, f, reinterpret_cast<uint64_t>(buf), len, offset, 0);
+}
+inline SysResult file_write(Handle f, const void* buf, uint64_t len, uint64_t offset) {
+  return syscall5(Number::FileWrite, f, reinterpret_cast<uint64_t>(buf), len, offset, 0);
+}
+inline Status file_sync(Handle f) { return syscall1(Number::FileSync, f).status; }
+inline Status fs_stat(Handle h, abi::fs::Stat* out) {
+  return syscall2(Number::FsStat, h, reinterpret_cast<uint64_t>(out)).status;
+}
+inline SysResult dir_read(Handle dir, void* buf, uint64_t cap, uint64_t cookie) {
+  return syscall5(Number::DirRead, dir, reinterpret_cast<uint64_t>(buf), cap, cookie, 0);
+}
+inline Status fs_unlink(Handle dir, const char* path) {
+  return syscall3(Number::FsUnlink, dir, reinterpret_cast<uint64_t>(path), length(path)).status;
+}
+inline Status file_resize(Handle f, uint64_t size) { return syscall2(Number::FileResize, f, size).status; }
 
 // DMA-буфер устройства (docs/abi/driver.md §5): VMO и адрес для устройства.
 inline SysResult dma_alloc(Handle dev, uint64_t size, uint64_t flags, uint64_t* device_addr) {

@@ -1,3 +1,4 @@
+#include "../fs/vfs.hpp"
 #include "syscall.hpp"
 
 #include <abi/syscall.hpp>
@@ -170,6 +171,38 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
                                                        f.r10, &v), v);
       break;
     }
+    case Number::FsOpen: {
+      uint64_t v = 0;
+      set_result(f, kernel::fs::sys_fs_open(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, f.r10, &v), v);
+      break;
+    }
+    case Number::FileRead: {
+      uint64_t v = 0;
+      set_result(f, kernel::fs::sys_file_read(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, f.r10, &v), v);
+      break;
+    }
+    case Number::FileWrite: {
+      uint64_t v = 0;
+      set_result(f, kernel::fs::sys_file_write(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, f.r10, &v), v);
+      break;
+    }
+    case Number::FileSync:
+      set_result(f, kernel::fs::sys_file_sync(static_cast<uint32_t>(f.rdi)));
+      break;
+    case Number::FsStat:
+      set_result(f, kernel::fs::sys_fs_stat(static_cast<uint32_t>(f.rdi), f.rsi));
+      break;
+    case Number::DirRead: {
+      uint64_t v = 0;
+      set_result(f, kernel::fs::sys_dir_read(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, f.r10, &v), v);
+      break;
+    }
+    case Number::FsUnlink:
+      set_result(f, kernel::fs::sys_fs_unlink(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx));
+      break;
+    case Number::FileResize:
+      set_result(f, kernel::fs::sys_file_resize(static_cast<uint32_t>(f.rdi), f.rsi));
+      break;
     case Number::ObjectBind:
       set_result(f, kernel::ipc::sys_object_bind(static_cast<uint32_t>(f.rdi),
                                                  static_cast<uint32_t>(f.rsi), f.rdx));

@@ -28,7 +28,7 @@ using arch::x86_64::kPageSize;
 
 // --- объекты ------------------------------------------------------------------------
 
-enum class Type : uint8_t { Endpoint, Vmo, Port, Device, Interrupt };
+enum class Type : uint8_t { Endpoint, Vmo, Port, Device, Interrupt, FsNode };
 
 struct Object {
   Type type;
@@ -102,6 +102,15 @@ struct Interrupt {
   Port* bound;
   uint64_t bound_key;
 };
+
+// Файл или каталог (docs/abi/fs.md): узел смонтированной ФС.
+struct FsNode {
+  Object base;
+  uint64_t node;
+  bool dir;
+};
+
+constinit void (*g_fs_node_closed)(uint64_t node) = nullptr;
 
 enum class Where : uint8_t { Detached, Table, Message, Closed };
 
@@ -284,6 +293,12 @@ void release_object(Object* obj) {
   }
   if (obj->type == Type::Port) {
     mm::kfree(obj);  // подписки держат ссылку: сюда попадаем, когда их нет
+    return;
+  }
+  if (obj->type == Type::FsNode) {
+    uint64_t node = reinterpret_cast<FsNode*>(obj)->node;
+    mm::kfree(obj);
+    if (g_fs_node_closed != nullptr) g_fs_node_closed(node);
     return;
   }
   if (obj->type == Type::Interrupt) {
@@ -1431,6 +1446,62 @@ void* acquire_device(uint32_t pci_index, pci::iommu::Domain** domain) {
 void release_device(void* device) {
   sync::SpinGuard guard(g_lock);
   release_object(&static_cast<Device*>(device)->base);
+}
+
+// --- узлы ФС -----------------------------------------------------------------------------
+
+void set_fs_node_closed_hook(void (*hook)(uint64_t node)) { g_fs_node_closed = hook; }
+
+namespace {
+
+FsNode* new_fs_node(uint64_t node, bool dir) {
+  auto* n = alloc_zeroed<FsNode>(sizeof(FsNode));
+  if (n == nullptr) return nullptr;
+  n->base.type = Type::FsNode;
+  n->node = node;
+  n->dir = dir;
+  return n;
+}
+
+}  // namespace
+
+Status create_fs_node(uint64_t node, bool dir, uint32_t r, Cap** out) {
+  FsNode* n = new_fs_node(node, dir);
+  if (n == nullptr) {
+    if (g_fs_node_closed != nullptr) g_fs_node_closed(node);  // ссылка VFS не нужна
+    return Status::NoMemory;
+  }
+  sync::SpinGuard guard(g_lock);
+  Cap* c = new_cap(&n->base, r, nullptr);
+  if (c == nullptr) {
+    mm::kfree(n);
+    return Status::NoMemory;
+  }
+  *out = c;
+  return Status::Ok;
+}
+
+Status install_fs_node(uint64_t node, bool dir, uint32_t r, uint64_t* out) {
+  FsNode* n = new_fs_node(node, dir);
+  if (n == nullptr) {
+    if (g_fs_node_closed != nullptr) g_fs_node_closed(node);  // ссылка VFS не нужна
+    return Status::NoMemory;
+  }
+  sync::SpinGuard guard(g_lock);
+  return install_new(&n->base, r, out);  // при ошибке объект освобождён (и хук вызван)
+}
+
+Status get_fs_node(uint32_t h, uint32_t need, uint64_t* node, bool* dir, uint32_t* r) {
+  sync::SpinGuard guard(g_lock);
+  Cap* c = lookup(me(), h);
+  if (c == nullptr) return Status::BadHandle;
+  if (c->obj->type != Type::FsNode) return Status::WrongType;
+  if ((c->rights & need) != need) return Status::AccessDenied;
+  auto* n = reinterpret_cast<FsNode*>(c->obj);
+  *node = n->node;
+  *dir = n->dir;
+  *r = c->rights;
+  return Status::Ok;
 }
 
 }  // namespace kernel::ipc

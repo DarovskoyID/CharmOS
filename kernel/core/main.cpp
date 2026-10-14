@@ -11,6 +11,7 @@
 #include "../mm/pmm.hpp"
 #include "../mm/vmm.hpp"
 #include "../drivers/devmgr.hpp"
+#include "../fs/vfs.hpp"
 #include "../pci/iommu.hpp"
 #include "../pci/pci.hpp"
 #include "../platform/platform.hpp"
@@ -98,6 +99,8 @@ void page_fault_handler(arch::x86_64::InterruptFrame& frame) {
 }
 
 constinit uint64_t g_initrd_phys = 0;
+constinit char g_root_spec[32] = {};
+constinit size_t g_root_len = 0;
 constinit uint64_t g_initrd_size = 0;
 
 // Первый поток ядра: всё, что идёт после запуска планировщика.
@@ -106,6 +109,7 @@ void kmain(void*) {
   // загрузке и в тесте драйверов.
   if (kernel::ktest::selected().empty() || kernel::ktest::needs_drivers()) {
     kernel::devmgr::start(g_initrd_phys, g_initrd_size);
+    if (g_root_len != 0) (void)kernel::fs::mount_root(lib::core::StringView(g_root_spec, g_root_len));
   }
   kernel::ktest::run_selected();
 
@@ -138,6 +142,10 @@ extern "C" [[noreturn]] void kernel_main(uint64_t boot_info_phys, uint64_t stack
         lib::core::StringView(phys_to_virt<const char>(info.cmdline), info.cmdline_length));
   }
   kernel::ktest::select(cmdline);
+  if (auto root = cmdline.get("root"); !root.empty() && root.size() < sizeof g_root_spec) {
+    for (size_t i = 0; i < root.size(); ++i) g_root_spec[i] = root[i];
+    g_root_len = root.size();
+  }
   kernel::ktest::set_initrd(info.initrd_base, info.initrd_size);
   g_initrd_phys = info.initrd_base;
   g_initrd_size = info.initrd_size;

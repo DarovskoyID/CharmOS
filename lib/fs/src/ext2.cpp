@@ -597,7 +597,10 @@ Status Ext2::unlink(Node dir_node, StringView name) {
     }
     in.size = 0;
     in.dir_acl = 0;
-    in.dtime = 1;  // удалён (времени нет — ненулевое значение)
+    // Время удаления. Часов реального времени пока нет: фиксированная метка
+    // 2026-01-01. Значение меньше числа inode e2fsck принял бы за ссылку списка
+    // «сирот» (поле dtime так используется для них).
+    in.dtime = inodes_count_ > 1767225600u ? inodes_count_ : 1767225600u;
     if (write_inode(ino, in).is_err()) return fail(FsError::IoError);
     return release(true, ino);
   }

@@ -1,0 +1,7 @@
+# M6: корень ext2 (GPT, раздел 2) на virtio-blk; файловые вызовы v1.3 из
+# ring 3: чтение, запись, sync, права, удаление. Оставляет /persist.txt.
+block: disk0 is virtio_blk
+vfs: root is disk0p2 (ext2)
+[fs_test] fs_test: files, directories, rights, sync ok
+ktest: bin/fs_test exited with 0
+ktest: PASS fs

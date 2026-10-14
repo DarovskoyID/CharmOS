@@ -1,0 +1,4 @@
+# M6: корень ext2 на virtio-blk (образ — fs1_ext2.sh).
+-device intel-iommu
+-drive if=none,id=d0,format=raw,file=build/disk-fs.img
+-device virtio-blk-pci,drive=d0,disable-legacy=on,iommu_platform=on

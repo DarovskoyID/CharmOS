@@ -10,6 +10,8 @@
 #include "../mm/stack.hpp"
 #include "../block/block.hpp"
 #include "../drivers/devmgr.hpp"
+#include "../fs/cache.hpp"
+#include "../fs/vfs.hpp"
 #include "../pci/iommu.hpp"
 #include "../pci/pci.hpp"
 #include "../platform/platform.hpp"
@@ -742,6 +744,38 @@ void test_blk() {
   pass();
 }
 
+// Программа из initrd с корнем ФС в стартовом канале (docs/abi/fs.md §2).
+void run_with_root(const char* file) {
+  if (!fs::mounted()) fail("root not mounted");
+  lib::initrd::Archive archive;
+  if (archive.open(mm::phys_to_virt<const void>(g_initrd_phys), g_initrd_size).is_err()) fail("bad initrd");
+  lib::initrd::File f;
+  if (!archive.find(StringView(file), &f)) fail("program missing from initrd");
+  ipc::Cap *mine, *theirs, *root;
+  if (ipc::create_channel(&mine, &theirs) != ipc::Status::Ok) fail("create_channel");
+  if (fs::root_cap(&root) != ipc::Status::Ok) fail("root_cap");
+  if (ipc::kernel_send(mine, "root", 4, &root, 1) != ipc::Status::Ok) fail("kernel_send");
+  auto p = proc::spawn_process(f.name.substr(4), f.data, f.size, sched::kAnyCpu, theirs);
+  if (p.is_err()) fail("spawn_process failed");
+  int64_t code = proc::wait_process(p.value());
+  ipc::release_detached(mine);
+  kprint("ktest: {} exited with {}\n", file, code);
+  if (code != 0) fail("program failed");
+}
+
+void test_fs() {
+  run_with_root("bin/fs_test");
+  fs::CacheStats cs = fs::cache_stats();
+  kprint("ktest: cache hits={} misses={} writebacks={}\n", cs.hits, cs.misses, cs.writebacks);
+  if (cs.writebacks == 0) fail("nothing written back");
+  pass();
+}
+
+void test_fs_check() {
+  run_with_root("bin/fs_check");
+  pass();
+}
+
 struct Test {
   StringView name;
   void (*fn)();
@@ -772,6 +806,8 @@ constexpr Test kTests[] = {
     {"pci", &test_pci},
     {"drivers", &test_drivers},
     {"blk", &test_blk},
+    {"fs", &test_fs},
+    {"fs_check", &test_fs_check},
 };
 
 }  // namespace
@@ -779,7 +815,8 @@ constexpr Test kTests[] = {
 void select(const Cmdline& cmdline) { g_selected = cmdline.get("ktest"); }
 
 bool needs_drivers() {
-  return g_selected == StringView("drivers") || g_selected == StringView("blk");
+  return g_selected == StringView("drivers") || g_selected == StringView("blk") ||
+         g_selected == StringView("fs") || g_selected == StringView("fs_check");
 }
 StringView selected() { return g_selected; }
 

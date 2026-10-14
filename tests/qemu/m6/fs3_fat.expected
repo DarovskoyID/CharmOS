@@ -1,0 +1,4 @@
+# M6: тот же сценарий на корне FAT32 (перед ним образ ext2 прошёл e2fsck).
+vfs: root is disk0p2 (fat32)
+[fs_test] fs_test: files, directories, rights, sync ok
+ktest: PASS fs

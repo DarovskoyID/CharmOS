@@ -19,6 +19,8 @@ add_executable(kernel
   pci/pci.cpp
   pci/iommu.cpp
   block/block.cpp
+  fs/cache.cpp
+  fs/vfs.cpp
   platform/platform.cpp
   proc/process.cpp
   proc/syscall.cpp
@@ -35,7 +37,7 @@ add_executable(kernel
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/paging.cpp
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/user.S)
 target_include_directories(kernel PRIVATE ${CMAKE_SOURCE_DIR}/arch/x86_64/include)
-target_link_libraries(kernel PRIVATE core mm acpi elf initrd cap manifest abi)
+target_link_libraries(kernel PRIVATE core mm acpi elf initrd cap manifest fs abi)
 target_link_options(kernel PRIVATE
   -T ${CMAKE_CURRENT_SOURCE_DIR}/linker.ld
   -Wl,-z,max-page-size=4096)
