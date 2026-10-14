@@ -5,7 +5,8 @@
 
 | Файл | Документ | Источник | Нужен с |
 |---|---|---|---|
-| `uefi-2.10.pdf` | UEFI Specification 2.10 | https://uefi.org/specifications (скачивается вручную: сайт за Cloudflare) | M1 |
+| `uefi-2.11.pdf` | UEFI Specification 2.11 | https://uefi.org/specifications (скачивается вручную: сайт за Cloudflare) | M1 |
 | `intel-sdm-vol3a.pdf` | Intel SDM Vol. 3A, System Programming Guide (253668) | https://cdrdv2-public.intel.com/782154/253668-sdm-vol-3a.pdf | M1 |
 | `elf-gabi.pdf` | ELF (Tool Interface Standard, gABI) | https://refspecs.linuxfoundation.org/elf/elf.pdf | M1 |
 | `x86-64-psabi.pdf` | System V ABI, AMD64 Architecture Processor Supplement | https://gitlab.com/x86-psABIs/x86-64-ABI | M1 |
+| `elf64.pdf` | ELF-64 Object File Format 1.5 (HP/Intel) — структуры Elf64_* (в `elf-gabi.pdf` только ELF32) | https://uclibc.org/docs/elf-64-gen.pdf | M1 |

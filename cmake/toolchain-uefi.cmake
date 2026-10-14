@@ -9,6 +9,7 @@ set(triple x86_64-unknown-windows)
 set(CMAKE_C_COMPILER_TARGET ${triple})
 set(CMAKE_CXX_COMPILER_TARGET ${triple})
 set(CMAKE_ASM_COMPILER_TARGET ${triple})
+set(CMAKE_ASM_FLAGS_INIT "--target=${triple}")
 
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 

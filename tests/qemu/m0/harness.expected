@@ -1,0 +1,3 @@
+# M0: harness — прошивка запускает наш BOOTX64.EFI, serial работает,
+# тест завершается через isa-debug-exit (выход делает ядро M1).
+CharmOS boot: loader started

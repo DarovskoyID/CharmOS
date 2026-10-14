@@ -9,10 +9,11 @@ set(triple x86_64-unknown-elf)
 set(CMAKE_C_COMPILER_TARGET ${triple})
 set(CMAKE_CXX_COMPILER_TARGET ${triple})
 set(CMAKE_ASM_COMPILER_TARGET ${triple})
+set(CMAKE_ASM_FLAGS_INIT "--target=${triple}")
 
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 
-set(kflags "--target=${triple} -mno-red-zone -mcmodel=kernel -mgeneral-regs-only -fno-pic -fno-pie")
+set(kflags "--target=${triple} -mno-red-zone -mcmodel=kernel -mgeneral-regs-only -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables")
 set(CMAKE_C_FLAGS_INIT "${kflags}")
 set(CMAKE_CXX_FLAGS_INIT "${kflags}")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "--target=${triple} -nostdlib -fuse-ld=lld -static -Wl,--no-dynamic-linker")

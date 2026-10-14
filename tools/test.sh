@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # QEMU-тесты фазы: tools/test.sh <фаза> [таймаут_сек]
 # Для каждого сценария tests/qemu/<фаза>/<сценарий>.expected:
-#   - QEMU запускается headless (с tools/qemu/<сценарий>.args, если есть);
+#   - QEMU запускается headless (с tools/qemu/<сценарий>.args и командной
+#     строкой ядра из <сценарий>.cmdline, если они есть);
 #   - строки .expected должны встретиться в serial-выводе в этом порядке;
 #   - код выхода QEMU должен быть 33 (isa-debug-exit 0x10).
 set -uo pipefail
@@ -19,6 +20,7 @@ for exp in "$dir"/*.expected; do
   log="$build/test-$phase-$name.serial"
   cfg=()
   [[ -f "$root/tools/qemu/$name.args" ]] && cfg=(--config "$name")
+  [[ -f "$dir/$name.cmdline" ]] && cfg+=(--cmdline "$(head -n1 "$dir/$name.cmdline" | tr -d '\r')")
 
   timeout "$timeout_s" "$root/tools/run.sh" --test "${cfg[@]}" </dev/null >"$log" 2>&1
   code=$?

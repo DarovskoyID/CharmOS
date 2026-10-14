@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 # Запуск CharmOS в QEMU (UEFI/OVMF). Serial — в stdout.
-#   tools/run.sh [--gdb] [--trace] [--headless] [--config <имя>]
+#   tools/run.sh [--gdb] [--trace] [--headless] [--test] [--config <имя>] [--cmdline <строка>]
 #   --gdb       gdb-стаб на :1234, CPU стоит до подключения (-s -S)
 #   --trace     -d int,guest_errors,cpu_reset (медленно и шумно под OVMF)
 #   --headless  без окна
 #   --test      режим тестов: без -no-shutdown (иначе isa-debug-exit в QEMU ≥ 9
 #               ставит VM на паузу вместо выхода)
 #   --config    доп. устройства из tools/qemu/<имя>.args
+#   --cmdline   строка для ESP:/charmos/cmdline.txt (без опции файла нет)
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 build="${CHARMOS_BUILD:-$root/build}"
 esp="$build/esp"
 
-gdb=0; trace=0; headless=0; testmode=0; config=""
+gdb=0; trace=0; headless=0; testmode=0; config=""; cmdline=""; has_cmdline=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --gdb) gdb=1 ;;
@@ -21,6 +22,7 @@ while [[ $# -gt 0 ]]; do
     --headless) headless=1 ;;
     --test) testmode=1; headless=1 ;;
     --config) config="$2"; shift ;;
+    --cmdline) cmdline="$2"; has_cmdline=1; shift ;;
     *) echo "run.sh: unknown option $1" >&2; exit 2 ;;
   esac
   shift
@@ -36,6 +38,10 @@ ovmf_vars=$(find_fw /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd
 # ESP собирается из каталога: QEMU отдаёт его как FAT-диск (vvfat).
 mkdir -p "$esp/EFI/BOOT"
 cp "$build/uefi/boot/uefi/BOOTX64.efi" "$esp/EFI/BOOT/BOOTX64.EFI"
+mkdir -p "$esp/charmos"
+cp "$build/kernel/kernel/kernel.elf" "$esp/charmos/kernel.elf"
+rm -f "$esp/charmos/cmdline.txt"
+if [[ $has_cmdline -eq 1 ]]; then printf '%s\n' "$cmdline" >"$esp/charmos/cmdline.txt"; fi
 cp "$ovmf_vars" "$build/ovmf_vars.fd"
 
 args=(

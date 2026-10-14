@@ -14,4 +14,4 @@ jobs:
       - name: Host tests
         run: ctest --test-dir build/host --output-on-failure
       - name: QEMU tests
-        run: tools/test.sh m0
+        run: tools/test.sh m0 && tools/test.sh m1
