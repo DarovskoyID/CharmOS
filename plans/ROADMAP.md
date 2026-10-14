@@ -161,6 +161,7 @@ Ethernet, ARP, IPv4, ICMP, UDP, TCP, DHCP-клиент, DNS-клиент; сок
 применим.
 
 ### M10. Экран, ввод, компоновщик
+Целевой вид — макет `plans/charm-os-design.zip` (см. os-gui-design.md, «Визуальный дизайн»).
 Порядок — фазы 4–7 из `os-gui-design.md`: GOP-фреймбуфер с damage tracking →
 PS/2 → компоновщик → клиентская библиотека. Затем xHCI → USB HID → USB Mass
 Storage, Intel HDA.
