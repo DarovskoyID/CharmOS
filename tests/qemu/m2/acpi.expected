@@ -1,0 +1,9 @@
+# Разбор ACPI: MADT, FADT, HPET; калибровка TSC и таймера APIC.
+acpi: MADT cpus=
+acpi: FADT rev=
+hpet: base=
+lapic: id=
+ioapic: id=
+tsc: 
+lapic: timer
+ktest: PASS acpi

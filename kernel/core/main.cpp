@@ -11,6 +11,7 @@
 #include "../mm/layout.hpp"
 #include "../mm/pmm.hpp"
 #include "../mm/vmm.hpp"
+#include "../platform/platform.hpp"
 #include "boot_info.hpp"
 #include "cmdline.hpp"
 #include "ktest.hpp"
@@ -110,8 +111,13 @@ extern "C" [[noreturn]] void kernel_main(uint64_t boot_info_phys, uint64_t stack
   kernel::mm::pmm_init(info);
   kernel::mm::vmm_init(info);
   kernel::mm::heap_init();
+  kernel::platform::platform_init(info);
 
   kernel::ktest::run_selected();
+
+  kernel::platform::start_tick(1000);
+  while (kernel::platform::ticks() < 10) asm volatile("hlt");
+  kprint("timer: {} ticks received\n", kernel::platform::ticks());
 
   kprint("CharmOS kernel: init done\n");
   arch::x86_64::qemu_exit(arch::x86_64::kExitSuccess);

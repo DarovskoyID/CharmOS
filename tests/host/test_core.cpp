@@ -81,3 +81,29 @@ TEST(string_view_ops) {
   CHECK(s.substr(6, 2) == StringView("pf"));
   CHECK(s.substr(100).empty());
 }
+
+#include <lib/core/math.hpp>
+
+TEST(mul_div_matches_wide_arithmetic) {
+  using lib::core::mul_div;
+  CHECK(mul_div(10, 20, 7) == 28);
+  CHECK(mul_div(0, 5, 3) == 0);
+  CHECK(mul_div(~uint64_t{0}, ~uint64_t{0}, ~uint64_t{0}) == ~uint64_t{0});
+  CHECK(mul_div(1ull << 63, 4, 8) == 1ull << 62);
+  CHECK(mul_div(~uint64_t{0}, 2, 1) == ~uint64_t{0});  // переполнение частного
+  // Делитель со старшим битом: проверка переноса при сдвиге остатка.
+  CHECK(mul_div(0xffffffffffffffffull, 0x8000000000000001ull, 0x8000000000000002ull) ==
+        0xfffffffffffffffdull);  // (2^64-1) - (2^64-1)/(2^63+2) = ...fff - 1.99..
+  uint64_t s = 12345;
+  for (int i = 0; i < 10000; ++i) {
+    s = s * 6364136223846793005ull + 1442695040888963407ull;
+    uint64_t a = s;
+    s = s * 6364136223846793005ull + 1442695040888963407ull;
+    uint64_t b = s >> (s % 64);
+    s = s * 6364136223846793005ull + 1442695040888963407ull;
+    uint64_t c = (s >> (s % 60)) | 1;
+    unsigned __int128 want = static_cast<unsigned __int128>(a) * b / c;
+    uint64_t expect = want > ~uint64_t{0} ? ~uint64_t{0} : static_cast<uint64_t>(want);
+    CHECK(mul_div(a, b, c) == expect);
+  }
+}

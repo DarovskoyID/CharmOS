@@ -1,0 +1,4 @@
+# Прерывание компаратора HPET доходит через I/O APIC и не раньше срока.
+ktest: HPET timer 0 route cap
+ktest: I/O APIC interrupt after
+ktest: PASS ioapic

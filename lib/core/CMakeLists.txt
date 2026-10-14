@@ -1,4 +1,4 @@
-add_library(core STATIC src/format.cpp src/fmt.cpp)
+add_library(core STATIC src/format.cpp src/fmt.cpp src/math.cpp)
 target_include_directories(core PUBLIC include)
 
 # Хост берёт mem* из системной libc; во freestanding-целях они наши,

@@ -7,6 +7,7 @@
 #include "../mm/layout.hpp"
 #include "../mm/pmm.hpp"
 #include "../mm/vmm.hpp"
+#include "../platform/platform.hpp"
 #include "log.hpp"
 
 namespace kernel::ktest {
@@ -184,6 +185,95 @@ void test_mm() {
   pass();
 }
 
+// --- платформа --------------------------------------------------------------------
+
+void test_acpi() {
+  const auto& madt = platform::madt();
+  size_t enabled = 0;
+  for (size_t i = 0; i < madt.cpu_count; ++i) enabled += madt.cpus[i].enabled ? 1 : 0;
+  if (enabled == 0) fail("MADT: no enabled CPU");
+  if (madt.io_apic_count == 0) fail("MADT: no I/O APIC");
+  if (platform::io_apic_for(0) == nullptr) fail("no I/O APIC owns GSI 0");
+  if (platform::hpet().frequency_hz() < 10'000'000) fail("HPET slower than 10 MHz");
+  uint64_t mhz = platform::tsc_hz() / 1'000'000;
+  if (mhz < 100 || mhz > 10'000) fail("TSC frequency implausible");
+  uint16_t flags = 0;
+  uint32_t gsi = lib::acpi::isa_irq_to_gsi(madt, 0, &flags);
+  kprint("ktest: {} cpus enabled, ISA IRQ0 -> GSI {} (flags {x})\n", enabled, gsi, flags);
+  pass();
+}
+
+void test_timer() {
+  constexpr uint32_t kHz = 1000;
+  constexpr uint64_t kWindowNs = 200'000'000;
+  platform::start_tick(kHz);
+  const auto& hpet = platform::hpet();
+  uint64_t h0 = hpet.counter();
+  uint64_t tsc0 = arch::x86_64::rdtsc();
+  uint64_t t0 = platform::ticks();
+  while (hpet.elapsed(h0, hpet.counter()) < hpet.ns_to_ticks(kWindowNs)) {
+    asm volatile("hlt");  // будит прерывание таймера
+  }
+  uint64_t t1 = platform::ticks();
+  uint64_t tsc1 = arch::x86_64::rdtsc();
+  uint64_t ns = hpet.ticks_to_ns(hpet.elapsed(h0, hpet.counter()));
+  arch::x86_64::cli();
+  platform::local_apic().timer_stop();
+
+  uint64_t ticks = t1 - t0;
+  uint64_t measured_hz = ticks * 1'000'000'000 / ns;
+  uint64_t tsc_ns = (tsc1 - tsc0) * 1'000'000'000 / platform::tsc_hz();
+  kprint("ktest: {} ticks in {} us -> {} Hz; TSC says {} us\n", ticks, ns / 1000, measured_hz,
+         tsc_ns / 1000);
+  // Допуск 10%: в эмуляторе таймер может немного «плыть».
+  if (measured_hz < kHz * 9 / 10 || measured_hz > kHz * 11 / 10) fail("tick rate off by >10%");
+  uint64_t diff = tsc_ns > ns ? tsc_ns - ns : ns - tsc_ns;
+  if (diff * 50 > ns) fail("TSC and HPET disagree by >2%");
+  pass();
+}
+
+constinit volatile uint64_t g_irq_at = 0;
+void test_irq_handler(arch::x86_64::InterruptFrame&) {
+  g_irq_at = platform::hpet().counter();
+  platform::local_apic().eoi();
+}
+
+void test_ioapic() {
+  const auto& hpet = platform::hpet();
+  uint32_t cap = hpet.route_capability(0);
+  // Предпочитаем входы ≥ 16: ниже — ISA, их могут переопределять.
+  uint32_t gsi = 32;
+  for (uint32_t i = 16; i < 32 && gsi == 32; ++i) {
+    if ((cap & (1u << i)) != 0 && platform::io_apic_for(i) != nullptr) gsi = i;
+  }
+  for (uint32_t i = 0; i < 16 && gsi == 32; ++i) {
+    if ((cap & (1u << i)) != 0 && platform::io_apic_for(i) != nullptr) gsi = i;
+  }
+  if (gsi == 32) fail("HPET timer 0 has no usable I/O APIC route");
+  kprint("ktest: HPET timer 0 route cap {x}, using GSI {}\n", cap, gsi);
+
+  arch::x86_64::set_interrupt_handler(platform::kVectorTest, &test_irq_handler);
+  platform::io_apic_for(gsi)->route(
+      gsi, {platform::kVectorTest, false, false,
+            static_cast<uint8_t>(platform::local_apic().id())});
+  arch::x86_64::sti();
+
+  constexpr uint64_t kDelayNs = 10'000'000;
+  uint64_t start = hpet.counter();
+  hpet.arm_one_shot(0, gsi, hpet.ns_to_ticks(kDelayNs));
+  while (g_irq_at == 0 && hpet.elapsed(start, hpet.counter()) < hpet.ns_to_ticks(10 * kDelayNs)) {
+    arch::x86_64::pause();
+  }
+  arch::x86_64::cli();
+  hpet.disarm(0);
+  platform::io_apic_for(gsi)->mask(gsi);
+  if (g_irq_at == 0) fail("interrupt did not arrive within 100 ms");
+  uint64_t after_ns = hpet.ticks_to_ns(hpet.elapsed(start, g_irq_at));
+  kprint("ktest: I/O APIC interrupt after {} us\n", after_ns / 1000);
+  if (after_ns < kDelayNs * 9 / 10) fail("interrupt arrived too early");
+  pass();
+}
+
 struct Test {
   StringView name;
   void (*fn)();
@@ -199,6 +289,9 @@ constexpr Test kTests[] = {
     {"df", &test_df},
     {"bp", &test_bp_resume},
     {"mm", &test_mm},
+    {"acpi", &test_acpi},
+    {"timer", &test_timer},
+    {"ioapic", &test_ioapic},
 };
 
 }  // namespace

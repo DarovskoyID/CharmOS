@@ -1,7 +1,14 @@
-# Обычная загрузка: все подсистемы M2 поднимаются.
+# Обычная загрузка: все подсистемы M2 поднимаются, тик идёт.
 cpu: GDT, TSS and IDT loaded
 boot: handoff verified
 pmm: 
 vmm: kernel tables active
 heap: ready
+acpi: MADT
+hpet: base=
+lapic: id=
+ioapic: id=
+tsc: 
+timer: periodic tick
+timer: 10 ticks received
 CharmOS kernel: init done

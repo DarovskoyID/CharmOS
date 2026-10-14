@@ -39,6 +39,7 @@ target_include_directories(abi INTERFACE ${CMAKE_SOURCE_DIR}/include)
 add_subdirectory(lib/core)
 add_subdirectory(lib/elf)
 add_subdirectory(lib/mm)
+add_subdirectory(lib/acpi)
 
 if(CHARMOS_TARGET STREQUAL "uefi")
   add_subdirectory(boot/uefi)
