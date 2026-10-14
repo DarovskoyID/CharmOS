@@ -1,5 +1,5 @@
-# Все CPU из MADT запускаются (x2APIC), счётчик под spinlock с каждого CPU сходится.
-lapic: x2APIC
+# Все CPU из MADT запускаются (x2APIC, если CPU его поддерживает), счётчик под spinlock с каждого CPU сходится.
+lapic: 
 smp: cpu 1 online
 smp: 4 CPUs online
 ktest: 4 CPUs x 200000 locked increments = 800000

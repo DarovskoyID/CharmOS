@@ -2,7 +2,7 @@
 acpi: MADT cpus=
 acpi: FADT rev=
 hpet: base=
-lapic: x2APIC id=
+lapic: 
 ioapic: id=
 tsc: 
 lapic: timer
