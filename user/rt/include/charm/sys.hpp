@@ -162,6 +162,32 @@ inline Status fs_unlink(Handle dir, const char* path) {
 }
 inline Status file_resize(Handle f, uint64_t size) { return syscall2(Number::FileResize, f, size).status; }
 
+// --- v1.4: сеть (docs/abi/socket.md) -----------------------------------------------------
+struct SockAddr {
+  uint32_t ipv4;  // порядок сети
+  uint16_t port;  // порядок хоста
+  uint16_t reserved;
+};
+inline constexpr uint64_t kSockTcp = 1;
+inline SysResult socket_open(Handle net, uint64_t type) { return syscall2(Number::SocketOpen, net, type); }
+inline Status socket_bind(Handle s, const SockAddr* a) {
+  return syscall2(Number::SocketBind, s, reinterpret_cast<uint64_t>(a)).status;
+}
+inline Status socket_listen(Handle s, uint64_t backlog) { return syscall2(Number::SocketListen, s, backlog).status; }
+inline SysResult socket_accept(Handle s, SockAddr* peer, uint64_t deadline) {
+  return syscall3(Number::SocketAccept, s, reinterpret_cast<uint64_t>(peer), deadline);
+}
+inline Status socket_connect(Handle s, const SockAddr* a, uint64_t deadline) {
+  return syscall3(Number::SocketConnect, s, reinterpret_cast<uint64_t>(a), deadline).status;
+}
+inline SysResult socket_send(Handle s, const void* buf, uint64_t len) {
+  return syscall5(Number::SocketSend, s, reinterpret_cast<uint64_t>(buf), len, 0, 0);
+}
+inline SysResult socket_recv(Handle s, void* buf, uint64_t cap, uint64_t deadline) {
+  return syscall5(Number::SocketRecv, s, reinterpret_cast<uint64_t>(buf), cap, 0, deadline);
+}
+inline Status socket_shutdown(Handle s, uint64_t how) { return syscall2(Number::SocketShutdown, s, how).status; }
+
 // DMA-буфер устройства (docs/abi/driver.md §5): VMO и адрес для устройства.
 inline SysResult dma_alloc(Handle dev, uint64_t size, uint64_t flags, uint64_t* device_addr) {
   return syscall5(Number::DmaAlloc, dev, size, flags, reinterpret_cast<uint64_t>(device_addr), 0);

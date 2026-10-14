@@ -48,6 +48,17 @@ enum class Number : uint64_t {
   FsUnlink = 29,
   FileResize = 30,
   DeviceVendorCap = 31,
+  // v1.4 (docs/abi/socket.md §3)
+  SocketOpen = 32,
+  SocketBind = 33,
+  SocketListen = 34,
+  SocketAccept = 35,
+  SocketConnect = 36,
+  SocketSend = 37,
+  SocketRecv = 38,
+  SocketShutdown = 39,
+  NetInfo = 40,
+  DnsResolve = 41,
 };
 
 // Пакет порта (docs/abi/driver.md §4).
@@ -62,6 +73,8 @@ static_assert(sizeof(PortPacket) == 32);
 inline constexpr uint32_t kPacketInterrupt = 1;
 inline constexpr uint32_t kPacketChannelReadable = 2;
 inline constexpr uint32_t kPacketPeerClosed = 3;
+inline constexpr uint32_t kPacketSocketReadable = 4;  // socket.md §3
+inline constexpr uint32_t kPacketSocketWritable = 5;
 inline constexpr uint32_t kPortMaxPackets = 64;
 
 // Описание устройства для драйвера (docs/abi/driver.md §6.1).
@@ -106,6 +119,13 @@ inline constexpr uint32_t kDeviceDefault = kRead | kWrite | kMap;  // без Dup
 inline constexpr uint32_t kInterruptDefault = kRead | kWrite;
 inline constexpr uint32_t kMmioDefault = kRead | kWrite | kMap;
 inline constexpr uint32_t kVmoDefault = kAll;
+// v1.4 (docs/abi/socket.md §1): права хендла Net.
+inline constexpr uint32_t kNetConnect = 1u << 8;
+inline constexpr uint32_t kNetListen = 1u << 9;
+inline constexpr uint32_t kNetListenLow = 1u << 10;
+inline constexpr uint32_t kNetResolve = 1u << 11;
+inline constexpr uint32_t kNetAll = kNetConnect | kNetListen | kNetListenLow | kNetResolve;
+inline constexpr uint32_t kSocketDefault = kDuplicate | kTransfer | kRead | kWrite;
 }  // namespace rights
 
 inline constexpr uint32_t kInvalidHandle = 0;

@@ -1,0 +1,7 @@
+# M7: эхо-сервер TCP в ring 3 на сокетах v1.4 (хендл Net, сужение прав),
+# клиент на хосте: 10 соединений по 64 КиБ, потеря каждого 10-го сегмента.
+[tcp_echo] tcp_echo: listening on 7777
+[tcp_echo] tcp_echo: served
+[tcp_echo] tcp_echo: client says: ok
+ktest: tcp_echo exited with 0
+ktest: PASS sock

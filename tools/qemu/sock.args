@@ -1,0 +1,5 @@
+# M7: virtio-net на user-net, порт 7778 хоста → 7777 гостя; клиент — sock.sh.
+-nic none
+-device intel-iommu
+-netdev user,id=n0,hostfwd=tcp:127.0.0.1:7778-:7777
+-device virtio-net-pci,netdev=n0,disable-legacy=on,iommu_platform=on

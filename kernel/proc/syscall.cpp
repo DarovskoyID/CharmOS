@@ -1,4 +1,5 @@
 #include "../fs/vfs.hpp"
+#include "../net/socket.hpp"
 #include "syscall.hpp"
 
 #include <abi/syscall.hpp>
@@ -203,6 +204,46 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
     case Number::FileResize:
       set_result(f, kernel::fs::sys_file_resize(static_cast<uint32_t>(f.rdi), f.rsi));
       break;
+    case Number::SocketOpen: {
+      uint64_t v = 0;
+      set_result(f, kernel::net::sys_socket_open(static_cast<uint32_t>(f.rdi), f.rsi, &v), v);
+      break;
+    }
+    case Number::SocketBind:
+      set_result(f, kernel::net::sys_socket_bind(static_cast<uint32_t>(f.rdi), f.rsi));
+      break;
+    case Number::SocketListen:
+      set_result(f, kernel::net::sys_socket_listen(static_cast<uint32_t>(f.rdi), f.rsi));
+      break;
+    case Number::SocketAccept: {
+      uint64_t v = 0;
+      set_result(f, kernel::net::sys_socket_accept(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, &v), v);
+      break;
+    }
+    case Number::SocketConnect:
+      set_result(f, kernel::net::sys_socket_connect(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx));
+      break;
+    case Number::SocketSend: {
+      uint64_t v = 0;
+      set_result(f, kernel::net::sys_socket_send(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, f.r10, &v), v);
+      break;
+    }
+    case Number::SocketRecv: {
+      uint64_t v = 0;
+      set_result(f, kernel::net::sys_socket_recv(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, f.r10, f.r8, &v), v);
+      break;
+    }
+    case Number::SocketShutdown:
+      set_result(f, kernel::net::sys_socket_shutdown(static_cast<uint32_t>(f.rdi), f.rsi));
+      break;
+    case Number::NetInfo:
+      set_result(f, kernel::net::sys_net_info(static_cast<uint32_t>(f.rdi), f.rsi));
+      break;
+    case Number::DnsResolve: {
+      uint64_t v = 0;
+      set_result(f, kernel::net::sys_dns_resolve(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, f.r10, &v), v);
+      break;
+    }
     case Number::ObjectBind:
       set_result(f, kernel::ipc::sys_object_bind(static_cast<uint32_t>(f.rdi),
                                                  static_cast<uint32_t>(f.rsi), f.rdx));

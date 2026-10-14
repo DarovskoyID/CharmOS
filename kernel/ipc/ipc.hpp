@@ -89,6 +89,15 @@ Status create_fs_node(uint64_t node, bool dir, uint32_t rights, Cap** out);
 Status install_fs_node(uint64_t node, bool dir, uint32_t rights, uint64_t* out);
 Status get_fs_node(uint32_t h, uint32_t need, uint64_t* node, bool* dir, uint32_t* rights);
 
+// --- сеть (docs/abi/socket.md) --------------------------------------------------------------
+Status create_net(uint32_t rights, Cap** out);
+Status get_net(uint32_t h, uint32_t need, uint32_t* rights);
+void set_socket_closed_hook(void (*hook)(uint64_t id));
+Status install_socket(uint64_t id, uint64_t* out);
+Status get_socket(uint32_t h, uint32_t need, uint64_t* id);
+// Для стека: пройти подписки на сокеты; ready возвращает true и тип пакета.
+void poll_sockets(bool (*ready)(uint64_t id, uint32_t* packet));
+
 // --- системные вызовы (текущий процесс) -------------------------------------------
 Status sys_handle_close(uint32_t h);
 Status sys_handle_duplicate(uint32_t h, uint64_t rights, uint64_t* out);

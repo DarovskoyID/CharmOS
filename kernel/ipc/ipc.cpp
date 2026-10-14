@@ -28,7 +28,7 @@ using arch::x86_64::kPageSize;
 
 // --- объекты ------------------------------------------------------------------------
 
-enum class Type : uint8_t { Endpoint, Vmo, Port, Device, Interrupt, FsNode };
+enum class Type : uint8_t { Endpoint, Vmo, Port, Device, Interrupt, FsNode, Net, Socket };
 
 struct Object {
   Type type;
@@ -111,6 +111,20 @@ struct FsNode {
 };
 
 constinit void (*g_fs_node_closed)(uint64_t node) = nullptr;
+
+// Сеть (docs/abi/socket.md): Net — право, Socket — соединение стека.
+struct NetObj {
+  Object base;
+};
+struct SocketObj {
+  Object base;
+  uint64_t id;  // идентификатор сокета в kernel/net/socket
+  Port* bound;  // однократная подписка на готовность (опрос стеком)
+  uint64_t bound_key;
+};
+constinit void (*g_socket_closed)(uint64_t id) = nullptr;
+constexpr uint32_t kMaxSocketBinds = 64;
+constinit SocketObj* g_socket_binds[kMaxSocketBinds] = {};
 
 enum class Where : uint8_t { Detached, Table, Message, Closed };
 
@@ -293,6 +307,24 @@ void release_object(Object* obj) {
   }
   if (obj->type == Type::Port) {
     mm::kfree(obj);  // подписки держат ссылку: сюда попадаем, когда их нет
+    return;
+  }
+  if (obj->type == Type::Net) {
+    mm::kfree(obj);
+    return;
+  }
+  if (obj->type == Type::Socket) {
+    auto* so = reinterpret_cast<SocketObj*>(obj);
+    for (SocketObj*& b : g_socket_binds) {
+      if (b == so) b = nullptr;
+    }
+    if (so->bound != nullptr) {
+      --so->bound->armed;
+      release_object(&so->bound->base);
+    }
+    uint64_t id = so->id;
+    mm::kfree(obj);
+    if (g_socket_closed != nullptr) g_socket_closed(id);
     return;
   }
   if (obj->type == Type::FsNode) {
@@ -532,7 +564,7 @@ Status sys_handle_close(uint32_t h) {
 }
 
 Status sys_handle_duplicate(uint32_t h, uint64_t new_rights, uint64_t* out) {
-  if ((new_rights & ~uint64_t{rights::kAll}) != 0) return Status::InvalidArgs;
+  if ((new_rights & ~uint64_t{rights::kAll | rights::kNetAll}) != 0) return Status::InvalidArgs;
   sync::SpinGuard guard(g_lock);
   proc::Process* p = me();
   Cap* c = lookup(p, h);
@@ -937,6 +969,26 @@ Status sys_object_bind(uint32_t port_h, uint32_t h, uint64_t key) {
     ++port->armed;
     ++port->base.refs;
     if (!irq->masked && irq->pending != 0) deliver(irq);
+    return Status::Ok;
+  }
+  if (oc->obj->type == Type::Socket) {
+    auto* so = reinterpret_cast<SocketObj*>(oc->obj);
+    if (so->bound != nullptr) return Status::Busy;
+    auto* port = reinterpret_cast<Port*>(pc->obj);
+    if (port->count + port->armed >= abi::syscall::kPortMaxPackets) return Status::Busy;
+    SocketObj** slot = nullptr;
+    for (SocketObj*& b : g_socket_binds) {
+      if (b == nullptr) {
+        slot = &b;
+        break;
+      }
+    }
+    if (slot == nullptr) return Status::NoMemory;
+    so->bound = port;
+    so->bound_key = key;
+    ++port->armed;
+    ++port->base.refs;
+    *slot = so;  // стек опрашивает готовность (poll_sockets) и шлёт пакет
     return Status::Ok;
   }
   if (oc->obj->type != Type::Endpoint) return Status::WrongType;
@@ -1528,6 +1580,79 @@ Status vmo_frames(Cap* vmo, uint64_t* out, uint64_t max, uint64_t* pages) {
   *pages = v->pages;
   for (uint64_t i = 0; i < v->pages && i < max; ++i) out[i] = v->frames[i];
   return Status::Ok;
+}
+
+// --- сеть ------------------------------------------------------------------------------
+
+void set_socket_closed_hook(void (*hook)(uint64_t id)) { g_socket_closed = hook; }
+
+Status create_net(uint32_t r, Cap** out) {
+  auto* n = alloc_zeroed<NetObj>(sizeof(NetObj));
+  if (n == nullptr) return Status::NoMemory;
+  n->base.type = Type::Net;
+  sync::SpinGuard guard(g_lock);
+  Cap* c = new_cap(&n->base, r, nullptr);
+  if (c == nullptr) {
+    mm::kfree(n);
+    return Status::NoMemory;
+  }
+  *out = c;
+  return Status::Ok;
+}
+
+Status get_net(uint32_t h, uint32_t need, uint32_t* r) {
+  sync::SpinGuard guard(g_lock);
+  Cap* c = lookup(me(), h);
+  if (c == nullptr) return Status::BadHandle;
+  if (c->obj->type != Type::Net) return Status::WrongType;
+  *r = c->rights;
+  return (c->rights & need) == need ? Status::Ok : Status::AccessDenied;
+}
+
+Status install_socket(uint64_t id, uint64_t* out) {
+  auto* so = alloc_zeroed<SocketObj>(sizeof(SocketObj));
+  if (so == nullptr) {
+    if (g_socket_closed != nullptr) g_socket_closed(id);
+    return Status::NoMemory;
+  }
+  so->base.type = Type::Socket;
+  so->id = id;
+  sync::SpinGuard guard(g_lock);
+  return install_new(&so->base, rights::kSocketDefault, out);
+}
+
+Status get_socket(uint32_t h, uint32_t need, uint64_t* id) {
+  sync::SpinGuard guard(g_lock);
+  Cap* c = lookup(me(), h);
+  if (c == nullptr) return Status::BadHandle;
+  if (c->obj->type != Type::Socket) return Status::WrongType;
+  if ((c->rights & need) != need) return Status::AccessDenied;
+  *id = reinterpret_cast<SocketObj*>(c->obj)->id;
+  return Status::Ok;
+}
+
+void poll_sockets(bool (*ready)(uint64_t id, uint32_t* packet)) {
+  // Готовность проверяется без g_lock (стек берёт свои блокировки), затем
+  // пакет — под ним. Подписка однократная.
+  for (uint32_t i = 0; i < kMaxSocketBinds; ++i) {
+    uint64_t id;
+    {
+      sync::SpinGuard guard(g_lock);
+      if (g_socket_binds[i] == nullptr) continue;
+      id = g_socket_binds[i]->id;
+    }
+    uint32_t packet;
+    if (!ready(id, &packet)) continue;
+    sync::SpinGuard guard(g_lock);
+    SocketObj* so = g_socket_binds[i];
+    if (so == nullptr || so->id != id || so->bound == nullptr) continue;
+    Port* port = so->bound;
+    so->bound = nullptr;
+    g_socket_binds[i] = nullptr;
+    --port->armed;
+    port_push(port, so->bound_key, packet);
+    release_object(&port->base);
+  }
 }
 
 }  // namespace kernel::ipc
