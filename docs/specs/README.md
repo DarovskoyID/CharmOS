@@ -14,3 +14,4 @@
 | `hpet-1.0a.pdf` | IA-PC HPET Specification 1.0a (Intel) | копия: https://sys-sideshow.cs.tu-dortmund.de/lehre/ws22/bsb/aufgaben/7/intel_hpet.pdf (intel.com больше не отдаёт) | M2 |
 | `acpi-6.5.pdf` | ACPI Specification 6.5 (RSDP/XSDT §5.2.5–5.2.8, MADT §5.2.12) | https://uefi.org/specifications (вручную: Cloudflare) | M2 |
 | `8259a.pdf` | Intel 8259A PIC datasheet (231468-003) — маскирование legacy PIC (OCW1) | копия: https://pdos.csail.mit.edu/6.1810/2004/readings/hardware/8259A.pdf | M2 |
+| `intel-sdm-vol2.pdf` | Intel SDM Vol. 2A–2D, Instruction Set Reference (325383) — SYSCALL/SYSRET, CPUID, SWAPGS | https://cdrdv2-public.intel.com/782156/325383-sdm-vol-2abcd.pdf | M3 |

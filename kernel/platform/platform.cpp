@@ -4,6 +4,7 @@
 #include <arch/x86_64/idt.hpp>
 #include <lib/core/math.hpp>
 
+#include "../core/cmdline.hpp"
 #include "../core/panic.hpp"
 #include "../mm/layout.hpp"
 #include "../mm/vmm.hpp"
@@ -103,32 +104,40 @@ void timer_handler(InterruptFrame&) {
   g_lapic.eoi();
 }
 
-void init_interrupt_controllers() {
+void init_interrupt_controllers(bool force_xapic) {
   if (g_madt.pcat_compat) arch::x86_64::mask_legacy_pic();
 
+  using Mode = LocalApic::Mode;
   uint64_t apic_base = arch::x86_64::rdmsr(arch::x86_64::kMsrApicBase);
-  if ((apic_base & arch::x86_64::kApicBaseX2Apic) != 0) {
-    panic("lapic: firmware left x2APIC mode on; not supported yet");
+  bool firmware_x2apic = (apic_base & arch::x86_64::kApicBaseX2Apic) != 0;
+  // Из x2APIC в xAPIC без сброса не вернуться (SDM табл. 11-5), поэтому
+  // включённый прошивкой x2APIC оставляем, даже если попросили xAPIC.
+  Mode mode = firmware_x2apic || (arch::x86_64::cpu_has_x2apic() && !force_xapic)
+                  ? Mode::X2Apic
+                  : Mode::XApic;
+  uint64_t mmio = 0;
+  if (mode == Mode::XApic) {
+    uint64_t base = apic_base & 0x000ffffffffff000ull;
+    if (base != g_madt.local_apic_address) {
+      panic("lapic: MSR base {x} != MADT {x}", base, g_madt.local_apic_address);
+    }
+    auto m = mm::map_mmio(base, 4096);
+    if (m.is_err()) panic("lapic: cannot map registers");
+    mmio = m.value();
   }
-  uint64_t msr_addr = apic_base & 0x000ffffffffff000ull;
-  if (msr_addr != g_madt.local_apic_address) {
-    panic("lapic: MSR base {x} != MADT {x}", msr_addr, g_madt.local_apic_address);
-  }
-  arch::x86_64::wrmsr(arch::x86_64::kMsrApicBase, apic_base | arch::x86_64::kApicBaseEnable);
-  auto lapic_mmio = mm::map_mmio(msr_addr, 4096);
-  if (lapic_mmio.is_err()) panic("lapic: cannot map registers");
+  g_lapic.configure(mode, mmio);
 
   arch::x86_64::set_interrupt_handler(kVectorSpurious, &spurious_handler);
   arch::x86_64::set_interrupt_handler(kVectorApicError, &apic_error_handler);
-  g_lapic.init(lapic_mmio.value(), kVectorSpurious, kVectorApicError);
-  if (g_madt.nmi_lint <= 1) g_lapic.set_lint_nmi(g_madt.nmi_lint);
-  kprint("lapic: id={} version={x} base={x}\n", g_lapic.id(), g_lapic.version() & 0xff, msr_addr);
+  init_this_cpu();
+  kprint("lapic: {} id={} version={x}\n", mode == Mode::X2Apic ? "x2APIC" : "xAPIC", g_lapic.id(),
+         g_lapic.version() & 0xff);
 
   for (size_t i = 0; i < g_madt.io_apic_count; ++i) {
     const lib::acpi::IoApicInfo& io = g_madt.io_apics[i];
-    auto mmio = mm::map_mmio(io.address, 4096);
-    if (mmio.is_err()) panic("ioapic: cannot map registers");
-    g_ioapics[i].init(mmio.value(), io.gsi_base);
+    auto io_mmio = mm::map_mmio(io.address, 4096);
+    if (io_mmio.is_err()) panic("ioapic: cannot map registers");
+    g_ioapics[i].init(io_mmio.value(), io.gsi_base);
     kprint("ioapic: id={} base={x} gsi {}..{} version={x}\n", io.id, io.address, io.gsi_base,
            io.gsi_base + g_ioapics[i].gsi_count() - 1, g_ioapics[i].version());
   }
@@ -167,9 +176,14 @@ void calibrate() {
 
 }  // namespace
 
-void platform_init(const abi::boot::BootInfo& info) {
+void init_this_cpu() {
+  g_lapic.init_this_cpu(kVectorSpurious, kVectorApicError);
+  if (g_madt.nmi_lint <= 1) g_lapic.set_lint_nmi(g_madt.nmi_lint);
+}
+
+void platform_init(const abi::boot::BootInfo& info, const Cmdline& cmdline) {
   init_acpi(info);
-  init_interrupt_controllers();
+  init_interrupt_controllers(cmdline.get("lapic") == lib::core::StringView("xapic"));
   calibrate();
 }
 

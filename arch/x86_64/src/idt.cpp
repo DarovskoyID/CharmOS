@@ -76,6 +76,10 @@ void init_idt() {
     if (v == kVectorMachineCheck) ist = kIstMachineCheck;
     set_gate(static_cast<uint8_t>(v), isr_stub_table[v], ist);
   }
+  load_idt();
+}
+
+void load_idt() {
   Idtr idtr = {sizeof g_idt - 1, reinterpret_cast<uint64_t>(&g_idt)};
   asm volatile("lidt %0" : : "m"(idtr) : "memory");
 }

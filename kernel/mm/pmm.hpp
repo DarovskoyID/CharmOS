@@ -15,6 +15,8 @@ void pmm_init(const abi::boot::BootInfo& info);
 
 lib::core::Result<uint64_t, FrameError> alloc_frames(uint64_t count = 1,
                                                      uint64_t align_frames = 1);
+// Участок целиком ниже limit_phys (например, код запуска AP ниже 1 МиБ).
+lib::core::Result<uint64_t, FrameError> alloc_frames_below(uint64_t limit_phys, uint64_t count = 1);
 // Освобождение чужого или свободного фрейма — паника.
 void free_frames(uint64_t phys, uint64_t count = 1);
 

@@ -1,0 +1,3 @@
+# Переполнение стека ядра упирается в защитную страницу: #DF на IST.
+EXCEPTION: #DF double fault (vector 8)
+ktest: PASS guard

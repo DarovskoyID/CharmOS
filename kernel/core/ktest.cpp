@@ -7,7 +7,10 @@
 #include "../mm/layout.hpp"
 #include "../mm/pmm.hpp"
 #include "../mm/vmm.hpp"
+#include "../mm/stack.hpp"
 #include "../platform/platform.hpp"
+#include "../smp/smp.hpp"
+#include "../sync/spinlock.hpp"
 #include "log.hpp"
 
 namespace kernel::ktest {
@@ -29,6 +32,7 @@ struct Expectation {
   uint64_t error_value = 0;  // их ожидаемое значение
 };
 constinit Expectation g_expect;
+constinit bool g_expect_panic = false;
 
 void expect(uint64_t vector, uint64_t error_mask = 0, uint64_t error_value = 0) {
   g_expect = {true, vector, false, 0, error_mask, error_value};
@@ -277,6 +281,77 @@ void test_ioapic() {
   pass();
 }
 
+// --- SMP, блокировки, стеки ---------------------------------------------------------
+
+struct CounterWork {
+  sync::Spinlock lock{sync::LockRank::Test, "ktest.counter"};
+  volatile uint64_t counter = 0;
+  volatile uint64_t per_cpu[smp::kMaxCpus] = {};
+};
+constinit CounterWork g_counter;
+constexpr uint64_t kIncrements = 200'000;
+
+void count_under_lock(void*) {
+  uint32_t me = smp::this_cpu().index;
+  for (uint64_t i = 0; i < kIncrements; ++i) {
+    sync::SpinGuard guard(g_counter.lock);
+    // Неатомарное чтение-изменение-запись: без блокировки результат был бы меньше.
+    g_counter.counter = g_counter.counter + 1;
+  }
+  g_counter.per_cpu[me] = kIncrements;
+}
+
+void test_smp() {
+  uint32_t n = smp::cpu_count();
+  size_t expected = 0;
+  const auto& madt = platform::madt();
+  for (size_t i = 0; i < madt.cpu_count; ++i) expected += madt.cpus[i].enabled ? 1 : 0;
+  if (n != expected) fail("not every enabled CPU came online");
+  for (uint32_t i = 0; i < n; ++i) {
+    if (smp::cpu(i).self != &smp::cpu(i) || !smp::cpu(i).online) fail("bad per-CPU data");
+  }
+  smp::run_on_all_cpus(&count_under_lock, nullptr);
+  for (uint32_t i = 0; i < n; ++i) {
+    if (g_counter.per_cpu[i] != kIncrements) fail("a CPU did not run the work");
+  }
+  kprint("ktest: {} CPUs x {} locked increments = {}\n", n, kIncrements, g_counter.counter);
+  if (g_counter.counter != n * kIncrements) fail("lost updates under spinlock");
+  pass();
+}
+
+void test_lock_order() {
+  static constinit sync::Spinlock outer{sync::LockRank::Heap, "ktest.outer"};
+  static constinit sync::Spinlock inner{sync::LockRank::Test, "ktest.inner"};
+  g_expect_panic = true;
+  sync::SpinGuard a(outer);
+  sync::SpinGuard b(inner);  // ранг ниже удерживаемого — паника
+  fail("lock order violation not detected");
+}
+
+extern "C" void call_on_stack(void (*fn)(void*), void* arg, uint64_t stack_top);
+
+// Граница на 1 млн уровней (~500 МиБ стека) недостижима: защитная страница
+// сработает на ~30-м уровне. Она нужна только чтобы рекурсия не была формально
+// бесконечной.
+[[gnu::noinline]] uint64_t recurse(uint64_t depth) {
+  volatile uint8_t pad[512];
+  pad[0] = static_cast<uint8_t>(depth);
+  if (depth > 1'000'000) return pad[0];
+  return recurse(depth + 1) + pad[0];
+}
+
+void overflow(void*) { (void)recurse(0); }
+
+void test_guard() {
+  auto stack = mm::alloc_kernel_stack(16 * 1024);
+  if (stack.is_err()) fail("no stack");
+  // Переполнение упирается в защитную страницу: #PF, кадр которого положить
+  // уже некуда, — #DF на стеке IST1.
+  expect(arch::x86_64::kVectorDoubleFault);
+  call_on_stack(&overflow, nullptr, stack.value().top);
+  fail("stack overflow not caught");
+}
+
 struct Test {
   StringView name;
   void (*fn)();
@@ -295,6 +370,9 @@ constexpr Test kTests[] = {
     {"acpi", &test_acpi},
     {"timer", &test_timer},
     {"ioapic", &test_ioapic},
+    {"smp", &test_smp},
+    {"lockorder", &test_lock_order},
+    {"guard", &test_guard},
 };
 
 }  // namespace
@@ -317,6 +395,8 @@ bool exception_expected(const InterruptFrame& frame) {
   return true;
 }
 
+bool panic_expected() { return g_expect_panic; }
+
 void run_selected() {
   if (g_selected.empty()) return;
   for (const Test& t : kTests) {
@@ -330,12 +410,12 @@ void run_selected() {
 }
 
 void pass() {
-  kprint("ktest: PASS {}\n", g_selected);
+  kprint_unlocked("ktest: PASS {}\n", g_selected);
   arch::x86_64::qemu_exit(arch::x86_64::kExitSuccess);
 }
 
 void fail(StringView why) {
-  kprint("ktest: FAIL {}: {}\n", g_selected, why);
+  kprint_unlocked("ktest: FAIL {}: {}\n", g_selected, why);
   arch::x86_64::qemu_exit(arch::x86_64::kExitFailure);
 }
 

@@ -7,9 +7,14 @@ add_executable(kernel
   core/panic.cpp
   mm/heap.cpp
   mm/pmm.cpp
+  mm/stack.cpp
   mm/vmm.cpp
+  smp/smp.cpp
+  sync/spinlock.cpp
   platform/platform.cpp
+  ${CMAKE_SOURCE_DIR}/arch/x86_64/src/ap_trampoline.S
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/apic.cpp
+  ${CMAKE_SOURCE_DIR}/arch/x86_64/src/call_on_stack.S
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/hpet.cpp
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/kernel_entry.S
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/gdt.cpp

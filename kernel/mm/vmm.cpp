@@ -4,6 +4,7 @@
 #include <arch/x86_64/paging.hpp>
 
 #include "../core/panic.hpp"
+#include "../sync/spinlock.hpp"
 #include "layout.hpp"
 #include "pmm.hpp"
 
@@ -28,6 +29,8 @@ namespace {
 
 constinit PageTables g_tables;
 constinit uint64_t g_mmio_next = kMmioBase;
+// Защищает g_tables и g_mmio_next. Внутри берётся pmm (ранг выше).
+constinit sync::Spinlock g_lock{sync::LockRank::Vmm, "vmm"};
 
 uint64_t table_frame(void*) {
   auto r = alloc_frames();
@@ -87,7 +90,10 @@ void vmm_init(const abi::boot::BootInfo& info) {
   kprint("vmm: kernel tables active, HHDM {} MiB, identity map dropped\n", mapped >> 20);
 }
 
+uint64_t kernel_root() { return g_tables.root(); }
+
 Status<VmError> map_new_page(uint64_t virt) {
+  sync::SpinGuard guard(g_lock);
   auto frame = alloc_frames();
   if (frame.is_err()) return Status<VmError>::err(VmError::OutOfMemory);
   auto* p = phys_to_virt<uint64_t>(frame.value());
@@ -100,6 +106,7 @@ Status<VmError> map_new_page(uint64_t virt) {
 }
 
 Result<uint64_t, VmError> map_mmio(uint64_t phys, uint64_t size) {
+  sync::SpinGuard guard(g_lock);
   uint64_t first = phys & ~(kPageSize - 1);
   uint64_t last = (phys + size + kPageSize - 1) & ~(kPageSize - 1);
   uint64_t span = last - first;
@@ -117,6 +124,7 @@ Result<uint64_t, VmError> map_mmio(uint64_t phys, uint64_t size) {
 }
 
 bool translate(uint64_t virt, uint64_t* phys, uint64_t* flags) {
+  sync::SpinGuard guard(g_lock);
   return g_tables.translate(virt, phys, flags);
 }
 

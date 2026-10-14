@@ -3,7 +3,6 @@
 
 #include <abi/boot.hpp>
 #include <arch/x86_64/cpu.hpp>
-#include <arch/x86_64/gdt.hpp>
 #include <arch/x86_64/idt.hpp>
 #include <arch/x86_64/serial.hpp>
 
@@ -12,6 +11,7 @@
 #include "../mm/pmm.hpp"
 #include "../mm/vmm.hpp"
 #include "../platform/platform.hpp"
+#include "../smp/smp.hpp"
 #include "boot_info.hpp"
 #include "cmdline.hpp"
 #include "ktest.hpp"
@@ -94,8 +94,7 @@ extern "C" [[noreturn]] void kernel_main(uint64_t boot_info_phys, uint64_t stack
   const auto& info = *phys_to_virt<const BootInfo>(boot_info_phys);
 
   // Исключения ловим как можно раньше, чтобы любая ошибка дальше давала дамп.
-  arch::x86_64::init_gdt();
-  arch::x86_64::init_idt();
+  kernel::smp::early_init_bsp();
   arch::x86_64::set_fallback_handler(&kernel::unhandled_interrupt);
   kprint("cpu: GDT, TSS and IDT loaded\n");
 
@@ -111,7 +110,9 @@ extern "C" [[noreturn]] void kernel_main(uint64_t boot_info_phys, uint64_t stack
   kernel::mm::pmm_init(info);
   kernel::mm::vmm_init(info);
   kernel::mm::heap_init();
-  kernel::platform::platform_init(info);
+  kernel::platform::platform_init(info, cmdline);
+  kernel::smp::late_init_bsp();
+  kernel::smp::start_aps();
 
   kernel::ktest::run_selected();
 

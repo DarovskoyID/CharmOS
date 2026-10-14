@@ -1,6 +1,7 @@
 #include "heap.hpp"
 
 #include "../core/panic.hpp"
+#include "../sync/spinlock.hpp"
 #include "layout.hpp"
 #include "vmm.hpp"
 
@@ -9,6 +10,7 @@ namespace kernel::mm {
 namespace {
 
 constinit lib::mm::Heap g_heap;
+constinit sync::Spinlock g_lock{sync::LockRank::Heap, "heap"};
 
 bool grow(void*, uintptr_t at, size_t bytes) {
   for (size_t off = 0; off < bytes; off += 4096) {
@@ -25,14 +27,24 @@ void heap_init() {
   kprint("heap: ready at {x}, limit {} MiB\n", kHeapBase, kHeapMax >> 20);
 }
 
-lib::core::Result<void*, HeapError> kmalloc(size_t size) { return g_heap.alloc(size); }
+lib::core::Result<void*, HeapError> kmalloc(size_t size) {
+  sync::SpinGuard guard(g_lock);
+  return g_heap.alloc(size);
+}
 
 void kfree(void* ptr) {
-  auto r = g_heap.free(ptr);
+  lib::core::Status<HeapError> r = lib::core::ok_status<HeapError>();
+  {
+    sync::SpinGuard guard(g_lock);
+    r = g_heap.free(ptr);
+  }
   if (r.is_err()) panic("heap: bad free of {} (error {})", ptr, r.error());
 }
 
-bool heap_check() { return g_heap.check(); }
+bool heap_check() {
+  sync::SpinGuard guard(g_lock);
+  return g_heap.check();
+}
 size_t heap_used_bytes() { return g_heap.used_bytes(); }
 size_t heap_mapped_bytes() { return g_heap.mapped_bytes(); }
 

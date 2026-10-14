@@ -1,0 +1,4 @@
+# То же через xAPIC (MMIO): проверяет второй путь доступа к Local APIC.
+lapic: xAPIC
+smp: 4 CPUs online
+ktest: PASS smp

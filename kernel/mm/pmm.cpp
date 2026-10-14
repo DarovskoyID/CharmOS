@@ -1,6 +1,7 @@
 #include "pmm.hpp"
 
 #include "../core/panic.hpp"
+#include "../sync/spinlock.hpp"
 #include "layout.hpp"
 
 namespace kernel::mm {
@@ -14,6 +15,7 @@ namespace {
 
 constinit FrameBitmap g_frames;
 constinit uint64_t g_total = 0;
+constinit sync::Spinlock g_lock{sync::LockRank::Pmm, "pmm"};
 
 bool is_ram(MemoryType t) {
   return t == MemoryType::Usable || t == MemoryType::BootloaderReclaimable ||
@@ -63,11 +65,21 @@ void pmm_init(const abi::boot::BootInfo& info) {
 }
 
 lib::core::Result<uint64_t, FrameError> alloc_frames(uint64_t count, uint64_t align_frames) {
+  sync::SpinGuard guard(g_lock);
   return g_frames.alloc(count, align_frames);
 }
 
+lib::core::Result<uint64_t, FrameError> alloc_frames_below(uint64_t limit_phys, uint64_t count) {
+  sync::SpinGuard guard(g_lock);
+  return g_frames.alloc_below(limit_phys, count);
+}
+
 void free_frames(uint64_t phys, uint64_t count) {
-  auto r = g_frames.free(phys, count);
+  lib::core::Status<FrameError> r = lib::core::ok_status<FrameError>();
+  {
+    sync::SpinGuard guard(g_lock);
+    r = g_frames.free(phys, count);
+  }
   if (r.is_err()) panic("pmm: bad free of {x} x{} (error {})", phys, count, r.error());
 }
 

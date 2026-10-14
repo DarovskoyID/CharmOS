@@ -36,6 +36,11 @@ class FrameBitmap {
   // align_frames (степень двойки). Возвращает физический адрес первого.
   lib::core::Result<uint64_t, FrameError> alloc(uint64_t count = 1, uint64_t align_frames = 1);
 
+  // То же, но весь участок обязан лежать ниже limit_phys (физ. адрес, не включительно).
+  // Нужно, например, для кода запуска AP, который исполняется в реальном режиме.
+  lib::core::Result<uint64_t, FrameError> alloc_below(uint64_t limit_phys, uint64_t count = 1,
+                                                      uint64_t align_frames = 1);
+
   // Освобождает count фреймов с адреса phys. Освобождение свободного фрейма —
   // DoubleFree, фреймы при этом не меняются.
   lib::core::Status<FrameError> free(uint64_t phys, uint64_t count = 1);

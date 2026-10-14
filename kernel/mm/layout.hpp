@@ -17,6 +17,10 @@ inline constexpr uint64_t kHeapMax = 1ull << 30;
 inline constexpr uint64_t kMmioBase = 0xffffd00000000000ull;
 inline constexpr uint64_t kMmioMax = 1ull << 30;
 
+// Стеки ядра с защитными страницами (kernel/mm/stack.cpp).
+inline constexpr uint64_t kStackBase = 0xffffe00000000000ull;
+inline constexpr uint64_t kStackMax = 1ull << 34;
+
 // Образ ядра (-mcmodel=kernel, docs/abi/boot.md §3).
 inline constexpr uint64_t kKernelBase = abi::boot::kKernelBase;
 

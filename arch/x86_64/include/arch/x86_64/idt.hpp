@@ -33,6 +33,8 @@ const char* exception_name(uint64_t vector);
 
 // Загружает IDT со всеми 256 векторами.
 void init_idt();
+// Загружает уже построенную IDT на текущем CPU (для AP).
+void load_idt();
 
 // Обработчик конкретного вектора (nullptr — снять).
 void set_interrupt_handler(uint8_t vector, InterruptHandler handler);

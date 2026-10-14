@@ -12,6 +12,9 @@ namespace kernel {
 
 [[noreturn]] void halt_with_failure();
 
+// Конец паники: тест, ожидающий панику (ktest), здесь засчитывается.
+[[noreturn]] void panic_finish();
+
 // Печатает кадр прерывания и трассировку стека от его RBP.
 void dump_frame(const arch::x86_64::InterruptFrame& frame);
 
@@ -21,13 +24,13 @@ void dump_backtrace(uint64_t rbp);
 template <typename... Args>
 [[noreturn]] void panic(lib::core::StringView fmt, const Args&... args) {
   asm volatile("cli");
-  kprint("\nKERNEL PANIC: ");
-  kprint(fmt, args...);
-  kprint("\n");
+  kprint_unlocked("\nKERNEL PANIC: ");
+  kprint_unlocked(fmt, args...);
+  kprint_unlocked("\n");
   uint64_t rbp;
   asm volatile("mov %%rbp, %0" : "=r"(rbp));
   dump_backtrace(rbp);
-  halt_with_failure();
+  panic_finish();
 }
 
 // Обработчик векторов без своего обработчика: исключение → паника.

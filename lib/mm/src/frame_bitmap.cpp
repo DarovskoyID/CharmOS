@@ -38,14 +38,21 @@ void FrameBitmap::mark_used(uint64_t base, uint64_t length) {
 }
 
 Result<uint64_t, FrameError> FrameBitmap::alloc(uint64_t count, uint64_t align_frames) {
+  return alloc_below(~uint64_t{0}, count, align_frames);
+}
+
+Result<uint64_t, FrameError> FrameBitmap::alloc_below(uint64_t limit_phys, uint64_t count,
+                                                      uint64_t align_frames) {
   using R = Result<uint64_t, FrameError>;
   if (count == 0 || align_frames == 0 || (align_frames & (align_frames - 1)) != 0) {
     return R::err(FrameError::InvalidArgument);
   }
   if (count > free_count_) return R::err(FrameError::OutOfMemory);
+  uint64_t limit = limit_phys / kFrameSize;
+  if (limit > frame_count_) limit = frame_count_;
 
   size_t words = words_for(frame_count_);
-  if (count == 1 && align_frames == 1) {
+  if (count == 1 && align_frames == 1 && limit == frame_count_) {
     // Быстрый путь: первое ненулевое слово начиная с подсказки.
     for (size_t k = 0; k < words; ++k) {
       size_t w = (hint_ + k) % words;
@@ -62,7 +69,7 @@ Result<uint64_t, FrameError> FrameBitmap::alloc(uint64_t count, uint64_t align_f
   }
 
   // Непрерывный участок: линейный поиск по выровненным стартам.
-  for (uint64_t start = 0; start + count <= frame_count_; start += align_frames) {
+  for (uint64_t start = 0; start + count <= limit; start += align_frames) {
     uint64_t run = 0;
     while (run < count && test(start + run)) ++run;
     if (run == count) {

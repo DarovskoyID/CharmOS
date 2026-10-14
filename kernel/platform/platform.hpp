@@ -8,15 +8,24 @@
 #include <arch/x86_64/hpet.hpp>
 #include <lib/acpi/parse.hpp>
 
+namespace kernel {
+class Cmdline;
+}
+
 namespace kernel::platform {
 
 // Векторы, занятые платформой.
 inline constexpr uint8_t kVectorTimer = 0x20;
 inline constexpr uint8_t kVectorTest = 0x40;  // ktest маршрутизации через I/O APIC
+inline constexpr uint8_t kVectorWakeup = 0xf0;  // IPI: разбудить CPU (smp::run_on_all_cpus)
 inline constexpr uint8_t kVectorApicError = 0xfe;
 inline constexpr uint8_t kVectorSpurious = 0xff;
 
-void platform_init(const abi::boot::BootInfo& info);
+// cmdline: lapic=xapic — не включать x2APIC (для проверки пути MMIO).
+void platform_init(const abi::boot::BootInfo& info, const Cmdline& cmdline);
+
+// Local APIC текущего CPU (BSP — внутри platform_init, AP — при запуске).
+void init_this_cpu();
 
 const lib::acpi::MadtInfo& madt();
 const lib::acpi::FadtInfo& fadt();

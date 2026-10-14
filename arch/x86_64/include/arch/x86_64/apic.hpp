@@ -13,14 +13,31 @@ namespace arch::x86_64 {
 // через APIC векторы 8259 должны быть замаскированы).
 void mask_legacy_pic();
 
+// Один объект обслуживает все процессоры: регистры Local APIC у каждого CPU
+// свои, но адрес (MMIO или MSR) одинаковый.
 class LocalApic {
  public:
-  // mmio_base — виртуальный адрес отображённой страницы регистров.
-  void init(uint64_t mmio_base, uint8_t spurious_vector, uint8_t error_vector);
+  enum class Mode : uint8_t { XApic, X2Apic };
+
+  // Выбор режима до init. x2APIC — если процессор его поддерживает
+  // (CPUID.01H:ECX[21], SDM §11.12.1) и prefer_x2apic; иначе xAPIC через MMIO
+  // (mmio_base — виртуальный адрес отображённой страницы регистров).
+  void configure(Mode mode, uint64_t mmio_base);
+  Mode mode() const { return mode_; }
+
+  // Включает Local APIC текущего процессора в выбранном режиме и настраивает
+  // SVR, LVT и TPR. Вызывать на каждом CPU.
+  void init_this_cpu(uint8_t spurious_vector, uint8_t error_vector) const;
 
   uint32_t id() const;
   uint32_t version() const;
   void eoi() const;
+
+  // Межпроцессорные прерывания (SDM §11.6, табл. 9-1).
+  void send_init(uint32_t apic_id) const;
+  void send_startup(uint32_t apic_id, uint8_t vector_page) const;
+  void send_fixed(uint32_t apic_id, uint8_t vector) const;
+  void send_fixed_all_but_self(uint8_t vector) const;
 
   // Таймер (SDM §11.5.4). divide — значение регистра делителя (0xb = 1, 0x3 = 16).
   void timer_one_shot(uint8_t vector, uint32_t divide, uint32_t initial_count) const;
@@ -33,11 +50,18 @@ class LocalApic {
   void set_lint_nmi(int lint) const;
 
  private:
+  // reg — смещение регистра в xAPIC (табл. 11-1); в x2APIC оно же даёт
+  // номер MSR 0x800 + reg/16 (табл. 11-6).
   uint32_t read(uint32_t reg) const;
   void write(uint32_t reg, uint32_t v) const;
+  void send_ipi(uint32_t apic_id, uint32_t low) const;
 
+  Mode mode_ = Mode::XApic;
   uint64_t base_ = 0;
 };
+
+// CPUID.01H:ECX[21] — поддержка x2APIC.
+bool cpu_has_x2apic();
 
 inline constexpr uint32_t kApicTimerDivide1 = 0xb;
 inline constexpr uint32_t kApicTimerDivide16 = 0x3;

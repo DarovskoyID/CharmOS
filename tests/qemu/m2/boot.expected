@@ -6,7 +6,7 @@ vmm: kernel tables active
 heap: ready
 acpi: MADT
 hpet: base=
-lapic: id=
+lapic: x2APIC id=
 ioapic: id=
 tsc: 
 timer: periodic tick

@@ -212,3 +212,16 @@ TEST(heap_random_stress) {
   CHECK(h.used_bytes() == 0);
   CHECK(h.free_list_length() == 1);
 }
+
+TEST(frames_alloc_below_limit) {
+  Frames f;
+  f.fb.mark_used(0, 4 * kFrameSize);  // первые 4 фрейма заняты
+  auto low = f.fb.alloc_below(8 * kFrameSize);
+  CHECK(low.is_ok() && low.value() == 4 * kFrameSize);
+  auto two = f.fb.alloc_below(8 * kFrameSize, 2);
+  CHECK(two.is_ok() && two.value() == 5 * kFrameSize);
+  CHECK(f.fb.alloc_below(8 * kFrameSize, 2).is_err());  // остался один фрейм ниже предела
+  CHECK(f.fb.alloc_below(8 * kFrameSize, 1).value() == 7 * kFrameSize);
+  CHECK(f.fb.alloc_below(8 * kFrameSize).error() == FrameError::OutOfMemory);
+  CHECK(f.fb.alloc().is_ok());  // выше предела память есть
+}
