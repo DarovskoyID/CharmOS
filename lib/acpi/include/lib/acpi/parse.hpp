@@ -112,3 +112,25 @@ struct FadtInfo {
 lib::core::Status<AcpiError> parse_fadt(const SdtHeader* fadt, FadtInfo* out);
 
 }  // namespace lib::acpi
+
+namespace lib::acpi {
+
+// MCFG — окна ECAM (источник вторичный: docs/specs/pci-reference.md §1; в ACPI
+// 6.5 таблица только упомянута со ссылкой на PCI Firmware Specification).
+// Заголовок 36 байт, 8 байт резерва, затем записи по 16 байт.
+struct EcamWindow {
+  uint64_t base;
+  uint16_t segment;
+  uint8_t start_bus;
+  uint8_t end_bus;
+};
+
+struct McfgInfo {
+  static constexpr size_t kMaxWindows = 8;
+  size_t count;
+  EcamWindow windows[kMaxWindows];
+};
+
+lib::core::Status<AcpiError> parse_mcfg(const SdtHeader* mcfg, McfgInfo* out);
+
+}  // namespace lib::acpi

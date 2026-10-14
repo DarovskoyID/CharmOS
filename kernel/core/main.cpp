@@ -10,6 +10,7 @@
 #include "../mm/layout.hpp"
 #include "../mm/pmm.hpp"
 #include "../mm/vmm.hpp"
+#include "../pci/pci.hpp"
 #include "../platform/platform.hpp"
 #include "../proc/uaccess.hpp"
 #include "../sched/sched.hpp"
@@ -133,6 +134,7 @@ extern "C" [[noreturn]] void kernel_main(uint64_t boot_info_phys, uint64_t stack
   kernel::mm::vmm_init(info);
   kernel::mm::heap_init();
   kernel::platform::platform_init(info, cmdline);
+  kernel::pci::pci_init(info);
   kernel::smp::late_init_bsp();
   kernel::smp::start_aps();
 

@@ -8,6 +8,7 @@
 #include "../mm/pmm.hpp"
 #include "../mm/vmm.hpp"
 #include "../mm/stack.hpp"
+#include "../pci/pci.hpp"
 #include "../platform/platform.hpp"
 #include "../ipc/ipc.hpp"
 #include "../proc/process.hpp"
@@ -611,6 +612,55 @@ void test_ipc() {
   pass();
 }
 
+// --- PCI (M5) ---------------------------------------------------------------------------
+
+// Учебное устройство QEMU edu (docs/specs/qemu-edu.rst).
+constexpr uint16_t kEduVendor = 0x1234;
+constexpr uint16_t kEduDevice = 0x11e8;
+
+const pci::Function* find_edu() {
+  for (uint32_t i = 0; i < pci::function_count(); ++i) {
+    const pci::Function& f = pci::function(i);
+    if (f.vendor == kEduVendor && f.device_id == kEduDevice) return &f;
+  }
+  return nullptr;
+}
+
+void test_pci() {
+  const pci::Function* f = find_edu();
+  if (f == nullptr) fail("edu device not found");
+  const pci::Bar& bar = f->bars[0];
+  kprint("ktest: edu at {}:{}.{}, BAR0 kind {} base {x} size {x}, msi cap {x}\n", f->bus,
+         f->device, f->function, static_cast<uint32_t>(bar.kind), bar.base, bar.size, f->msi_cap);
+  if (bar.kind != pci::BarKind::Mem32 && bar.kind != pci::BarKind::Mem64) fail("BAR0 is not memory");
+  if (bar.size != (1u << 20)) fail("BAR0 size is not 1 MiB");
+  if (f->msi_cap == 0) fail("no MSI capability");
+  if (f->msix_cap != 0) fail("edu unexpectedly has MSI-X");
+
+  auto mmio = mm::map_mmio(bar.base, bar.size);
+  if (mmio.is_err()) fail("cannot map BAR0");
+  uint64_t regs = mmio.value();
+  pci::write16(*f, pci::kRegCommand,
+               static_cast<uint16_t>(pci::read16(*f, pci::kRegCommand) | pci::kCommandMemory));
+  auto rd = [&](uint64_t off) { return *reinterpret_cast<volatile uint32_t*>(regs + off); };
+  auto wr = [&](uint64_t off, uint32_t v) { *reinterpret_cast<volatile uint32_t*>(regs + off) = v; };
+
+  uint32_t id = rd(0x00);
+  kprint("ktest: edu id {x}\n", id);
+  if ((id & 0xff) != 0xed) fail("edu identification mismatch");  // 0xRRrr00ed
+  wr(0x04, 0xdeadbeefu);
+  if (rd(0x04) != ~0xdeadbeefu) fail("liveness register did not invert");
+  wr(0x08, 10);
+  uint64_t start = platform::now_ns();
+  while ((rd(0x20) & 1) != 0) {
+    if (platform::now_ns() - start > 1'000'000'000) fail("factorial timed out");
+  }
+  uint32_t fact = rd(0x08);
+  kprint("ktest: edu 10! = {}\n", fact);
+  if (fact != 3628800) fail("factorial wrong");
+  pass();
+}
+
 struct Test {
   StringView name;
   void (*fn)();
@@ -638,6 +688,7 @@ constexpr Test kTests[] = {
     {"churn", &test_churn},
     {"user", &test_user},
     {"ipc", &test_ipc},
+    {"pci", &test_pci},
 };
 
 }  // namespace

@@ -1,0 +1,8 @@
+# M5.0–5.1: ECAM из MCFG, обход шин, BAR и capability; MMIO учебного
+# устройства QEMU edu через отображённый BAR0 (docs/specs/qemu-edu.rst).
+pci: ECAM segment 0
+0x1234:0x11e8 class 0xff00 msi
+ktest: edu at
+ktest: edu id
+ktest: edu 10! = 3628800
+ktest: PASS pci

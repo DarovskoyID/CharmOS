@@ -184,3 +184,23 @@ TEST(acpi_parse_fadt) {
   CHECK(parse_fadt(reinterpret_cast<const SdtHeader*>(old), &f).is_ok());
   CHECK(f.sci_interrupt == 5 && f.iapc_boot_arch == 0 && f.flags == 0);
 }
+
+TEST(acpi_parse_mcfg) {
+  alignas(8) uint8_t t[36 + 8 + 2 * 16] = {};
+  uint64_t base0 = 0xb0000000, base1 = 0x380000000000ull;
+  std::memcpy(t + 44, &base0, 8);
+  t[44 + 10] = 0;
+  t[44 + 11] = 0xff;
+  std::memcpy(t + 60, &base1, 8);
+  t[60 + 8] = 1;  // сегмент 1
+  t[60 + 10] = 0x10;
+  t[60 + 11] = 0x1f;
+  init_header(t, "MCFG", sizeof t);
+  McfgInfo info;
+  CHECK(parse_mcfg(reinterpret_cast<const SdtHeader*>(t), &info).is_ok());
+  CHECK(info.count == 2);
+  CHECK(info.windows[0].base == base0 && info.windows[0].end_bus == 0xff);
+  CHECK(info.windows[1].segment == 1 && info.windows[1].start_bus == 0x10);
+  reinterpret_cast<SdtHeader*>(t)->length = 36 + 8 + 20;  // не кратно записи
+  CHECK(parse_mcfg(reinterpret_cast<const SdtHeader*>(t), &info).error() == AcpiError::BadLength);
+}

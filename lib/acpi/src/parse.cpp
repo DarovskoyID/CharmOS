@@ -207,3 +207,29 @@ lib::core::Status<AcpiError> parse_fadt(const SdtHeader* fadt, FadtInfo* out) {
 }
 
 }  // namespace lib::acpi
+
+namespace lib::acpi {
+
+lib::core::Status<AcpiError> parse_mcfg(const SdtHeader* mcfg, McfgInfo* out) {
+  constexpr size_t kEntriesOffset = sizeof(SdtHeader) + 8;
+  constexpr size_t kEntrySize = 16;
+  if (mcfg->length < kEntriesOffset || (mcfg->length - kEntriesOffset) % kEntrySize != 0) {
+    return fail(AcpiError::BadLength);
+  }
+  size_t n = (mcfg->length - kEntriesOffset) / kEntrySize;
+  if (n > McfgInfo::kMaxWindows) return fail(AcpiError::TooMany);
+  const auto* base = reinterpret_cast<const uint8_t*>(mcfg) + kEntriesOffset;
+  out->count = n;
+  for (size_t i = 0; i < n; ++i) {
+    const uint8_t* e = base + i * kEntrySize;
+    EcamWindow& w = out->windows[i];
+    w.base = read<uint64_t>(e);
+    w.segment = read<uint16_t>(e + 8);
+    w.start_bus = e[10];
+    w.end_bus = e[11];
+    if (w.end_bus < w.start_bus) return fail(AcpiError::BadLength);
+  }
+  return ok();
+}
+
+}  // namespace lib::acpi

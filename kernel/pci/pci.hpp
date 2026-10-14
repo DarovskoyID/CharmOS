@@ -1,0 +1,62 @@
+#pragma once
+// PCI/PCIe: конфигурационное пространство через ECAM, перечисление функций.
+//
+// ИСТОЧНИК ВТОРИЧНЫЙ. Официальные спецификации PCI-SIG недоступны (журнал
+// решений 2026-10-14); раскладки заголовка, BAR и capability взяты из
+// docs/specs/pci-reference.md и проверены QEMU-тестами (tests/qemu/m5).
+// Сверить с PCI Express Base Specification, если она появится.
+
+#include <abi/boot.hpp>
+#include <stdint.h>
+
+namespace kernel::pci {
+
+enum class BarKind : uint8_t { Absent, Mem32, Mem64, Io };
+
+struct Bar {
+  BarKind kind;
+  bool prefetchable;
+  uint64_t base;
+  uint64_t size;
+};
+
+struct Function {
+  uint16_t segment;
+  uint8_t bus;
+  uint8_t device;
+  uint8_t function;
+  uint16_t vendor;
+  uint16_t device_id;
+  uint32_t class_code;  // класс << 16 | подкласс << 8 | prog-if
+  uint8_t revision;
+  uint8_t header_type;  // без бита multifunction
+  Bar bars[6];
+  uint8_t msi_cap;   // смещение capability, 0 — нет
+  uint8_t msix_cap;
+  uint64_t config;   // виртуальный адрес 4 КиБ конфигурационного пространства
+};
+
+inline constexpr uint32_t kMaxFunctions = 256;
+
+// Находит MCFG, отображает окна ECAM, перечисляет функции, определяет BAR.
+// Без MCFG — функций ноль (запись в журнал), не паника.
+void pci_init(const abi::boot::BootInfo& info);
+
+uint32_t function_count();
+const Function& function(uint32_t index);
+
+uint8_t read8(const Function& f, uint16_t offset);
+uint16_t read16(const Function& f, uint16_t offset);
+uint32_t read32(const Function& f, uint16_t offset);
+void write16(const Function& f, uint16_t offset, uint16_t value);
+void write32(const Function& f, uint16_t offset, uint32_t value);
+
+// Смещения заголовка (pci-reference.md §2).
+inline constexpr uint16_t kRegVendor = 0x00;
+inline constexpr uint16_t kRegCommand = 0x04;
+inline constexpr uint16_t kCommandIo = 1u << 0;
+inline constexpr uint16_t kCommandMemory = 1u << 1;
+inline constexpr uint16_t kCommandBusMaster = 1u << 2;
+inline constexpr uint16_t kCommandIntxDisable = 1u << 10;
+
+}  // namespace kernel::pci
