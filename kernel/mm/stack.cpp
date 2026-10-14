@@ -8,6 +8,7 @@ namespace kernel::mm {
 namespace {
 
 constinit uint64_t g_next = kStackBase;
+constinit uint64_t g_pages = 0;
 constinit sync::Spinlock g_lock{sync::LockRank::MmStacks, "mm.stacks"};
 
 }  // namespace
@@ -21,6 +22,7 @@ lib::core::Result<KernelStack, VmError> alloc_kernel_stack(size_t size) {
     if (size + 4096 > kStackBase + kStackMax - g_next) return R::err(VmError::OutOfAddressSpace);
     slot = g_next;
     g_next += size + 4096;
+    g_pages += size / 4096;
   }
   uint64_t bottom = slot + 4096;  // страница slot остаётся неотображённой
   for (uint64_t off = 0; off < size; off += 4096) {
@@ -29,5 +31,7 @@ lib::core::Result<KernelStack, VmError> alloc_kernel_stack(size_t size) {
   }
   return R::ok({bottom, bottom + size});
 }
+
+uint64_t kernel_stack_pages() { return __atomic_load_n(&g_pages, __ATOMIC_RELAXED); }
 
 }  // namespace kernel::mm

@@ -524,9 +524,13 @@ void test_user() {
   };
   constexpr size_t kRuns = sizeof runs / sizeof runs[0];
 
-  // Два прохода: в первом ядро создаёт новые потоки (их стеки потом
-  // переиспользуются), во втором память уже стабильна — она обязана вернуться
-  // к уровню после первого прохода.
+  // Учёт памяти: свободные фреймы + страницы стеков ядра + страницы кучи.
+  // Стеки и куча — пулы ядра; они растут, если завершившийся поток ещё не ушёл
+  // в зомби (зависит от расклада по времени). Память процессов же обязана
+  // вернуться полностью, поэтому сумма после двух прогонов совпадает точно.
+  auto accounted = [] {
+    return mm::free_frame_count() + mm::kernel_stack_pages() + mm::heap_mapped_bytes() / 4096;
+  };
   uint64_t frames_after_first = 0;
   for (int round = 0; round < 2; ++round) {
     proc::Process* procs[kRuns] = {};
@@ -545,13 +549,12 @@ void test_user() {
     }
     if (!ok) fail("unexpected exit code");
     sched::sleep_ns(50'000'000);  // завершившиеся потоки уходят в зомби
-    if (round == 0) frames_after_first = mm::free_frame_count();
+    if (round == 0) frames_after_first = accounted();
   }
-  uint64_t frames_after_second = mm::free_frame_count();
-  kprint("ktest: free frames after run 1: {}, after run 2: {}\n", frames_after_first,
+  uint64_t frames_after_second = accounted();
+  kprint("ktest: accounted frames after run 1: {}, after run 2: {}\n", frames_after_first,
          frames_after_second);
-  // Допуск — несколько страниц роста кучи ядра (она страниц не возвращает).
-  if (frames_after_second + 16 < frames_after_first) fail("process memory leaked");
+  if (frames_after_second != frames_after_first) fail("process memory leaked");
   pass();
 }
 

@@ -22,4 +22,7 @@ struct KernelStack {
 // CPU, он появится вместе с планировщиком.
 lib::core::Result<KernelStack, VmError> alloc_kernel_stack(size_t size = kKernelStackSize);
 
+// Сколько физических страниц занято всеми стеками ядра (для учёта памяти в тестах).
+uint64_t kernel_stack_pages();
+
 }  // namespace kernel::mm
