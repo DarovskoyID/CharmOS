@@ -216,6 +216,18 @@ void start(uint64_t initrd_phys, uint64_t initrd_size) {
   }
 }
 
+bool kill_driver(uint16_t vendor, uint16_t device) {
+  sync::SpinGuard guard(g_lock);
+  for (uint32_t i = 0; i < g_binding_count; ++i) {
+    const pci::Function& f = pci::function(g_bindings[i].pci_index);
+    if (f.vendor == vendor && f.device_id == device && g_bindings[i].running != nullptr) {
+      proc::request_kill(g_bindings[i].running);
+      return true;
+    }
+  }
+  return false;
+}
+
 DriverStats stats(uint16_t vendor, uint16_t device) {
   for (uint32_t i = 0; i < g_binding_count; ++i) {
     const pci::Function& f = pci::function(g_bindings[i].pci_index);

@@ -20,6 +20,10 @@ struct DriverStats {
 // Статистика драйвера устройства vendor:device (первое совпадение).
 DriverStats stats(uint16_t vendor, uint16_t device);
 
+// Для тестов: убить текущий запуск драйвера устройства vendor:device (как
+// при ошибке DMA). false — драйвер сейчас не запущен.
+bool kill_driver(uint16_t vendor, uint16_t device);
+
 inline constexpr uint32_t kMaxRestarts = 5;
 inline constexpr uint64_t kRestartDelayNs = 100'000'000;
 

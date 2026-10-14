@@ -1,7 +1,12 @@
 # M6: блочный драйвер virtio_blk в юзерспейсе, кольцо docs/abi/block.md,
-# страницы ядра в домене IOMMU драйвера: запись, flush, чтение обратно.
+# страницы ядра в домене IOMMU драйвера: запись, flush, чтение обратно;
+# драйвер убит перед запросами — они выполняются в его новом запуске.
 devmgr: 0:3.0 0x1af4:0x1042 -> virtio_blk
 block: disk0 is virtio_blk: 131072 blocks of 512 bytes
 ktest: disk0 131072 blocks of 512
 ktest: disk0 write, flush, read back ok
+proc: virtio_blk (pid 1) killed by kernel request
+devmgr: virtio_blk on 0:3.0 exited with -1000 (run 1)
+block: disk0 is virtio_blk
+ktest: virtio_blk runs=2 killed=1
 ktest: PASS blk

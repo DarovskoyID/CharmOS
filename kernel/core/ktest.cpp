@@ -715,6 +715,25 @@ void test_blk() {
     fail("read back differs");
   }
   kprint("ktest: disk0 write, flush, read back ok\n");
+
+  // Драйвер убит прямо перед запросами: они ждут нового запуска и
+  // выполняются в нём (docs/abi/block.md §6).
+  if (!devmgr::kill_driver(0x1af4, 0x1042)) fail("virtio_blk not running");
+  for (uint32_t i = 0; i < 1024; ++i) w0[i] = 0x5eed0000u + i;
+  if (block::transfer(0, true, 4096, pages, 1) != block::Status::Ok) fail("write after kill");
+  __builtin_memset(mm::phys_to_virt<void>(pages[2]), 0, 4096);
+  if (block::transfer(0, false, 4096, pages + 2, 1) != block::Status::Ok) fail("read after kill");
+  if (__builtin_memcmp(mm::phys_to_virt<void>(pages[0]), mm::phys_to_virt<void>(pages[2]), 4096) != 0) {
+    fail("data after restart differs");
+  }
+  // Данные, записанные до падения, на месте.
+  if (block::transfer(0, false, 2048, pages + 2, 2) != block::Status::Ok) fail("reread");
+  if (__builtin_memcmp(mm::phys_to_virt<void>(pages[1]), mm::phys_to_virt<void>(pages[3]), 4096) != 0) {
+    fail("old data lost");
+  }
+  devmgr::DriverStats st = devmgr::stats(0x1af4, 0x1042);
+  kprint("ktest: virtio_blk runs={} killed={}\n", st.runs, st.killed);
+  if (st.runs != 2 || st.killed != 1) fail("driver was not restarted exactly once");
   // За концом диска — отказ без обращения к драйверу.
   if (block::transfer(0, false, info.block_count - 1, pages, 1) != block::Status::OutOfRange) {
     fail("out of range not rejected");
