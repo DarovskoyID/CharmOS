@@ -5,7 +5,7 @@
 
 ## Текущая фаза
 
-**M3 — SMP, многозадачность, юзерспейс.** M0–M2 закрыты. Обновлять эту строку при переходе.
+**M4 — капабилити, IPC (ABI v1 дополняется хендлами).** M0–M3 закрыты. Обновлять эту строку при переходе.
 
 ## Что читать
 
@@ -25,7 +25,7 @@
 
 ```bash
 bash tools/setup-wsl.sh                           # один раз: тулчейн в Ubuntu
-cmake -S . -B build -G Ninja && ninja -C build   # сборка (суперсборка: build/uefi, build/host)
+cmake -S . -B build -G Ninja && ninja -C build   # сборка (build/uefi, kernel, user, host)
 tools/run.sh                                      # запуск в QEMU/OVMF, serial в stdout
 tools/run.sh --gdb                                # с gdb-стабом на :1234
 tools/test.sh <фаза>                              # QEMU-тесты фазы, exit code = результат

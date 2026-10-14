@@ -54,6 +54,14 @@ TEST(fmt_escapes_and_mismatch) {
   CHECK(eq(format_to(buf, sizeof buf, "open {", 1), "open {"));
 }
 
+TEST(fmt_char_buffer_stops_at_nul) {
+  char buf[64];
+  char name[16] = {'a', 'b', 'c'};  // остальное — нули
+  CHECK(eq(format_to(buf, sizeof buf, "[{}]", name), "[abc]"));
+  char full[3] = {'x', 'y', 'z'};  // без нуля — не дальше конца массива
+  CHECK(eq(format_to(buf, sizeof buf, "[{}]", full), "[xyz]"));
+}
+
 TEST(fmt_truncation) {
   char buf[6];
   lib::core::BufferSink sink(buf, sizeof buf);

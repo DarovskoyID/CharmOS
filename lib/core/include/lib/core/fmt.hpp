@@ -79,9 +79,16 @@ class FmtArg {
     }
   }
 
-  // Строковые литералы приходят массивами.
+  // Строковые литералы и буферы char[N] приходят массивами: печатаем до
+  // первого нуля, но не дальше конца массива.
   template <size_t N>
-  constexpr FmtArg(const char (&s)[N]) : kind_(Kind::String), str_(s, N - 1) {}
+  constexpr FmtArg(const char (&s)[N]) : kind_(Kind::String), str_(s, bounded_length(s, N)) {}
+
+  static constexpr size_t bounded_length(const char* s, size_t cap) {
+    size_t n = 0;
+    while (n < cap && s[n] != '\0') ++n;
+    return n;
+  }
 
   Kind kind() const { return kind_; }
   uint64_t as_unsigned() const { return u_; }

@@ -522,29 +522,35 @@ void test_user() {
       {"bin/spin", 7, many ? 3 : 0},
   };
   constexpr size_t kRuns = sizeof runs / sizeof runs[0];
-  uint64_t frames_before = mm::free_frame_count();
 
-  proc::Process* procs[kRuns] = {};
-  for (size_t i = 0; i < kRuns; ++i) {
-    lib::initrd::File f;
-    if (!archive.find(runs[i].file, &f)) fail("program missing from initrd");
-    auto p = proc::spawn_process(f.name.substr(4), f.data, f.size, runs[i].cpu);
-    if (p.is_err()) fail("spawn_process failed");
-    procs[i] = p.value();
+  // Два прохода: в первом ядро создаёт новые потоки (их стеки потом
+  // переиспользуются), во втором память уже стабильна — она обязана вернуться
+  // к уровню после первого прохода.
+  uint64_t frames_after_first = 0;
+  for (int round = 0; round < 2; ++round) {
+    proc::Process* procs[kRuns] = {};
+    for (size_t i = 0; i < kRuns; ++i) {
+      lib::initrd::File f;
+      if (!archive.find(runs[i].file, &f)) fail("program missing from initrd");
+      auto p = proc::spawn_process(f.name.substr(4), f.data, f.size, runs[i].cpu);
+      if (p.is_err()) fail("spawn_process failed");
+      procs[i] = p.value();
+    }
+    bool ok = true;
+    for (size_t i = 0; i < kRuns; ++i) {
+      int64_t code = proc::wait_process(procs[i]);
+      if (round == 0) kprint("ktest: {} exited with {} (want {})\n", runs[i].file, code, runs[i].want);
+      ok = ok && code == runs[i].want;
+    }
+    if (!ok) fail("unexpected exit code");
+    sched::sleep_ns(50'000'000);  // завершившиеся потоки уходят в зомби
+    if (round == 0) frames_after_first = mm::free_frame_count();
   }
-  bool ok = true;
-  for (size_t i = 0; i < kRuns; ++i) {
-    int64_t code = proc::wait_process(procs[i]);
-    kprint("ktest: {} exited with {} (want {})\n", runs[i].file, code, runs[i].want);
-    ok = ok && code == runs[i].want;
-  }
-  if (!ok) fail("unexpected exit code");
-
-  // Адресные пространства освобождены: фреймов не меньше, чем было (с
-  // допуском на рост кучи ядра, которая страниц не возвращает).
-  uint64_t frames_after = mm::free_frame_count();
-  kprint("ktest: free frames {} -> {}\n", frames_before, frames_after);
-  if (frames_after + 64 < frames_before) fail("process memory leaked");
+  uint64_t frames_after_second = mm::free_frame_count();
+  kprint("ktest: free frames after run 1: {}, after run 2: {}\n", frames_after_first,
+         frames_after_second);
+  // Допуск — несколько страниц роста кучи ядра (она страниц не возвращает).
+  if (frames_after_second + 16 < frames_after_first) fail("process memory leaked");
   pass();
 }
 
