@@ -43,6 +43,12 @@ for exp in "$dir"/*.expected; do
     pos=$((pos + line))
   done <"$exp"
 
-  if [[ $ok -eq 1 ]]; then echo "ok   $phase/$name"; else failed=1; echo "     serial: $log"; fi
+  if [[ $ok -eq 1 ]]; then
+    echo "ok   $phase/$name"
+  else
+    failed=1
+    echo "     serial: $log (последние 25 строк):"
+    grep -av '^\s*$' "$log.clean" | tail -n 25 | sed 's/^/     | /'
+  fi
 done
 exit $failed
