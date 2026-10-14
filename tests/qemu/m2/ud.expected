@@ -1,0 +1,3 @@
+# Неверная инструкция.
+EXCEPTION: #UD invalid opcode (vector 6)
+ktest: PASS ud

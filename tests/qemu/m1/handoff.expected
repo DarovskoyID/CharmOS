@@ -10,4 +10,4 @@ boot: memory regions=
 boot: framebuffer
 boot: rsdp=0x
 boot: cmdline=m1.test=yes console=serial
-CharmOS kernel: M1 OK
+boot: handoff verified

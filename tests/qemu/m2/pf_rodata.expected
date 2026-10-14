@@ -1,0 +1,4 @@
+# Запись в .rodata запрещена правами страницы.
+EXCEPTION: #PF page fault
+(protection write data)
+ktest: PASS pf-rodata

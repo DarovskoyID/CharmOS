@@ -1,0 +1,3 @@
+# int3 — ловушка: обработчик вызывается, выполнение продолжается.
+ktest: 3 breakpoints handled, execution resumed
+ktest: PASS bp

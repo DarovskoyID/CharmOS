@@ -13,7 +13,7 @@ set(CMAKE_ASM_FLAGS_INIT "--target=${triple}")
 
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 
-set(kflags "--target=${triple} -mno-red-zone -mcmodel=kernel -mgeneral-regs-only -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables")
+set(kflags "--target=${triple} -mno-red-zone -mcmodel=kernel -mgeneral-regs-only -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -g")
 set(CMAKE_C_FLAGS_INIT "${kflags}")
 set(CMAKE_CXX_FLAGS_INIT "${kflags}")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "--target=${triple} -nostdlib -fuse-ld=lld -static -Wl,--no-dynamic-linker")

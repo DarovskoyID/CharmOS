@@ -1,0 +1,3 @@
+# Неканонический адрес даёт #GP.
+EXCEPTION: #GP general protection (vector 13)
+ktest: PASS gp

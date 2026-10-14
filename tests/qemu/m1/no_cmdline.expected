@@ -1,4 +1,4 @@
 # M1: без cmdline.txt ядро получает cmdline = 0.
 CharmOS kernel: entry
 boot: no cmdline
-CharmOS kernel: M1 OK
+boot: handoff verified

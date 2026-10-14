@@ -1,0 +1,6 @@
+# Обращение к неотображённой странице: #PF, cr2 = адрес, дамп и трассировка.
+ktest: running pf
+EXCEPTION: #PF page fault (vector 14)
+cr2=0x0000000000001000 (not-present write data)
+backtrace:
+ktest: PASS pf

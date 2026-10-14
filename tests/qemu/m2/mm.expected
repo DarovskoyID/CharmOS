@@ -1,0 +1,4 @@
+# Стресс аллокаторов: все фреймы, выровненный участок, 50000 операций кучи.
+ktest: pmm allocated and freed
+ktest: heap 50000 ops ok
+ktest: PASS mm

@@ -1,0 +1,3 @@
+# Деление на ноль.
+EXCEPTION: #DE divide error (vector 0)
+ktest: PASS de

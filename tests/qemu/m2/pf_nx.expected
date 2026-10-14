@@ -1,0 +1,4 @@
+# Исполнение из .data запрещено битом NX.
+EXCEPTION: #PF page fault
+ifetch
+ktest: PASS pf-nx
