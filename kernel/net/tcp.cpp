@@ -114,7 +114,11 @@ bool le(uint32_t a, uint32_t b) { return static_cast<int32_t>(a - b) <= 0; }
 
 bool drop_now() {
   if (g_drop_every == 0) return false;
-  return ++g_drop_count % g_drop_every == 0;
+  // Псевдослучайно с вероятностью 1/n (LCG): строгая периодичность «каждый
+  // n-й» резонирует с редкими повторами и даёт не потери, а многоминутные паузы.
+  g_drop_count = g_drop_count * 1664525u + 1013904223u;
+  bool d = (g_drop_count >> 16) % g_drop_every == 0;
+  return d;
 }
 
 uint32_t rcv_wnd(const Tcb& t) { return t.rcv.free() > 0xffff ? 0xffff : t.rcv.free(); }
@@ -294,6 +298,11 @@ int alloc_tcb() {
       t.ssthresh = 0xffff;
       return static_cast<int>(i);
     }
+  }
+  static bool warned = false;
+  if (!warned) {
+    warned = true;
+    kprint("tcp: connection table full\n");
   }
   return kNoConn;
 }
