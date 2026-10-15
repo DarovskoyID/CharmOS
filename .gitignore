@@ -1,3 +1,4 @@
 /build/
 /build*/
 /.claude/settings.local.json
+/tests/host/data/acpi/

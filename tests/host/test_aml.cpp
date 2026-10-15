@@ -46,11 +46,17 @@ struct Loaded {
   Error err;
 };
 
-void load(Loaded& l, const char* file) {
+// false — образца нет (tools/acpi-fixtures.sh не запускали): тест пропускается.
+bool load(Loaded& l, const char* file) {
   l.dsdt = load_file(file);
+  if (l.dsdt.empty()) {
+    std::printf("  skip: no %s (run tools/acpi-fixtures.sh)\n", file);
+    return false;
+  }
   Host h{nullptr, host_read, host_write, host_log, nullptr, nullptr};
   l.in.init({alloc, nullptr}, {alloc, nullptr}, h);
-  l.err = l.dsdt.empty() ? Error::BadTable : l.in.load_table(l.dsdt.data(), l.dsdt.size());
+  l.err = l.in.load_table(l.dsdt.data(), l.dsdt.size());
+  return true;
 }
 
 struct Count {
@@ -90,7 +96,7 @@ bool find_prt(Node* n, void* ctx) {
 
 TEST(aml_qemu_loads) {
   Loaded l;
-  load(l, "qemu-q35-dsdt.aml");
+  if (!load(l, "qemu-q35-dsdt.aml")) return;
   CHECK(l.err == Error::Ok);
   if (l.err != Error::Ok) {
     std::printf("  qemu: %s at 0x%zx\n", error_name(l.err), l.in.error_offset());
@@ -119,7 +125,7 @@ TEST(aml_qemu_loads) {
 
 TEST(aml_vmware_loads) {
   Loaded l;
-  load(l, "vmware-dsdt.aml");
+  if (!load(l, "vmware-dsdt.aml")) return;
   CHECK(l.err == Error::Ok);
   if (l.err != Error::Ok) {
     std::printf("  vmware: %s\n", error_name(l.err));
