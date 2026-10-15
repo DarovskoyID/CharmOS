@@ -110,6 +110,7 @@ struct FadtInfo {
   // PM-таймер (табл. 5.9; §4.8.3.3): X_PM_TMR_BLK (GAS, смещение 208) важнее
   // PM_TMR_BLK (порт, смещение 76). 0 — таймера нет.
   uint64_t pm_timer_address;
+  uint64_t dsdt_address;  // X_DSDT (смещение 140) или DSDT (40), табл. 5.9
   bool pm_timer_memory;  // GAS Address Space ID 0 — память, иначе порт
 };
 inline constexpr uint32_t kFadtTmrValExt = 1u << 8;  // табл. 5.10: 32-битный PM-таймер

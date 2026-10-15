@@ -38,6 +38,7 @@ constinit RefClock g_ref;
 constinit uint64_t g_tsc_hz = 0;
 constinit uint64_t g_apic_timer_hz = 0;
 constinit volatile uint64_t g_ticks = 0;
+constinit bool g_dump_acpi = false;
 
 // Таблицы ACPI лежат либо в RAM (AcpiReclaimable/AcpiNvs — уже в HHDM), либо
 // в зарезервированной памяти — тогда отображаем отдельно.
@@ -49,6 +50,25 @@ const void* map_acpi(void*, uint64_t phys, size_t size) {
   }
   auto r = mm::map_mmio(phys, size);
   return r.is_ok() ? reinterpret_cast<const void*>(r.value()) : nullptr;
+}
+
+// acpi=dump: DSDT и все SSDT в serial шестнадцатеричным дампом
+// (tools/acpi-extract.py собирает из него файлы для хост-тестов AML).
+void dump_table(const SdtHeader* t, const char* what, uint32_t index) {
+  const auto* b = reinterpret_cast<const uint8_t*>(t);
+  kprint("acpidump: begin {} {} {}\n", what, index, t->length);
+  static const char kHex[] = "0123456789abcdef";
+  char line[2 * 64 + 1];
+  for (uint32_t off = 0; off < t->length; off += 64) {
+    uint32_t n = t->length - off < 64 ? t->length - off : 64;
+    for (uint32_t i = 0; i < n; ++i) {
+      line[2 * i] = kHex[b[off + i] >> 4];
+      line[2 * i + 1] = kHex[b[off + i] & 15];
+    }
+    line[2 * n] = '\0';
+    kprint("acpidump: {}\n", lib::core::StringView(line, 2 * n));
+  }
+  kprint("acpidump: end\n");
 }
 
 const SdtHeader* require_table(const SdtHeader* xsdt, const char* sig) {
@@ -83,6 +103,18 @@ void init_acpi(const abi::boot::BootInfo& info) {
          g_madt.pcat_compat);
   kprint("acpi: FADT rev={} sci={} boot_arch={x} flags={x}\n", g_fadt.revision,
          g_fadt.sci_interrupt, g_fadt.iapc_boot_arch, g_fadt.flags);
+  if (g_dump_acpi && g_fadt.dsdt_address != 0) {
+    const auto* head = static_cast<const SdtHeader*>(map_acpi(nullptr, g_fadt.dsdt_address, sizeof(SdtHeader)));
+    if (head != nullptr) {
+      const auto* dsdt = static_cast<const SdtHeader*>(map_acpi(nullptr, g_fadt.dsdt_address, head->length));
+      if (dsdt != nullptr) dump_table(dsdt, "DSDT", 0);
+    }
+    for (uint32_t i = 0;; ++i) {
+      auto ssdt = lib::acpi::find_table(xsdt, "SSDT", i, &map_acpi, nullptr);
+      if (ssdt.is_err()) break;
+      dump_table(ssdt.value(), "SSDT", i);
+    }
+  }
 
   lib::acpi::HpetInfo hpet_info;
   auto hpet_table = lib::acpi::find_table(xsdt, "HPET", 0, &map_acpi, nullptr);
@@ -218,6 +250,7 @@ void init_this_cpu() {
 }
 
 void platform_init(const abi::boot::BootInfo& info, const Cmdline& cmdline) {
+  g_dump_acpi = cmdline.get("acpi") == lib::core::StringView("dump");
   init_acpi(info);
   init_interrupt_controllers(cmdline.get("lapic") == lib::core::StringView("xapic"));
   calibrate();
