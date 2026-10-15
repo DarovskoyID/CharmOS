@@ -10,6 +10,7 @@
 #include "../mm/layout.hpp"
 #include "../mm/vmm.hpp"
 #include "../proc/process.hpp"
+#include "../proc/signal.hpp"
 #include "../sched/sched.hpp"
 #include "../smp/cpu.hpp"
 
@@ -106,13 +107,19 @@ void spurious_handler(InterruptFrame&) {
 constinit uint32_t g_tick_hz = 0;
 
 void timer_handler(InterruptFrame& frame) {
-  if (smp::this_cpu().index == 0) g_ticks = g_ticks + 1;
+  if (smp::this_cpu().index == 0) {
+    g_ticks = g_ticks + 1;
+    proc::alarm_tick(now_ns());
+  }
   // EOI до планировщика: schedule() может переключить поток, и обработчик
   // «вернётся» нескоро — без EOI таймер этого CPU замолчал бы.
   g_lapic.eoi();
   sched::on_timer_tick();
   // Процесс, который ядро попросило убить, умирает, не возвращаясь в ring 3.
-  if ((frame.cs & 3) == 3) proc::check_kill();
+  if ((frame.cs & 3) == 3) {
+    proc::check_kill();
+    proc::deliver_signals(frame);
+  }
 }
 
 void init_interrupt_controllers(bool force_xapic) {

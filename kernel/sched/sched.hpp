@@ -48,6 +48,13 @@ struct Thread {
   // Прерывание ожиданий (убийство процесса, сигналы): см. interrupt().
   volatile bool interrupt_pending;
   volatile bool interruptible;
+
+  uint32_t priority;      // 1..31 (process.md §8), больше — важнее
+  uint64_t run_start_ns;  // начало текущего учтённого отрезка на CPU
+  // Сигналы (process.md §9) — только сам поток.
+  uint64_t sig_mask;
+  uint64_t sig_frame;     // адрес текущего SignalFrame в памяти процесса, 0 — не в обработчике
+  uint32_t sig_depth;
 };
 
 // Пользовательский контекст для spawn: задаётся до того, как поток попадёт
@@ -57,6 +64,8 @@ struct UserContext {
   void* process;
   uint8_t* fpu;
   void* user_obj;
+  uint32_t priority;  // 0 — по умолчанию
+  uint64_t sig_mask;
 };
 
 using ThreadFn = void (*)(void* arg);
@@ -65,6 +74,8 @@ using ThreadFn = void (*)(void* arg);
 // более частые тики теряются, а квант 10 мс для ядра без GUI достаточен.
 inline constexpr uint32_t kTickHz = 100;
 inline constexpr int kAnyCpu = -1;
+inline constexpr uint32_t kPriorityLevels = 32;
+inline constexpr uint32_t kPriorityDefault = 16;
 
 // Превращает текущий контекст в поток простоя этого CPU и запускает тик
 // таймера. Вызывать один раз на каждом CPU после smp::*init*.
@@ -105,6 +116,15 @@ void interrupt(Thread* t);
 bool interrupted();
 void block_interruptible_until(uint64_t deadline_ns);
 void end_interruptible();
+
+// Приоритет потока (1..31); готовый поток переставляется в очереди.
+void set_priority(Thread* t, uint32_t priority);
+// Переключиться, если готов поток важнее текущего (после пробуждения,
+// из IPI и при выходе из системного вызова). Спинлоки не держать.
+void preempt_check();
+// Учёт времени CPU потоков процессов: вызывается без блокировок, с
+// запрещёнными прерываниями (process.md §7, cpu_ns).
+void set_cpu_charge_hook(void (*hook)(Thread* t, uint64_t ns));
 // Переключается на следующий готовый поток. Прерывания должны быть запрещены,
 // spinlock'и — отпущены.
 void schedule();

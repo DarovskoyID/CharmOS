@@ -1,0 +1,7 @@
+# M8: загрузка до шелла — системный диск (system.sh) и сеть.
+-device intel-iommu
+-drive if=none,id=d0,format=raw,file=build/disk-system.img
+-device virtio-blk-pci,drive=d0,disable-legacy=on,iommu_platform=on
+-nic none
+-netdev user,id=n0,hostfwd=tcp:127.0.0.1:18080-:8080
+-device virtio-net-pci,netdev=n0,disable-legacy=on,iommu_platform=on

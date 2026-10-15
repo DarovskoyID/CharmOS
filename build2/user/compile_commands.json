@@ -235,6 +235,126 @@
 },
 {
   "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include -I/mnt/a/CharmOS/lib/core/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -o user/CMakeFiles/signals.dir/tests/signals.cpp.obj -c /mnt/a/CharmOS/user/tests/signals.cpp",
+  "file": "/mnt/a/CharmOS/user/tests/signals.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/signals.dir/tests/signals.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -fno-builtin -o user/CMakeFiles/c.dir/libc/src/start.cpp.obj -c /mnt/a/CharmOS/user/libc/src/start.cpp",
+  "file": "/mnt/a/CharmOS/user/libc/src/start.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/c.dir/libc/src/start.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -fno-builtin -o user/CMakeFiles/c.dir/libc/src/string.cpp.obj -c /mnt/a/CharmOS/user/libc/src/string.cpp",
+  "file": "/mnt/a/CharmOS/user/libc/src/string.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/c.dir/libc/src/string.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -fno-builtin -o user/CMakeFiles/c.dir/libc/src/stdlib.cpp.obj -c /mnt/a/CharmOS/user/libc/src/stdlib.cpp",
+  "file": "/mnt/a/CharmOS/user/libc/src/stdlib.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/c.dir/libc/src/stdlib.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -fno-builtin -o user/CMakeFiles/c.dir/libc/src/stdio.cpp.obj -c /mnt/a/CharmOS/user/libc/src/stdio.cpp",
+  "file": "/mnt/a/CharmOS/user/libc/src/stdio.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/c.dir/libc/src/stdio.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -fno-builtin -o user/CMakeFiles/c.dir/libc/src/fd.cpp.obj -c /mnt/a/CharmOS/user/libc/src/fd.cpp",
+  "file": "/mnt/a/CharmOS/user/libc/src/fd.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/c.dir/libc/src/fd.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -fno-builtin -o user/CMakeFiles/c.dir/libc/src/pthread.cpp.obj -c /mnt/a/CharmOS/user/libc/src/pthread.cpp",
+  "file": "/mnt/a/CharmOS/user/libc/src/pthread.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/c.dir/libc/src/pthread.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -fno-builtin -o user/CMakeFiles/c.dir/libc/src/socket.cpp.obj -c /mnt/a/CharmOS/user/libc/src/socket.cpp",
+  "file": "/mnt/a/CharmOS/user/libc/src/socket.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/c.dir/libc/src/socket.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -fno-builtin -o user/CMakeFiles/c.dir/libc/src/spawn.cpp.obj -c /mnt/a/CharmOS/user/libc/src/spawn.cpp",
+  "file": "/mnt/a/CharmOS/user/libc/src/spawn.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/c.dir/libc/src/spawn.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -o user/CMakeFiles/libc_test.dir/tests/libc_test.cpp.obj -c /mnt/a/CharmOS/user/tests/libc_test.cpp",
+  "file": "/mnt/a/CharmOS/user/tests/libc_test.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/libc_test.dir/tests/libc_test.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -o user/CMakeFiles/init.dir/init/init.cpp.obj -c /mnt/a/CharmOS/user/init/init.cpp",
+  "file": "/mnt/a/CharmOS/user/init/init.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/init.dir/init/init.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -o user/CMakeFiles/logd.dir/bin/logd/logd.cpp.obj -c /mnt/a/CharmOS/user/bin/logd/logd.cpp",
+  "file": "/mnt/a/CharmOS/user/bin/logd/logd.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/logd.dir/bin/logd/logd.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -o user/CMakeFiles/sh.dir/bin/sh/sh.cpp.obj -c /mnt/a/CharmOS/user/bin/sh/sh.cpp",
+  "file": "/mnt/a/CharmOS/user/bin/sh/sh.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/sh.dir/bin/sh/sh.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -o user/CMakeFiles/echo.dir/bin/echo/echo.cpp.obj -c /mnt/a/CharmOS/user/bin/echo/echo.cpp",
+  "file": "/mnt/a/CharmOS/user/bin/echo/echo.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/echo.dir/bin/echo/echo.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -o user/CMakeFiles/cat.dir/bin/cat/cat.cpp.obj -c /mnt/a/CharmOS/user/bin/cat/cat.cpp",
+  "file": "/mnt/a/CharmOS/user/bin/cat/cat.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/cat.dir/bin/cat/cat.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -o user/CMakeFiles/ls.dir/bin/ls/ls.cpp.obj -c /mnt/a/CharmOS/user/bin/ls/ls.cpp",
+  "file": "/mnt/a/CharmOS/user/bin/ls/ls.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/ls.dir/bin/ls/ls.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -o user/CMakeFiles/mkdir.dir/bin/mkdir/mkdir.cpp.obj -c /mnt/a/CharmOS/user/bin/mkdir/mkdir.cpp",
+  "file": "/mnt/a/CharmOS/user/bin/mkdir/mkdir.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/mkdir.dir/bin/mkdir/mkdir.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -o user/CMakeFiles/rm.dir/bin/rm/rm.cpp.obj -c /mnt/a/CharmOS/user/bin/rm/rm.cpp",
+  "file": "/mnt/a/CharmOS/user/bin/rm/rm.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/rm.dir/bin/rm/rm.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -o user/CMakeFiles/sleep.dir/bin/sleep/sleep.cpp.obj -c /mnt/a/CharmOS/user/bin/sleep/sleep.cpp",
+  "file": "/mnt/a/CharmOS/user/bin/sleep/sleep.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/sleep.dir/bin/sleep/sleep.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/libc/include -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -o user/CMakeFiles/httpd.dir/bin/httpd/httpd.cpp.obj -c /mnt/a/CharmOS/user/bin/httpd/httpd.cpp",
+  "file": "/mnt/a/CharmOS/user/bin/httpd/httpd.cpp",
+  "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/httpd.dir/bin/httpd/httpd.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/user",
   "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/user/rt/include -I/mnt/a/CharmOS/include -I/mnt/a/CharmOS/lib/core/include --target=x86_64-unknown-elf -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -o user/CMakeFiles/edu.dir/drivers/edu/edu.cpp.obj -c /mnt/a/CharmOS/user/drivers/edu/edu.cpp",
   "file": "/mnt/a/CharmOS/user/drivers/edu/edu.cpp",
   "output": "/mnt/a/CharmOS/build2/user/user/CMakeFiles/edu.dir/drivers/edu/edu.cpp.obj"

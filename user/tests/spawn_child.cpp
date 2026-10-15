@@ -2,6 +2,7 @@
 // (/bin/spawn_child), его запускает spawn_parent через process_spawn.
 //   echo <код>  — отчёт о стартовом сообщении в канал (роль 0), выход с <код>
 //   sleep       — спать без срока (его убивают)
+//   spin        — крутиться без системных вызовов (лимит cpu_ns)
 #include <charm/start.hpp>
 
 #include "check.hpp"
@@ -28,6 +29,10 @@ extern "C" int64_t charm_main(Handle boot) {
   const char* mode = nth_string(st.args, 1);
   if (same(mode, static_cast<uint32_t>(length(mode)), "sleep")) {
     for (;;) sleep_until(kForever);
+  }
+  if (same(mode, static_cast<uint32_t>(length(mode)), "spin")) {
+    for (volatile uint64_t i = 0;; i = i + 1) {
+    }
   }
   EXPECT(same(mode, static_cast<uint32_t>(length(mode)), "echo") && h.argc == 3);
   // Отчёт: argv[0], окружение, роли, а корень ФС — рабочий.

@@ -2,6 +2,7 @@
 // подсистема опирается на предыдущие.
 
 #include <abi/boot.hpp>
+#include <abi/process.hpp>
 #include <arch/x86_64/cpu.hpp>
 #include <arch/x86_64/idt.hpp>
 #include <arch/x86_64/serial.hpp>
@@ -13,6 +14,10 @@
 #include "../console/console.hpp"
 #include "../drivers/devmgr.hpp"
 #include "../fs/vfs.hpp"
+#include "../ipc/ipc.hpp"
+#include "../net/netif.hpp"
+#include "../net/socket.hpp"
+#include "../net/udp.hpp"
 #include "../pci/iommu.hpp"
 #include "../pci/pci.hpp"
 #include "../platform/platform.hpp"
@@ -20,6 +25,8 @@
 #include "../proc/uaccess.hpp"
 #include "../sched/sched.hpp"
 #include "../smp/smp.hpp"
+#include <lib/initrd/initrd.hpp>
+
 #include "boot_info.hpp"
 #include "cmdline.hpp"
 #include "ktest.hpp"
@@ -104,6 +111,67 @@ constinit uint64_t g_initrd_phys = 0;
 constinit char g_root_spec[32] = {};
 constinit size_t g_root_len = 0;
 constinit uint64_t g_initrd_size = 0;
+constinit char g_init_spec[64] = {};
+constinit size_t g_init_len = 0;
+
+// init (M8): программа из initrd (init=bin/init) со стартовым сообщением
+// "strt" (docs/abi/process.md §2): роли Root, Console, Net, Job (корневой).
+// Её завершение — завершение системы (выключения через ACPI ещё нет, M9):
+// код 0 — успешный выход QEMU.
+[[noreturn]] void run_init() {
+  namespace ap = abi::process;
+  using kernel::ipc::Cap;
+  lib::core::StringView path(g_init_spec, g_init_len);
+  lib::initrd::Archive archive;
+  lib::initrd::File f;
+  if (archive.open(phys_to_virt<const void>(g_initrd_phys), g_initrd_size).is_err() || !archive.find(path, &f)) {
+    kprint("init: {} not found in initrd\n", path);
+    arch::x86_64::qemu_exit(arch::x86_64::kExitFailure);
+  }
+  // Сеть: дождаться линка и адреса, если сетевой драйвер есть.
+  uint64_t deadline = kernel::platform::now_ns() + 5'000'000'000ull;
+  while (!kernel::net::link_up() && kernel::platform::now_ns() < deadline) kernel::sched::sleep_ns(10'000'000);
+  if (kernel::net::link_up()) {
+    auto s = kernel::net::dhcp_configure(kernel::platform::now_ns() + 10'000'000'000ull);
+    if (s != kernel::net::Status::Ok) kprint("init: no DHCP lease\n");
+  }
+  Cap* caps[4];
+  uint32_t roles[4];
+  uint32_t n = 0;
+  if (kernel::fs::mounted() && kernel::fs::root_cap(&caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleRoot;
+  if (kernel::console::console_cap(&caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleConsole;
+  if (kernel::net::net_cap(&caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleNet;
+  if (kernel::ipc::create_job_cap(kernel::ipc::root_job(), &caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleJob;
+  struct {
+    ap::StartHeader h;
+    char data[32];
+  } msg{};
+  static const char kArgs[] = "init";
+  static const char kEnv[] = "PATH=/bin";
+  __builtin_memcpy(msg.h.magic, ap::kStartMagic, 4);
+  msg.h.argc = 1;
+  msg.h.args_bytes = sizeof kArgs;
+  msg.h.envc = 1;
+  msg.h.env_bytes = sizeof kEnv;
+  msg.h.handle_count = n;
+  for (uint32_t i = 0; i < n; ++i) msg.h.roles[i] = roles[i];
+  __builtin_memcpy(msg.data, kArgs, sizeof kArgs);
+  __builtin_memcpy(msg.data + sizeof kArgs, kEnv, sizeof kEnv);
+  Cap *mine, *theirs;
+  if (kernel::ipc::create_channel(&mine, &theirs) != kernel::ipc::Status::Ok ||
+      kernel::ipc::kernel_send(mine, &msg, sizeof msg.h + sizeof kArgs + sizeof kEnv, caps, n) !=
+          kernel::ipc::Status::Ok) {
+    panic("init: cannot build the start message");
+  }
+  auto p = kernel::proc::spawn_process(f.name.substr(4), f.data, f.size, kernel::sched::kAnyCpu, theirs);
+  if (p.is_err()) panic("init: cannot start {}", path);
+  kprint("init: started {}\n", path);
+  int64_t code = kernel::proc::wait_process(p.value());
+  kernel::ipc::close_detached(mine);
+  kprint("init: exited with {}, halting\n", code);
+  (void)kernel::fs::sync_all();
+  arch::x86_64::qemu_exit(code == 0 ? arch::x86_64::kExitSuccess : arch::x86_64::kExitFailure);
+}
 
 // Первый поток ядра: всё, что идёт после запуска планировщика.
 void kmain(void*) {
@@ -114,6 +182,7 @@ void kmain(void*) {
     if (g_root_len != 0) (void)kernel::fs::mount_root(lib::core::StringView(g_root_spec, g_root_len));
   }
   kernel::ktest::run_selected();
+  if (kernel::ktest::selected().empty() && g_init_len != 0) run_init();
 
   uint64_t start = kernel::platform::ticks();
   kernel::sched::sleep_ns(100'000'000);
@@ -148,6 +217,10 @@ extern "C" [[noreturn]] void kernel_main(uint64_t boot_info_phys, uint64_t stack
     for (size_t i = 0; i < root.size(); ++i) g_root_spec[i] = root[i];
     g_root_len = root.size();
   }
+  if (auto init = cmdline.get("init"); !init.empty() && init.size() < sizeof g_init_spec) {
+    for (size_t i = 0; i < init.size(); ++i) g_init_spec[i] = init[i];
+    g_init_len = init.size();
+  }
   kernel::ktest::set_initrd(info.initrd_base, info.initrd_size);
   g_initrd_phys = info.initrd_base;
   g_initrd_size = info.initrd_size;
@@ -160,6 +233,7 @@ extern "C" [[noreturn]] void kernel_main(uint64_t boot_info_phys, uint64_t stack
   kernel::pci::iommu::init(info, cmdline);
   kernel::console::init();
   kernel::console::set_control_handler(&kernel::proc::signal_foreground);
+  kernel::proc::init_accounting();
   kernel::smp::late_init_bsp();
   kernel::smp::start_aps();
 

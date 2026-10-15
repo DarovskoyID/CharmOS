@@ -179,7 +179,7 @@ void supervise(void* arg) {
     b->stats.runs = b->stats.runs + 1;
     int64_t code = proc::wait_process(p.value(), &forget_process, b);
     if (block) b->block.done.down();  // канал ядра больше никто не читает
-    ipc::release_detached(kernel_end);
+    ipc::close_detached(kernel_end);
     b->stats.last_exit = code;
     if (code == proc::kExitKilled) b->stats.killed = b->stats.killed + 1;
     kprint("devmgr: {} on {}:{}.{} exited with {} (run {})\n", name, f.bus, f.device, f.function,

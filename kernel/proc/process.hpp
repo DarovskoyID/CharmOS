@@ -55,6 +55,15 @@ struct Process {
   void* watchers;    // объекты Process с подписками (под блокировкой IPC)
   bool dead;         // завершён: exit_code окончателен
   Process* next_proc;  // общий список процессов
+  Process* parent;     // запустивший процесс (ссылка) — ему сигнал Child
+  uint64_t charged_pages;  // образ и стек, учтённые в Job (§7)
+
+  // Сигналы (process.md §9).
+  uint64_t sig_entry;  // 0 — обработчика нет
+  uint64_t sig_stack_top;
+  uint64_t sig_stack_size;
+  uint64_t sig_pending;  // бит n — сигнал n ждёт доставки
+  uint64_t alarm_ns;     // signal_alarm, 0 — нет
 };
 
 // bootstrap — отсоединённая капабилити стартового канала (или nullptr);
@@ -63,7 +72,9 @@ lib::core::Result<Process*, ProcError> spawn_process(lib::core::StringView name,
                                                      const void* elf, size_t size,
                                                      int cpu = sched::kAnyCpu,
                                                      ipc::Cap* bootstrap = nullptr,
-                                                     ipc::Job* job = nullptr);
+                                                     ipc::Job* job = nullptr,
+                                                     Process* parent = nullptr,
+                                                     uint32_t priority = 0);
 
 void get_process_ref(Process* p);
 void put_process(Process* p);
@@ -94,6 +105,10 @@ Status sys_process_spawn(uint64_t args, uint64_t* out);
 Status sys_process_kill(uint32_t h);
 Status sys_process_info(uint32_t h, uint64_t out);
 Status sys_job_kill(uint32_t h);
+Status sys_job_set_limits(uint32_t h, uint64_t limits);
+Status sys_thread_set_priority(uint32_t thread, uint64_t priority);
+// Учёт времени CPU (хук планировщика) и лимит cpu_ns.
+void init_accounting();
 Status sys_console_set_foreground(uint32_t con, uint32_t job);
 // Управляющий байт консоли (Ctrl-C → 1, Ctrl-\ → 2): сигнал переднему Job.
 // Из прерывания.

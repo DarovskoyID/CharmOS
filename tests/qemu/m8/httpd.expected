@@ -1,0 +1,6 @@
+# M8: HTTP-сервер отдаёт файл с диска на хост (клиент — tools/qemu/httpd.sh,
+# итог сверки — запросом /verdict/ok).
+httpd: listening on port 8080
+httpd: GET / 200
+httpd: GET /verdict/ok 404
+init: exited with 0, halting

@@ -74,6 +74,7 @@ struct Vmo {
   bool mmio;  // BAR устройства: некэшируемо, фреймы не принадлежат VMO (kMmioHole — не отображать)
   struct Device* dma_dev;  // DMA-буфер: устройство (держит ссылку), в чьём домене он виден
   uint64_t iova;           // адрес буфера для устройства
+  struct Job* charged;     // Job, которому учтены страницы (держит ссылку), или nullptr
 };
 
 struct Interrupt;
@@ -158,12 +159,17 @@ struct Job {
   uint64_t bound_key;
 };
 constinit Job* g_root_job = nullptr;
+
+void uncharge_locked(Job* j, uint64_t pages) {
+  for (Job* a = j; a != nullptr; a = a->parent) a->memory_pages -= pages;
+}
 constinit Job* g_foreground = nullptr;  // передний Job консоли (§5.1)
 
 // Поток процесса (docs/abi/process.md §4). Ссылки: капабилити + сам поток,
 // пока не завершился.
 struct ThreadObj {
   Object base;
+  sched::Thread* thread;  // пока поток жив
   bool exited;
   int64_t code;
   Port* bound;
@@ -347,8 +353,14 @@ void release_object(Object* obj) {
     for (uint64_t i = 0; i < v->pages && !v->mmio; ++i) mm::free_frames(v->frames[i]);
     mm::kfree(v->frames);
     Device* dev = v->dma_dev;
+    Job* charged = v->charged;
+    uint64_t pages = v->pages;
     mm::kfree(v);
     if (dev != nullptr) release_object(&dev->base);
+    if (charged != nullptr) {
+      uncharge_locked(charged, pages);
+      release_object(&charged->base);
+    }
     return;
   }
   if (obj->type == Type::Port) {
@@ -536,7 +548,9 @@ void close_cap(Cap* c) {
 // --- процесс ----------------------------------------------------------------------------
 
 Status init_process(proc::Process* p) {
-  constexpr uint32_t kSlots = abi::syscall::kMaxHandles;
+  // Ёмкость таблицы — лимит хендлов Job на момент запуска (process.md §7).
+  uint32_t limit = job_handle_limit(p->job);
+  uint32_t kSlots = limit != 0 && limit < abi::syscall::kMaxHandles ? limit + 1 : abi::syscall::kMaxHandles;
   auto* slots = alloc_zeroed<lib::cap::HandleTable::Slot>(sizeof(lib::cap::HandleTable::Slot) * kSlots);
   if (slots == nullptr) return Status::NoMemory;
   p->ipc.slots = slots;
@@ -607,6 +621,11 @@ Status install(proc::Process* p, Cap* cap, uint32_t* handle) {
   return Status::Ok;
 }
 
+void close_detached(Cap* cap) {
+  sync::SpinGuard guard(g_lock);
+  release_detached(cap);
+}
+
 void release_detached(Cap* cap) {
   // Может вызываться и под g_lock (из create_channel), поэтому без блокировки:
   // отсоединённая капабилити никому больше не видна.
@@ -658,7 +677,9 @@ Status sys_handle_close(uint32_t h) {
 }
 
 Status sys_handle_duplicate(uint32_t h, uint64_t new_rights, uint64_t* out) {
-  if ((new_rights & ~uint64_t{rights::kAll | rights::kNetAll}) != 0) return Status::InvalidArgs;
+  if ((new_rights & ~uint64_t{rights::kAll | rights::kNetAll | rights::kSignal | rights::kSpawn}) != 0) {
+    return Status::InvalidArgs;
+  }
   sync::SpinGuard guard(g_lock);
   proc::Process* p = me();
   Cap* c = lookup(p, h);
@@ -923,11 +944,14 @@ Status sys_vmo_create(uint64_t size, uint64_t* out) {
     return Status::InvalidArgs;
   }
   uint64_t pages = size / kPageSize;
+  Job* job = me()->job;
+  if (job_charge_memory(job, pages) != Status::Ok) return Status::NoMemory;  // лимит Job (§7)
   auto* v = alloc_zeroed<Vmo>(sizeof(Vmo));
   auto* frames = alloc_zeroed<uint64_t>(pages * sizeof(uint64_t));
   if (v == nullptr || frames == nullptr) {
     if (v != nullptr) mm::kfree(v);
     if (frames != nullptr) mm::kfree(frames);
+    job_uncharge_memory(job, pages);
     return Status::NoMemory;
   }
   for (uint64_t i = 0; i < pages; ++i) {
@@ -936,6 +960,7 @@ Status sys_vmo_create(uint64_t size, uint64_t* out) {
       for (uint64_t k = 0; k < i; ++k) mm::free_frames(frames[k]);
       mm::kfree(frames);
       mm::kfree(v);
+      job_uncharge_memory(job, pages);
       return Status::NoMemory;
     }
     __builtin_memset(mm::phys_to_virt<void>(f.value()), 0, kPageSize);
@@ -947,6 +972,8 @@ Status sys_vmo_create(uint64_t size, uint64_t* out) {
   v->frames = frames;
 
   sync::SpinGuard guard(g_lock);
+  v->charged = job;
+  ++job->base.refs;
   Cap* c = new_cap(&v->base, rights::kVmoDefault, nullptr);
   if (c == nullptr) {
     v->base.refs = 1;
@@ -1888,7 +1915,7 @@ Status create_thread_obj(void** obj, uint64_t* handle) {
   to->base.type = Type::Thread;
   to->base.refs = 1;  // ссылка самого потока
   sync::SpinGuard guard(g_lock);
-  Status s = install_new(&to->base, rights::kDuplicate | rights::kTransfer | rights::kRead, handle);
+  Status s = install_new(&to->base, rights::kDuplicate | rights::kTransfer | rights::kRead | rights::kWrite, handle);
   if (s != Status::Ok) {
     mm::kfree(to);
     return s;
@@ -1900,6 +1927,7 @@ Status create_thread_obj(void** obj, uint64_t* handle) {
 void thread_exited(void* obj, int64_t code) {
   auto* to = static_cast<ThreadObj*>(obj);
   sync::SpinGuard guard(g_lock);
+  to->thread = nullptr;
   to->exited = true;
   to->code = code;
   if (Port* port = to->bound) {
@@ -2218,6 +2246,89 @@ Status set_foreground(Job* j) {
 void with_foreground(void (*fn)(Job* j, void* ctx), void* ctx) {
   sync::SpinGuard guard(g_lock);
   if (g_foreground != nullptr) fn(g_foreground, ctx);
+}
+
+// --- лимиты Job (process.md §7), приоритеты (§8) -----------------------------------------
+
+namespace {
+
+uint64_t clip(uint64_t want, uint64_t parent) {
+  if (want == 0) return parent;
+  return parent != 0 && parent < want ? parent : want;
+}
+
+}  // namespace
+
+void job_set_limits(Job* j, const abi::process::JobLimits& l) {
+  sync::SpinGuard guard(g_lock);
+  abi::process::JobLimits parent{};
+  if (j->parent != nullptr) parent = j->parent->limits;
+  j->limits.memory_pages = clip(l.memory_pages, parent.memory_pages);
+  j->limits.processes = static_cast<uint32_t>(clip(l.processes, parent.processes));
+  j->limits.threads = static_cast<uint32_t>(clip(l.threads, parent.threads));
+  j->limits.handles_per_process = static_cast<uint32_t>(clip(l.handles_per_process, parent.handles_per_process));
+  j->limits.max_priority = static_cast<uint32_t>(clip(l.max_priority, parent.max_priority));
+  j->limits.cpu_ns = clip(l.cpu_ns, parent.cpu_ns);
+}
+
+Status job_charge_memory(Job* j, uint64_t pages) {
+  sync::SpinGuard guard(g_lock);
+  for (Job* a = j; a != nullptr; a = a->parent) {
+    if (a->limits.memory_pages != 0 && a->memory_pages + pages > a->limits.memory_pages) return Status::NoMemory;
+  }
+  for (Job* a = j; a != nullptr; a = a->parent) a->memory_pages += pages;
+  return Status::Ok;
+}
+
+void job_uncharge_memory(Job* j, uint64_t pages) {
+  sync::SpinGuard guard(g_lock);
+  uncharge_locked(j, pages);
+}
+
+Job* job_charge_cpu(Job* j, uint64_t ns) {
+  // Без блокировки (из планировщика): предки неизменны, счётчики атомарны.
+  Job* over = nullptr;
+  for (Job* a = j; a != nullptr; a = a->parent) {
+    uint64_t used = __atomic_add_fetch(&a->cpu_ns, ns, __ATOMIC_RELAXED);
+    uint64_t limit = __atomic_load_n(&a->limits.cpu_ns, __ATOMIC_RELAXED);
+    if (limit != 0 && used > limit) over = a;  // самый верхний превышенный
+  }
+  return over;
+}
+
+uint32_t job_max_priority(const Job* j) {
+  uint32_t max = abi::process::kPriorityMax;
+  for (; j != nullptr; j = j->parent) {
+    uint32_t l = __atomic_load_n(&j->limits.max_priority, __ATOMIC_RELAXED);
+    if (l != 0 && l < max) max = l;
+  }
+  return max;
+}
+
+uint32_t job_handle_limit(const Job* j) {
+  uint32_t lim = 0;
+  for (; j != nullptr; j = j->parent) {
+    uint32_t l = j->limits.handles_per_process;
+    if (l != 0 && (lim == 0 || l < lim)) lim = l;
+  }
+  return lim;
+}
+
+void thread_obj_attach(void* obj, sched::Thread* t) {
+  sync::SpinGuard guard(g_lock);
+  auto* to = static_cast<ThreadObj*>(obj);
+  if (!to->exited) to->thread = t;
+}
+
+Status thread_set_priority(uint32_t h, uint32_t priority) {
+  sync::SpinGuard guard(g_lock);
+  Cap* c = lookup(me(), h);
+  if (c == nullptr) return Status::BadHandle;
+  if (c->obj->type != Type::Thread) return Status::WrongType;
+  if ((c->rights & rights::kWrite) == 0) return Status::AccessDenied;
+  auto* to = reinterpret_cast<ThreadObj*>(c->obj);
+  if (to->thread != nullptr) sched::set_priority(to->thread, priority);
+  return Status::Ok;
 }
 
 }  // namespace kernel::ipc

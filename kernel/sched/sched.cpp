@@ -20,8 +20,9 @@ namespace {
 
 struct RunQueue {
   sync::Spinlock lock{sync::LockRank::SchedQueue, "sched.rq"};
-  Thread* head = nullptr;
-  Thread* tail = nullptr;
+  Thread* head[kPriorityLevels] = {};
+  Thread* tail[kPriorityLevels] = {};
+  uint32_t levels = 0;  // бит n — очередь приоритета n не пуста
   uint32_t ready = 0;
   Thread* sleepers = nullptr;  // по возрастанию wake_ns
   Thread* current = nullptr;
@@ -44,25 +45,73 @@ constinit uint64_t g_created = 0;
 
 RunQueue& local_rq() { return g_rq[smp::this_cpu().index]; }
 
+constinit void (*g_charge)(Thread*, uint64_t) = nullptr;
+
+// Очередь на каждый приоритет; внутри — по кругу (process.md §8).
 void enqueue(RunQueue& q, Thread* t) {
+  uint32_t l = t->priority;
   t->next = nullptr;
-  if (q.tail != nullptr) {
-    q.tail->next = t;
+  if (q.tail[l] != nullptr) {
+    q.tail[l]->next = t;
   } else {
-    q.head = t;
+    q.head[l] = t;
   }
-  q.tail = t;
+  q.tail[l] = t;
+  q.levels |= 1u << l;
   ++q.ready;
 }
 
 Thread* dequeue(RunQueue& q) {
-  Thread* t = q.head;
-  if (t == nullptr) return nullptr;
-  q.head = t->next;
-  if (q.head == nullptr) q.tail = nullptr;
+  if (q.levels == 0) return nullptr;
+  uint32_t l = 31 - static_cast<uint32_t>(__builtin_clz(q.levels));
+  Thread* t = q.head[l];
+  q.head[l] = t->next;
+  if (q.head[l] == nullptr) {
+    q.tail[l] = nullptr;
+    q.levels &= ~(1u << l);
+  }
   --q.ready;
   t->next = nullptr;
   return t;
+}
+
+bool unqueue(RunQueue& q, Thread* t) {
+  uint32_t l = t->priority;
+  Thread* prev = nullptr;
+  for (Thread* it = q.head[l]; it != nullptr; prev = it, it = it->next) {
+    if (it != t) continue;
+    if (prev != nullptr) {
+      prev->next = t->next;
+    } else {
+      q.head[l] = t->next;
+    }
+    if (q.tail[l] == t) q.tail[l] = prev;
+    if (q.head[l] == nullptr) q.levels &= ~(1u << l);
+    --q.ready;
+    t->next = nullptr;
+    return true;
+  }
+  return false;
+}
+
+uint32_t top_priority(const RunQueue& q) {
+  return q.levels == 0 ? 0 : 31 - static_cast<uint32_t>(__builtin_clz(q.levels));
+}
+
+// Готовый поток должен вытеснить текущий (равный — по кругу на тике).
+bool should_preempt(const RunQueue& q, bool tick) {
+  if (q.ready == 0) return false;
+  if (q.current->is_idle) return true;
+  uint32_t top = top_priority(q);
+  return tick ? top >= q.current->priority : top > q.current->priority;
+}
+
+void charge_current(RunQueue& q, uint64_t now) {
+  Thread* t = q.current;
+  if (t->process != nullptr && g_charge != nullptr && t->run_start_ns != 0 && now > t->run_start_ns) {
+    g_charge(t, now - t->run_start_ns);
+  }
+  t->run_start_ns = now;
 }
 
 void remove_sleeper(RunQueue& q, Thread* t) {
@@ -159,6 +208,8 @@ void schedule() {
   smp::Cpu& c = smp::this_cpu();
   if (c.held_count != 0) panic("sched: switching while holding spinlock {}", c.held[0]->name());
   RunQueue& q = g_rq[c.index];
+  uint64_t now = platform::now_ns();
+  charge_current(q, now);
   Thread* prev;
   Thread* next;
   {
@@ -173,6 +224,7 @@ void schedule() {
     next->state = State::Running;
     if (next == prev) return;
     next->on_cpu = true;
+    next->run_start_ns = now;
     q.current = next;
     q.prev = prev;
     ++q.switches;
@@ -246,11 +298,14 @@ Result<Thread*, SchedError> spawn(const char* name, ThreadFn fn, void* arg, int 
   t->entry = fn;
   t->arg = arg;
   t->cpu = target;
+  t->priority = kPriorityDefault;
   if (user != nullptr) {
     t->user_cr3 = user->cr3;
     t->process = user->process;
     t->fpu = user->fpu;
     t->user_obj = user->user_obj;
+    if (user->priority != 0) t->priority = user->priority;
+    t->sig_mask = user->sig_mask;
   }
 
   // Начальный стек для switch_context: 6 сохраняемых регистров, затем адрес
@@ -355,6 +410,35 @@ void wake(Thread* t) {
   if (woke) kick_cpu(target);
 }
 
+void set_priority(Thread* t, uint32_t priority) {
+  uint32_t target = t->cpu;
+  {
+    sync::SpinGuard guard(g_rq[target].lock);
+    RunQueue& q = g_rq[target];
+    if (t->state == State::Ready && t != q.current && unqueue(q, t)) {
+      t->priority = priority;
+      enqueue(q, t);
+    } else {
+      t->priority = priority;
+    }
+  }
+  kick_cpu(target);
+}
+
+void preempt_check() {
+  bool irq = save_and_cli();
+  RunQueue& q = local_rq();
+  bool resched;
+  {
+    sync::SpinGuard guard(q.lock);
+    resched = should_preempt(q, false);
+  }
+  if (resched) schedule();
+  restore_if(irq);
+}
+
+void set_cpu_charge_hook(void (*hook)(Thread* t, uint64_t ns)) { g_charge = hook; }
+
 void interrupt(Thread* t) {
   __atomic_store_n(&t->interrupt_pending, true, __ATOMIC_SEQ_CST);
   if (__atomic_load_n(&t->interruptible, __ATOMIC_SEQ_CST)) wake(t);
@@ -377,6 +461,7 @@ void on_timer_tick() {
   RunQueue& q = local_rq();
   if (!__atomic_load_n(&q.initialized, __ATOMIC_ACQUIRE)) return;
   uint64_t now = platform::now_ns();
+  charge_current(q, now);
   bool resched;
   {
     sync::SpinGuard guard(q.lock);
@@ -387,7 +472,7 @@ void on_timer_tick() {
       t->state = State::Ready;
       enqueue(q, t);
     }
-    resched = q.ready > 0;
+    resched = should_preempt(q, true);
   }
   if (resched) schedule();
 }

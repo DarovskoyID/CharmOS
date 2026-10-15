@@ -5,6 +5,7 @@
 #include <arch/x86_64/serial.hpp>
 
 #include "../proc/process.hpp"
+#include "../proc/signal.hpp"
 #include "ktest.hpp"
 
 namespace kernel {
@@ -53,7 +54,10 @@ void dump_frame(const InterruptFrame& f) {
 }
 
 void unhandled_interrupt(InterruptFrame& frame) {
-  if ((frame.cs & 3) != 0) proc::kill_current(frame);  // ошибка процесса, не ядра
+  if ((frame.cs & 3) != 0) {  // ошибка процесса, не ядра
+    if (proc::deliver_fault(frame)) return;  // обработчик Fault (process.md §9)
+    proc::kill_current(frame);
+  }
   dump_frame(frame);
   if (ktest::exception_expected(frame)) {
     ktest::pass();

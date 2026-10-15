@@ -24,7 +24,23 @@ for exp in "$dir"/*.expected; do
 
   # Ввод на COM1: <сценарий>.input подаётся на stdin QEMU через 12 с (после
   # прошивки: OVMF сам читает serial), затем stdin держится открытым.
-  if [[ -f "$dir/$name.input" ]]; then
+  # <сценарий>.keys — ввод по шагам: строка — набрать и Enter, «^C» — Ctrl-C,
+  # «#sleep N» — пауза, «#wait ТЕКСТ» — ждать ТЕКСТ в serial-выводе.
+  if [[ -f "$dir/$name.keys" ]]; then
+    : >"$log"
+    { while IFS= read -r line || [[ -n "$line" ]]; do
+        line=${line%$'\r'}
+        case "$line" in
+          "#sleep "*) sleep "${line#\#sleep }" ;;
+          "#wait "*) want=${line#\#wait }
+                     for _ in $(seq 1 "$timeout_s"); do grep -qF -- "$want" "$log" && break; sleep 1; done ;;
+          "^C") printf '\003' ;;
+          *) printf '%s\n' "$line"; sleep 0.3 ;;
+        esac
+      done <"$dir/$name.keys"; sleep "$timeout_s"; } |
+      timeout "$timeout_s" "$root/tools/run.sh" --test "${cfg[@]}" >"$log" 2>&1
+    code=${PIPESTATUS[1]}
+  elif [[ -f "$dir/$name.input" ]]; then
     { sleep 12; cat "$dir/$name.input"; sleep "$timeout_s"; } |
       timeout "$timeout_s" "$root/tools/run.sh" --test "${cfg[@]}" >"$log" 2>&1
     code=${PIPESTATUS[1]}

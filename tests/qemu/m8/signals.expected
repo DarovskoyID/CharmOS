@@ -1,0 +1,11 @@
+# M8: сигналы (Alarm, прерывание ожидания, маска, Fault, signal_send, Child),
+# лимиты Job (processes, cpu_ns) и приоритеты потоков.
+[signals] signals: alarm handled
+[signals] signals: futex_wait interrupted
+[signals] signals: masked alarm delivered on unmask
+[signals] signals: fault handled
+[signals] signals: terminate and child ok
+[signals] signals: job limits ok
+[signals] signals: ok
+ktest: bin/signals exited with 0
+ktest: PASS signals

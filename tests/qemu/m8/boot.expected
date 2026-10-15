@@ -1,0 +1,24 @@
+# M8: загрузка до шелла по serial (init → logd, httpd, sh); шелл: встроенные
+# и внешние команды; убитая служба перезапускается; Ctrl-C завершает команду
+# на переднем плане, но не шелл; exit шелла — завершение системы.
+init: started bin/init
+init: started logd
+init: started httpd
+CharmOS shell. Type 'help'.
+hello from the shell
+hello.txt
+init.conf
+hello from mkdisk
+httpd    running
+ok
+init: httpd exited with -1000
+init: restarting httpd
+init: started httpd
+httpd    running
+sh: sleep: killed
+/srv/www
+Hello from CharmOS httpd
+sh: bye
+init: sh exited with 0
+init: halt
+init: exited with 0, halting

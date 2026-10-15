@@ -154,8 +154,12 @@ void emit(Tcb& t, uint32_t seq, uint8_t flags, uint32_t off, uint32_t len) {
   (void)send_ip(t.rip, kProtoTcp, seg, hlen + len, 0);
 }
 
+// Под g_lock. Tcb с буферами больше стека ядра (32 КиБ) — заготовка статическая.
+constinit Tcb g_rst_tcb = {};
+
 void send_rst(uint32_t dst, uint16_t sport, uint16_t dport, uint32_t seq, uint32_t ack, bool with_ack) {
-  Tcb t = {};
+  Tcb& t = g_rst_tcb;
+  __builtin_memset(static_cast<void*>(&t), 0, sizeof t);  // без временного Tcb на стеке
   t.lport = sport, t.rport = dport, t.rip = dst, t.rcv_nxt = ack;
   emit(t, seq, static_cast<uint8_t>(kRst | (with_ack ? kAck : 0)), 0, 0);
 }

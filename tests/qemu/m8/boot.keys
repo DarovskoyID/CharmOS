@@ -1,0 +1,17 @@
+#wait charm:/$
+echo hello from the shell
+ls /etc
+cat /etc/hello.txt
+svc list
+svc kill httpd
+#wait init: restarting httpd
+#sleep 1
+svc list
+sleep 30
+#sleep 2
+^C
+#wait sh: sleep: killed
+cd /srv/www
+pwd
+cat index.html
+exit

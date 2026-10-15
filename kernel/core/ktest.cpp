@@ -767,7 +767,7 @@ void run_with_root(const char* file) {
   auto p = proc::spawn_process(f.name.substr(4), f.data, f.size, sched::kAnyCpu, theirs);
   if (p.is_err()) fail("spawn_process failed");
   int64_t code = proc::wait_process(p.value());
-  ipc::release_detached(mine);
+  ipc::close_detached(mine);
   kprint("ktest: {} exited with {}\n", file, code);
   if (code != 0) fail("program failed");
 }
@@ -902,7 +902,7 @@ void test_sock() {
   auto p = proc::spawn_process(f.name.substr(4), f.data, f.size, sched::kAnyCpu, theirs);
   if (p.is_err()) fail("spawn");
   int64_t code = proc::wait_process(p.value());
-  ipc::release_detached(mine);
+  ipc::close_detached(mine);
   net::tcp_set_drop(0);
   kprint("ktest: tcp_echo exited with {}\n", code);
   if (code != 0) fail("tcp_echo failed");
@@ -929,7 +929,7 @@ void test_udp() {
   auto p = proc::spawn_process(f.name.substr(4), f.data, f.size, sched::kAnyCpu, theirs);
   if (p.is_err()) fail("spawn");
   int64_t code = proc::wait_process(p.value());
-  ipc::release_detached(mine);
+  ipc::close_detached(mine);
   kprint("ktest: udp_test exited with {}\n", code);
   if (code != 0) fail("udp_test failed");
   pass();
@@ -997,40 +997,61 @@ void test_threads() {
 
 // Запуск процессов (M8, process.md §2–§5): ядро даёт spawn_parent
 // стартовое сообщение "strt" с ролями Root и Job; тот запускает ребёнка с диска.
-void test_spawn() {
+// args/env — строки с \0 подряд (process.md §2).
+void run_with_start(const char* file, const char* args, uint32_t args_bytes, uint32_t argc, const char* env = "",
+                    uint32_t env_bytes = 0, uint32_t envc = 0) {
   namespace ap = abi::process;
   if (!fs::mounted()) fail("root not mounted");
   lib::initrd::Archive archive;
   if (archive.open(mm::phys_to_virt<const void>(g_initrd_phys), g_initrd_size).is_err()) fail("bad initrd");
   lib::initrd::File f;
-  if (!archive.find(StringView("bin/spawn_parent"), &f)) fail("program missing from initrd");
+  if (!archive.find(StringView(file), &f)) fail("program missing from initrd");
   ipc::Cap *mine, *theirs, *caps[2];
   if (ipc::create_channel(&mine, &theirs) != ipc::Status::Ok) fail("create_channel");
   if (fs::root_cap(&caps[0]) != ipc::Status::Ok) fail("root_cap");
   if (ipc::create_job_cap(ipc::root_job(), &caps[1]) != ipc::Status::Ok) fail("job cap");
   struct {
     ap::StartHeader h;
-    char args[13];
+    char data[512];
   } msg{};
+  if (args_bytes + env_bytes > sizeof msg.data) fail("start message too big");
   __builtin_memcpy(msg.h.magic, ap::kStartMagic, 4);
-  msg.h.argc = 1;
-  msg.h.args_bytes = sizeof msg.args;
+  msg.h.argc = argc;
+  msg.h.args_bytes = args_bytes;
+  msg.h.envc = envc;
+  msg.h.env_bytes = env_bytes;
   msg.h.handle_count = 2;
   msg.h.roles[0] = ap::kRoleRoot;
   msg.h.roles[1] = ap::kRoleJob;
-  __builtin_memcpy(msg.args, "spawn_parent", 13);
-  if (ipc::kernel_send(mine, &msg, sizeof msg.h + sizeof msg.args, caps, 2) != ipc::Status::Ok) fail("kernel_send");
-  auto accounted = [] {
-    return mm::free_frame_count() + mm::kernel_stack_pages() + mm::heap_mapped_bytes() / 4096;
-  };
-  uint64_t before = accounted();
+  __builtin_memcpy(msg.data, args, args_bytes);
+  __builtin_memcpy(msg.data + args_bytes, env, env_bytes);
+  if (ipc::kernel_send(mine, &msg, sizeof msg.h + args_bytes + env_bytes, caps, 2) != ipc::Status::Ok) fail("kernel_send");
   auto p = proc::spawn_process(f.name.substr(4), f.data, f.size, sched::kAnyCpu, theirs);
   if (p.is_err()) fail("spawn_process failed");
   int64_t code = proc::wait_process(p.value());
-  ipc::release_detached(mine);
-  kprint("ktest: bin/spawn_parent exited with {}\n", code);
+  ipc::close_detached(mine);
+  kprint("ktest: {} exited with {}\n", file, code);
   if (code != 0) fail("program failed");
-  (void)before;
+}
+
+void run_with_start(const char* file, const char* argv0) {
+  run_with_start(file, argv0, static_cast<uint32_t>(StringView(argv0).size()) + 1, 1);
+}
+
+void test_libc() {
+  static const char kArgs[] = "libc_test\0arg1";
+  static const char kEnv[] = "HOME=/home\0LANG=C";
+  run_with_start("bin/libc_test", kArgs, sizeof kArgs, 2, kEnv, sizeof kEnv, 2);
+  pass();
+}
+
+void test_spawn() {
+  run_with_start("bin/spawn_parent", "spawn_parent");
+  pass();
+}
+
+void test_signals() {
+  run_with_start("bin/signals", "signals");
   pass();
 }
 
@@ -1067,6 +1088,8 @@ constexpr Test kTests[] = {
     {"console", &test_console},
     {"threads", &test_threads},
     {"spawn", &test_spawn},
+    {"signals", &test_signals},
+    {"libc", &test_libc},
     {"fs", &test_fs},
     {"fs_check", &test_fs_check},
     {"fs_crash", &test_fs_crash},
@@ -1085,7 +1108,8 @@ bool needs_drivers() {
          g_selected == StringView("fs") || g_selected == StringView("fs_check") ||
          g_selected == StringView("fs_crash") || g_selected == StringView("net") ||
          g_selected == StringView("tcp") || g_selected == StringView("sock") ||
-         g_selected == StringView("udp") || g_selected == StringView("spawn");
+         g_selected == StringView("udp") || g_selected == StringView("spawn") ||
+         g_selected == StringView("signals") || g_selected == StringView("libc");
 }
 StringView selected() { return g_selected; }
 

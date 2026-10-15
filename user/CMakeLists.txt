@@ -11,8 +11,32 @@ function(charmos_user_program name)
     LINK_DEPENDS ${CMAKE_SOURCE_DIR}/user/rt/user.ld)
 endfunction()
 
-foreach(prog hello sys fault kread fpu iso spin cap_a cap_b cap_c chan ping pong port fs_test fs_check tcp_echo udp_test threads thread_kill thread_last spawn_parent spawn_child)
+foreach(prog hello sys fault kread fpu iso spin cap_a cap_b cap_c chan ping pong port fs_test fs_check tcp_echo udp_test threads thread_kill thread_last spawn_parent spawn_child signals)
   charmos_user_program(${prog} tests/${prog}.cpp)
+endforeach()
+
+# Своя libc (M8): C ABI, POSIX-подмножество. Программы на ней — со своей
+# точкой входа (_start из libc), без crt0 из rt.
+add_library(c STATIC
+  libc/src/start.cpp libc/src/string.cpp libc/src/stdlib.cpp libc/src/stdio.cpp
+  libc/src/fd.cpp libc/src/pthread.cpp libc/src/socket.cpp libc/src/spawn.cpp)
+target_include_directories(c PUBLIC libc/include rt/include)
+target_link_libraries(c PUBLIC abi)
+target_compile_options(c PRIVATE -fno-builtin)
+
+function(charmos_c_program name)
+  add_executable(${name} ${ARGN})
+  target_link_libraries(${name} PRIVATE c)
+  target_link_options(${name} PRIVATE
+    -T ${CMAKE_SOURCE_DIR}/user/rt/user.ld -Wl,-z,max-page-size=4096)
+  set_target_properties(${name} PROPERTIES SUFFIX .elf
+    LINK_DEPENDS ${CMAKE_SOURCE_DIR}/user/rt/user.ld)
+endfunction()
+
+charmos_c_program(libc_test tests/libc_test.cpp)
+charmos_c_program(init init/init.cpp)
+foreach(prog logd sh echo cat ls mkdir rm sleep httpd)
+  charmos_c_program(${prog} bin/${prog}/${prog}.cpp)
 endforeach()
 
 # Драйверы: drivers/<имя>.elf и drivers/<имя>.toml (docs/abi/driver.md §7).

@@ -10,6 +10,7 @@
 #include "../core/placement_new.hpp"
 #include "../mm/heap.hpp"
 #include "../mm/layout.hpp"
+#include "signal.hpp"
 #include "uaccess.hpp"
 
 extern "C" [[noreturn]] void enter_user(uint64_t rip, uint64_t rsp, uint64_t arg);
@@ -104,6 +105,24 @@ struct ThreadStart {
   uint64_t entry, stack_top, arg;
 };
 
+// Наибольший приоритет, разрешённый Job (process.md §7, §8).
+uint32_t clip_priority(ipc::Job* job, uint32_t priority) {
+  uint32_t max = ipc::job_max_priority(job);
+  return priority > max ? max : priority;
+}
+
+uint64_t image_pages(const lib::elf::Image& img) {
+  uint64_t pages = kUserStackSize / kPageSize;
+  for (uint16_t i = 0; i < img.phnum; ++i) {
+    const lib::elf::Elf64Phdr& ph = img.phdrs[i];
+    if (ph.p_type != lib::elf::kPtLoad || ph.p_memsz == 0) continue;
+    uint64_t v0 = ph.p_vaddr & ~(kPageSize - 1);
+    uint64_t v1 = (ph.p_vaddr + ph.p_memsz + kPageSize - 1) & ~(kPageSize - 1);
+    pages += (v1 - v0) / kPageSize;
+  }
+  return pages;
+}
+
 void thread_main(void* arg) {
   ThreadStart s = *static_cast<ThreadStart*>(arg);
   mm::kfree(arg);
@@ -155,8 +174,13 @@ void begin_exit_locked(Process* p, int64_t code, bool killed) {
   if (last) {
     ipc::teardown_process(p);  // до destroy: страницы VMO не принадлежат процессу
     p->space.destroy();
+    ipc::job_uncharge_memory(p->job, p->charged_pages);
     ipc::process_exited(p);  // dead, пакеты подписчикам
     list_remove(p);
+    if (Process* parent = p->parent) {
+      post_signal(parent, abi::process::kSigChild);
+      put_process(parent);
+    }
     ipc::Job* job = p->job;
     p->exited.up();
     put_process(p);  // ссылка «жизни»; дальше p не трогаем
@@ -168,7 +192,8 @@ void begin_exit_locked(Process* p, int64_t code, bool killed) {
 }  // namespace
 
 Result<Process*, ProcError> spawn_process(StringView name, const void* elf, size_t size, int cpu,
-                                          ipc::Cap* bootstrap, ipc::Job* job) {
+                                          ipc::Cap* bootstrap, ipc::Job* job, Process* parent,
+                                          uint32_t priority) {
   using R = Result<Process*, ProcError>;
   lib::elf::Image img;
   auto err = lib::elf::parse_image(elf, size, kUserImageMin, kUserStackTop - kUserStackSize, &img);
@@ -195,11 +220,18 @@ Result<Process*, ProcError> spawn_process(StringView name, const void* elf, size
     mm::kfree(p);
     return R::err(ProcError::NoSpace);
   }
+  p->charged_pages = image_pages(img);
+  if (ipc::job_charge_memory(p->job, p->charged_pages) != ipc::Status::Ok) {
+    ipc::job_leave(p->job);
+    mm::kfree(p);
+    return R::err(ProcError::OutOfMemory);
+  }
 
   uint8_t* fpu = new_fpu_image();
   if (fpu == nullptr || ipc::init_process(p) != ipc::Status::Ok || p->space.create().is_err()) {
     if (fpu != nullptr) mm::kfree(fpu);
     if (p->ipc.slots != nullptr) mm::kfree(p->ipc.slots);
+    ipc::job_uncharge_memory(p->job, p->charged_pages);
     ipc::job_leave(p->job);
     mm::kfree(p);
     return R::err(ProcError::OutOfMemory);
@@ -210,7 +242,12 @@ Result<Process*, ProcError> spawn_process(StringView name, const void* elf, size
     ok = p->space.map_new(v, kMapWrite | kMapNoExec, nullptr).is_ok();
   }
   if (ok && bootstrap != nullptr) ok = ipc::install(p, bootstrap, &p->bootstrap_handle) == ipc::Status::Ok;
-  sched::UserContext user{p->space.root(), p, fpu, nullptr};
+  uint32_t prio = clip_priority(p->job, priority != 0 ? priority : sched::kPriorityDefault);
+  sched::UserContext user{p->space.root(), p, fpu, nullptr, prio, 0};
+  if (ok && parent != nullptr) {
+    get_process_ref(parent);
+    p->parent = parent;
+  }
   if (ok) list_add(p);
   auto thread = ok ? sched::spawn(p->name, &process_main, p, cpu, &user)
                    : lib::core::Result<sched::Thread*, sched::SchedError>::err(
@@ -220,8 +257,10 @@ Result<Process*, ProcError> spawn_process(StringView name, const void* elf, size
     // она возвращается вызывающему отсоединённой.
     if (p->bootstrap_handle != 0) (void)p->ipc.table.remove(p->bootstrap_handle);
     if (ok) list_remove(p);
+    if (p->parent != nullptr) put_process(p->parent);
     ipc::teardown_process(p);
     p->space.destroy();
+    ipc::job_uncharge_memory(p->job, p->charged_pages);
     ipc::job_leave(p->job);
     mm::kfree(fpu);
     mm::kfree(p);
@@ -329,9 +368,11 @@ Status sys_thread_create(uint64_t entry, uint64_t stack_top, uint64_t arg, uint6
     dying = p->exiting;
     if (!dying) ++p->live_threads;
   }
-  sched::UserContext user{p->space.root(), p, fpu, obj};
+  sched::Thread* self = sched::current();
+  sched::UserContext user{p->space.root(), p, fpu, obj, self->priority, self->sig_mask};
   auto t = dying ? lib::core::Result<sched::Thread*, sched::SchedError>::err(sched::SchedError::OutOfMemory)
                  : sched::spawn(p->name, &thread_main, start, sched::kAnyCpu, &user);
+  if (t.is_ok()) ipc::thread_obj_attach(obj, t.value());
   if (t.is_err()) {
     if (!dying) {
       sync::SpinGuard guard(p->threads_lock);
@@ -445,8 +486,9 @@ Status sys_process_spawn(uint64_t uargs, uint64_t* out) {
   if (s == Status::Ok) s = ipc::create_channel(&mine, &theirs);
   Process* child = nullptr;
   if (s == Status::Ok) {
+    uint32_t prio = a.priority != 0 ? a.priority : sched::current()->priority;
     auto r = spawn_process(StringView(name, a.name_len != 0 ? a.name_len : 4), elf, static_cast<size_t>(elf_size),
-                           sched::kAnyCpu, theirs, job);
+                           sched::kAnyCpu, theirs, job, current_process(), prio);
     if (r.is_err()) {
       s = map_proc_error(r.error());
       ipc::release_detached(theirs);
@@ -461,7 +503,7 @@ Status sys_process_spawn(uint64_t uargs, uint64_t* out) {
     s = ipc::send_from_table(mine, msg, len, handles, a.handle_count);
     if (s != Status::Ok) request_kill(child);
   }
-  if (mine != nullptr) ipc::release_detached(mine);
+  if (mine != nullptr) ipc::close_detached(mine);
   mm::kfree(msg);
   if (s == Status::Ok) {
     uint64_t h;
@@ -538,15 +580,62 @@ Status sys_console_set_foreground(uint32_t con, uint32_t job) {
 }
 
 void signal_foreground(uint32_t signo) {
-  // Сигналы с обработчиками — §9; без обработчика Interrupt и Quit
-  // завершают процесс (код -1000, как убийство ядром).
-  (void)signo;
+  // Interrupt (Ctrl-C) или Quit (Ctrl-\) всем процессам переднего Job (§5.1).
   ipc::with_foreground(
-      [](ipc::Job* j, void*) {
+      [](ipc::Job* j, void* ctx) {
+        uint32_t s = *static_cast<uint32_t*>(ctx);
         sync::SpinGuard guard(g_procs_lock);
-        terminate_job_locked(j, kExitKilled);
+        for (Process* p = g_procs; p != nullptr; p = p->next_proc) {
+          if (ipc::job_contains(j, p->job)) post_signal(p, s);
+        }
       },
-      nullptr);
+      &signo);
+}
+
+void alarm_tick(uint64_t now) {
+  sync::SpinGuard guard(g_procs_lock);
+  for (Process* p = g_procs; p != nullptr; p = p->next_proc) {
+    uint64_t at = __atomic_load_n(&p->alarm_ns, __ATOMIC_ACQUIRE);
+    if (at == 0 || now < at) continue;
+    if (__atomic_compare_exchange_n(&p->alarm_ns, &at, 0, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+      post_signal(p, abi::process::kSigAlarm);
+    }
+  }
+}
+
+Status sys_job_set_limits(uint32_t h, uint64_t user_limits) {
+  ap::JobLimits l;
+  if (!copy_from_user(&l, user_limits, sizeof l)) return Status::BadAddress;
+  if (l.reserved[0] != 0 || l.reserved[1] != 0 || l.max_priority > ap::kPriorityMax ||
+      l.handles_per_process > abi::syscall::kMaxHandles) {
+    return Status::InvalidArgs;
+  }
+  ipc::Job* j;
+  Status s = ipc::get_job(h, abi::syscall::rights::kWrite, &j);
+  if (s != Status::Ok) return s;
+  ipc::job_set_limits(j, l);
+  // cpu_ns мог уже быть превышен.
+  if (ipc::Job* over = ipc::job_charge_cpu(j, 0)) {
+    sync::SpinGuard guard(g_procs_lock);
+    terminate_job_locked(over, kExitKilled);
+  }
+  ipc::job_put(j);
+  return Status::Ok;
+}
+
+Status sys_thread_set_priority(uint32_t h, uint64_t priority) {
+  if (priority < ap::kPriorityMin || priority > ap::kPriorityMax) return Status::InvalidArgs;
+  return ipc::thread_set_priority(h, clip_priority(current_process()->job, static_cast<uint32_t>(priority)));
+}
+
+void init_accounting() {
+  sched::set_cpu_charge_hook([](sched::Thread* t, uint64_t ns) {
+    auto* p = static_cast<Process*>(t->process);
+    if (ipc::Job* over = ipc::job_charge_cpu(p->job, ns)) {
+      sync::SpinGuard guard(g_procs_lock);
+      terminate_job_locked(over, kExitKilled);  // лимит cpu_ns: job_kill (§7)
+    }
+  });
 }
 
 }  // namespace kernel::proc

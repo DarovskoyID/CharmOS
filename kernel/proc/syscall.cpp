@@ -12,6 +12,7 @@
 #include "../platform/platform.hpp"
 #include "../sched/sched.hpp"
 #include "process.hpp"
+#include "signal.hpp"
 #include "uaccess.hpp"
 
 extern "C" void syscall_entry();
@@ -279,6 +280,30 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
     case Number::ConsoleSetForeground:
       set_result(f, sys_console_set_foreground(static_cast<uint32_t>(f.rdi), static_cast<uint32_t>(f.rsi)));
       break;
+    case Number::JobSetLimits:
+      set_result(f, sys_job_set_limits(static_cast<uint32_t>(f.rdi), f.rsi));
+      break;
+    case Number::ThreadSetPriority:
+      set_result(f, sys_thread_set_priority(static_cast<uint32_t>(f.rdi), f.rsi));
+      break;
+    case Number::SignalSend:
+      set_result(f, sys_signal_send(static_cast<uint32_t>(f.rdi), f.rsi));
+      break;
+    case Number::SignalSetHandler:
+      set_result(f, sys_signal_set_handler(f.rdi, f.rsi, f.rdx));
+      break;
+    case Number::SignalMask: {
+      uint64_t v = 0;
+      set_result(f, sys_signal_mask(f.rdi, f.rsi, &v), v);
+      break;
+    }
+    case Number::SignalReturn:
+      sys_signal_return();  // в обработчике — не возвращается
+      set_result(f, Status::InvalidArgs);
+      break;
+    case Number::SignalAlarm:
+      set_result(f, sys_signal_alarm(f.rdi));
+      break;
     case Number::ThreadCreate: {
       uint64_t v = 0;
       set_result(f, sys_thread_create(f.rdi, f.rsi, f.rdx, &v), v);
@@ -322,7 +347,9 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
   // пользователя (SDM Vol. 2B, SYSRET). Адрес возврата из нижней половины
   // каноничен; иное возможно, только если SYSCALL стоял в самом конце нижней
   // половины, — такой процесс завершаем.
+  kernel::sched::preempt_check();  // разбуженный поток важнее (process.md §8)
   check_kill();
+  deliver_signals(f);
   if (f.rip >= abi::syscall::kUserTop) {
     kernel::kprint("proc: {} returned to non-canonical rip {X}, killed\n",
                    current_process()->name, f.rip);

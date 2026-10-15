@@ -9,9 +9,14 @@
 // фреймы VMO освобождаются только после сброса — никто не обращается к
 // освобождённой памяти через устаревшую запись TLB.
 
+#include <abi/process.hpp>
 #include <abi/syscall.hpp>
 #include <lib/cap/handle_table.hpp>
 #include <stdint.h>
+
+namespace kernel::sched {
+struct Thread;
+}
 
 namespace kernel::proc {
 struct Process;
@@ -55,6 +60,9 @@ Status kernel_send(Cap* endpoint, const void* bytes, uint64_t len, Cap* const* c
                    uint32_t count);
 // Закрывает отсоединённую капабилити, если ядро её не отдало.
 void release_detached(Cap* cap);
+// То же под блокировкой IPC: для конца канала, чей другой конец уже у
+// процесса (тот может закрыть его одновременно).
+void close_detached(Cap* cap);
 // Капабилити Device на функцию PCI с индексом pci_index (для запуска драйвера).
 Status create_device(uint32_t pci_index, Cap** out);
 
@@ -130,7 +138,19 @@ Status sys_job_info(uint32_t h, uint64_t user_out);
 Status set_foreground(Job* j);
 void with_foreground(void (*fn)(Job* j, void* ctx), void* ctx);
 
+// Лимиты Job (§7): действуют все предки; значения урезаются родителем.
+void job_set_limits(Job* j, const abi::process::JobLimits& limits);
+Status job_charge_memory(Job* j, uint64_t pages);  // NoMemory — лимит
+void job_uncharge_memory(Job* j, uint64_t pages);
+// Время CPU: добавляет ns всему пути; возвращает превысивший лимит Job или nullptr.
+Job* job_charge_cpu(Job* j, uint64_t ns);
+uint32_t job_max_priority(const Job* j);
+uint32_t job_handle_limit(const Job* j);  // 0 — без лимита
+
 // --- потоки (docs/abi/process.md §4) ----------------------------------------------------
+// Поток объекта Thread (для thread_set_priority); после выхода — отвязан.
+void thread_obj_attach(void* obj, sched::Thread* t);
+Status thread_set_priority(uint32_t h, uint32_t priority);
 // Объект Thread с капабилити в таблице текущего процесса (+ ссылка потока).
 Status create_thread_obj(void** obj, uint64_t* handle);
 // Поток завершился: пакет подписчику, ссылка потока снимается.

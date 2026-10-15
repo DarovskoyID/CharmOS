@@ -59,6 +59,24 @@ inline constexpr uint32_t kMsrEfer = 0xc0000080;
 // IA32_FS_BASE (SDM Vol. 4, табл. 2-2): база сегмента FS — указатель TLS потока.
 inline constexpr uint32_t kMsrFsBase = 0xc0000100;
 inline void set_fs_base(uint64_t base) { wrmsr(kMsrFsBase, base); }
+
+// Образ FXSAVE — 512 байт, выровнен на 16 (SDM Vol. 2A, FXSAVE, табл. 3-43).
+inline void fxsave(void* image) { asm volatile("fxsave64 (%0)" : : "r"(image) : "memory"); }
+inline void fxrstor(const void* image) { asm volatile("fxrstor64 (%0)" : : "r"(image) : "memory"); }
+// Образ, пришедший от пользователя: в MXCSR (смещение 24) — только биты
+// MXCSR_MASK (смещение 28 образа FXSAVE; 0 означает 0xFFBF, SDM Vol. 1
+// §11.6.6), иначе FXRSTOR даст #GP.
+inline void sanitize_fxsave(uint8_t* image) {
+  alignas(16) uint8_t own[512];
+  fxsave(own);
+  uint32_t mask, mxcsr;
+  __builtin_memcpy(&mask, own + 28, 4);
+  if (mask == 0) mask = 0xffbf;
+  __builtin_memcpy(&mxcsr, image + 24, 4);
+  mxcsr &= mask;
+  __builtin_memcpy(image + 24, &mxcsr, 4);
+  __builtin_memcpy(image + 28, &mask, 4);
+}
 inline constexpr uint64_t kEferNxe = 1ull << 11;
 
 }  // namespace arch::x86_64

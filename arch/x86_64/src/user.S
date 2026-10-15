@@ -86,6 +86,38 @@ enter_user:
     swapgs
     iretq
 
+// [[noreturn]] void resume_user(const abi::signal::SignalFrame* f)
+// Полный возврат в ring 3 (signal_return): все GPR, RIP, RFLAGS и RSP из
+// кадра (include/abi/signal.hpp: rax 0, rbx 8, rcx 16, rdx 24, rsi 32,
+// rdi 40, rbp 48, rsp 56, r8..r15 64..120, rip 128, rflags 136). Значения
+// уже проверены вызывающим.
+    .globl resume_user
+    .type resume_user, @function
+resume_user:
+    cli
+    pushq   $0x1b               // SS
+    pushq   56(%rdi)            // RSP
+    pushq   136(%rdi)           // RFLAGS
+    pushq   $0x23               // CS
+    pushq   128(%rdi)           // RIP
+    mov     0(%rdi), %rax
+    mov     8(%rdi), %rbx
+    mov     16(%rdi), %rcx
+    mov     24(%rdi), %rdx
+    mov     32(%rdi), %rsi
+    mov     48(%rdi), %rbp
+    mov     64(%rdi), %r8
+    mov     72(%rdi), %r9
+    mov     80(%rdi), %r10
+    mov     88(%rdi), %r11
+    mov     96(%rdi), %r12
+    mov     104(%rdi), %r13
+    mov     112(%rdi), %r14
+    mov     120(%rdi), %r15
+    mov     40(%rdi), %rdi
+    swapgs
+    iretq
+
 // uint64_t uaccess_copy(void* dst, const void* src, uint64_t n)
 // 0 — скопировано, 1 — ошибка страницы. Обработчик #PF ядра, увидев RIP ==
 // uaccess_fault_ip, переносит выполнение на uaccess_fixup. Диапазон адресов

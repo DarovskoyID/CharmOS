@@ -10,6 +10,8 @@
 #include "../mm/stack.hpp"
 #include "../mm/vmm.hpp"
 #include "../platform/platform.hpp"
+#include "../proc/process.hpp"
+#include "../proc/signal.hpp"
 #include "../proc/syscall.hpp"
 #include "../sched/sched.hpp"
 
@@ -60,7 +62,14 @@ void alloc_ist_stacks(Cpu& c) {
   }
 }
 
-void wakeup_ipi_handler(arch::x86_64::InterruptFrame&) { platform::local_apic().eoi(); }
+void wakeup_ipi_handler(arch::x86_64::InterruptFrame& frame) {
+  platform::local_apic().eoi();
+  sched::preempt_check();  // разбудили поток важнее текущего (process.md §8)
+  if ((frame.cs & 3) == 3) {
+    proc::check_kill();
+    proc::deliver_signals(frame);  // сигнал потоку, исполнявшемуся в ring 3
+  }
+}
 
 void tlb_ipi_handler(arch::x86_64::InterruptFrame&) {
   arch::x86_64::write_cr3(arch::x86_64::read_cr3());

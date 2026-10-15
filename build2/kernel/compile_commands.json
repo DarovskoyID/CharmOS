@@ -271,6 +271,12 @@
 },
 {
   "directory": "/mnt/a/CharmOS/build2/kernel",
+  "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/arch/x86_64/include -I/mnt/a/CharmOS/lib/core/include -I/mnt/a/CharmOS/lib/mm/include -I/mnt/a/CharmOS/lib/acpi/include -I/mnt/a/CharmOS/lib/elf/include -I/mnt/a/CharmOS/lib/initrd/include -I/mnt/a/CharmOS/include -I/mnt/a/CharmOS/lib/cap/include -I/mnt/a/CharmOS/lib/manifest/include -I/mnt/a/CharmOS/lib/fs/include --target=x86_64-unknown-elf -mno-red-zone -mcmodel=kernel -mgeneral-regs-only -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -o kernel/CMakeFiles/kernel.dir/proc/signal.cpp.obj -c /mnt/a/CharmOS/kernel/proc/signal.cpp",
+  "file": "/mnt/a/CharmOS/kernel/proc/signal.cpp",
+  "output": "/mnt/a/CharmOS/build2/kernel/kernel/CMakeFiles/kernel.dir/proc/signal.cpp.obj"
+},
+{
+  "directory": "/mnt/a/CharmOS/build2/kernel",
   "command": "/usr/bin/clang++ --target=x86_64-unknown-elf -I/mnt/a/CharmOS/arch/x86_64/include -I/mnt/a/CharmOS/lib/core/include -I/mnt/a/CharmOS/lib/mm/include -I/mnt/a/CharmOS/lib/acpi/include -I/mnt/a/CharmOS/lib/elf/include -I/mnt/a/CharmOS/lib/initrd/include -I/mnt/a/CharmOS/include -I/mnt/a/CharmOS/lib/cap/include -I/mnt/a/CharmOS/lib/manifest/include -I/mnt/a/CharmOS/lib/fs/include --target=x86_64-unknown-elf -mno-red-zone -mcmodel=kernel -mgeneral-regs-only -fno-pic -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -g -std=c++23 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -fno-exceptions -fno-rtti -ffreestanding -fno-stack-protector -nostdinc++ -fno-threadsafe-statics -o kernel/CMakeFiles/kernel.dir/platform/platform.cpp.obj -c /mnt/a/CharmOS/kernel/platform/platform.cpp",
   "file": "/mnt/a/CharmOS/kernel/platform/platform.cpp",
   "output": "/mnt/a/CharmOS/build2/kernel/kernel/CMakeFiles/kernel.dir/platform/platform.cpp.obj"
