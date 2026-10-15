@@ -41,3 +41,10 @@
 | `tcg-ptp-1.07.pdf`, `tcg-ptp-1.07-errata-1.1.pdf` | TCG PC Client Platform TPM Profile (PTP) for TPM 2.0, 1.07 — интерфейсы TIS (FIFO) и CRB, регистры | https://trustedcomputinggroup.org/resource/pc-client-platform-tpm-profile-ptp-specification/ | M9 |
 | `tcg-pc-client-pfp-1.06.pdf` | TCG PC Client Platform Firmware Profile 1.06 r52 — назначение PCR, журнал измерений загрузки | https://trustedcomputinggroup.org/resource/pc-client-specific-platform-firmware-profile-specification/ | M9 |
 | `tcg-efi-protocol.pdf`, `tcg-efi-protocol-errata-0.6.pdf` | TCG EFI Protocol 1.0 r0.13 — EFI_TCG2_PROTOCOL (измерения из загрузчика) | https://trustedcomputinggroup.org/resource/tcg-efi-protocol-specification/ | M9 |
+| `ieee-p1619-d16.pdf` | IEEE P1619/D16 (май 2007) — черновик стандарта XTS-AES; технически почти совпадает с IEEE 1619-2007 («не для соответствия»). Annex B — тест-векторы, Annex C — псевдокод. Сам IEEE 1619 платный | https://crossbowerbt.github.io/docs/crypto/pdf00086.pdf | M9 |
+| `ieee-1619-xts.md` | **Вторичный:** сводка автора по IEEE 1619 / SP 800-38E и критике XTS (Key1 ≠ Key2, лимиты data unit) | автор проекта | M9 |
+| `rtl8139d.pdf` | Realtek RTL8139D(L) Single-Chip Fast Ethernet Controller, Rev. 1.11 (2001) | https://www.cs.usfca.edu/~cruse/cs326f04/RTL8139D_DataSheet.pdf | M9 |
+| `rtl8169-1.21.pdf` | Realtek RTL8169 Gigabit Ethernet MAC, Rev. 1.21 (2002) | https://people.freebsd.org/~wpaul/RealTek/rtl8169spec-121.pdf | M9 |
+| `rtl8169s-8110s-1.3.pdf` | Realtek RTL8169S/RTL8110S (MAC+PHY), Rev. 1.3 (2003) | http://www.bitsavers.org/components/realtek/RTL8139/RTL8110S_8169S_DataSheet_1.3_200309.pdf | M9 |
+| `rtl8169sc-8110sc-regs.pdf` | Realtek RTL8169SC/8110SC Registers, Rev. 1.0 | https://people.freebsd.org/~wpaul/RealTek/RTL8169SC_8110SC_reg_1_0.pdf | M9 |
+| `rtl8139-rtl8169-datasheets.md` | **Вторичный:** сводка автора по даташитам RTL8139/8169 (регистры, модели Rx/Tx). Расхождения — прав даташит | автор проекта | M9 |
