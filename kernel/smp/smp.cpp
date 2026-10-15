@@ -110,7 +110,7 @@ void late_init_bsp() {
 
 void start_aps() {
   const auto& madt = platform::madt();
-  const auto& hpet = platform::hpet();
+  const auto& hpet = platform::ref_clock();  // HPET или PM-таймер
   auto& lapic = platform::local_apic();
 
   // 4 страницы ниже 1 МиБ: код+данные, PML4, PDPT, PD.

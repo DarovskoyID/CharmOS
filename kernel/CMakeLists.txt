@@ -39,6 +39,7 @@ add_executable(kernel
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/call_on_stack.S
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/context_switch.S
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/hpet.cpp
+  ${CMAKE_SOURCE_DIR}/arch/x86_64/src/pm_timer.cpp
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/kernel_entry.S
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/gdt.cpp
   ${CMAKE_SOURCE_DIR}/arch/x86_64/src/idt.cpp

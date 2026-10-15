@@ -24,6 +24,10 @@ for exp in "$dir"/*.expected; do
 
   # Ввод на COM1: <сценарий>.input подаётся на stdin QEMU через 12 с (после
   # прошивки: OVMF сам читает serial), затем stdin держится открытым.
+  # Ввод держится открытым, пока QEMU не вышел (флаг $done), но не дольше таймаута.
+  done="$log.done"
+  rm -f "$done"
+  hold() { for _ in $(seq 1 "$timeout_s"); do [[ -f $done ]] && return; sleep 1; done; }
   # <сценарий>.keys — ввод по шагам: строка — набрать и Enter, «^C» — Ctrl-C,
   # «#sleep N» — пауза, «#wait ТЕКСТ» — ждать ТЕКСТ в serial-выводе.
   if [[ -f "$dir/$name.keys" ]]; then
@@ -37,12 +41,12 @@ for exp in "$dir"/*.expected; do
           "^C") printf '\003' ;;
           *) printf '%s\n' "$line"; sleep 0.3 ;;
         esac
-      done <"$dir/$name.keys"; sleep "$timeout_s"; } |
-      timeout "$timeout_s" "$root/tools/run.sh" --test "${cfg[@]}" >"$log" 2>&1
+      done <"$dir/$name.keys"; hold; } |
+      { timeout "$timeout_s" "$root/tools/run.sh" --test "${cfg[@]}" >"$log" 2>&1; c=$?; : >"$done"; exit $c; }
     code=${PIPESTATUS[1]}
   elif [[ -f "$dir/$name.input" ]]; then
-    { sleep 12; cat "$dir/$name.input"; sleep "$timeout_s"; } |
-      timeout "$timeout_s" "$root/tools/run.sh" --test "${cfg[@]}" >"$log" 2>&1
+    { sleep 12; cat "$dir/$name.input"; hold; } |
+      { timeout "$timeout_s" "$root/tools/run.sh" --test "${cfg[@]}" >"$log" 2>&1; c=$?; : >"$done"; exit $c; }
     code=${PIPESTATUS[1]}
   else
     timeout "$timeout_s" "$root/tools/run.sh" --test "${cfg[@]}" </dev/null >"$log" 2>&1

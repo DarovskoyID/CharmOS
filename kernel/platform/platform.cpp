@@ -32,6 +32,9 @@ constinit LocalApic g_lapic;
 constinit IoApic g_ioapics[MadtInfo::kMaxIoApics];
 constinit size_t g_ioapic_count = 0;
 constinit Hpet g_hpet;
+constinit bool g_have_hpet = false;
+constinit arch::x86_64::PmTimer g_pmt;
+constinit RefClock g_ref;
 constinit uint64_t g_tsc_hz = 0;
 constinit uint64_t g_apic_timer_hz = 0;
 constinit volatile uint64_t g_ticks = 0;
@@ -83,7 +86,22 @@ void init_acpi(const abi::boot::BootInfo& info) {
 
   lib::acpi::HpetInfo hpet_info;
   auto hpet_table = lib::acpi::find_table(xsdt, "HPET", 0, &map_acpi, nullptr);
-  if (hpet_table.is_err()) panic("acpi: HPET table: {}", lib::acpi::error_name(hpet_table.error()));
+  if (hpet_table.is_err()) {
+    // Без HPET — ACPI PM-таймер из FADT.
+    if (g_fadt.pm_timer_address == 0) panic("acpi: neither HPET nor PM timer");
+    uint32_t bits = (g_fadt.flags & lib::acpi::kFadtTmrValExt) != 0 ? 32 : 24;
+    uint64_t mmio = 0;
+    if (g_fadt.pm_timer_memory) {
+      auto m = mm::map_mmio(g_fadt.pm_timer_address & ~uint64_t{0xfff}, 4096);
+      if (m.is_err()) panic("pmtimer: cannot map");
+      mmio = m.value() + (g_fadt.pm_timer_address & 0xfff);
+    }
+    g_pmt.init(static_cast<uint16_t>(g_fadt.pm_timer_address), mmio, bits);
+    kprint("acpi: no HPET, using PM timer at {} {x} ({}-bit)\n", g_fadt.pm_timer_memory ? "mem" : "port",
+           g_fadt.pm_timer_address, bits);
+    return;
+  }
+  g_have_hpet = true;
   if (auto h = lib::acpi::parse_hpet(hpet_table.value(), &hpet_info); h.is_err()) {
     panic("acpi: HPET: {}", lib::acpi::error_name(h.error()));
   }
@@ -165,24 +183,24 @@ void init_interrupt_controllers(bool force_xapic) {
 void calibrate() {
   constexpr uint64_t kWindowNs = 50'000'000;  // 50 мс
 
-  uint64_t h0 = g_hpet.counter();
+  uint64_t h0 = g_ref.counter();
   uint64_t t0 = arch::x86_64::rdtsc();
-  g_hpet.wait_ns(kWindowNs);
+  g_ref.wait_ns(kWindowNs);
   uint64_t t1 = arch::x86_64::rdtsc();
-  uint64_t h1 = g_hpet.counter();
-  uint64_t ns = g_hpet.ticks_to_ns(g_hpet.elapsed(h0, h1));
+  uint64_t h1 = g_ref.counter();
+  uint64_t ns = g_ref.ticks_to_ns(g_ref.elapsed(h0, h1));
   g_tsc_hz = lib::core::mul_div(t1 - t0, 1'000'000'000, ns);
 
   // Таймер APIC: однократный отсчёт с максимума. За 10 мс он не истечёт,
   // а прерывания всё равно запрещены; после замера таймер останавливается.
   g_lapic.timer_one_shot(kVectorTimer, arch::x86_64::kApicTimerDivide16, 0xffffffffu);
-  uint64_t a0 = g_hpet.counter();
-  g_hpet.wait_ns(kWindowNs / 5);
+  uint64_t a0 = g_ref.counter();
+  g_ref.wait_ns(kWindowNs / 5);
   uint32_t remaining = g_lapic.timer_current();
-  uint64_t a1 = g_hpet.counter();
+  uint64_t a1 = g_ref.counter();
   g_lapic.timer_stop();
   uint64_t counted = 0xffffffffu - uint64_t{remaining};
-  uint64_t apic_ns = g_hpet.ticks_to_ns(g_hpet.elapsed(a0, a1));
+  uint64_t apic_ns = g_ref.ticks_to_ns(g_ref.elapsed(a0, a1));
   g_apic_timer_hz =
       lib::core::mul_div(counted, 1'000'000'000, apic_ns);
 
@@ -209,6 +227,22 @@ const MadtInfo& madt() { return g_madt; }
 const lib::acpi::FadtInfo& fadt() { return g_fadt; }
 LocalApic& local_apic() { return g_lapic; }
 const Hpet& hpet() { return g_hpet; }
+bool has_hpet() { return g_have_hpet; }
+const RefClock& ref_clock() { return g_ref; }
+
+uint64_t RefClock::counter() const { return g_have_hpet ? g_hpet.counter() : g_pmt.counter(); }
+uint64_t RefClock::elapsed(uint64_t from, uint64_t to) const {
+  return g_have_hpet ? g_hpet.elapsed(from, to) : g_pmt.elapsed(from, to);
+}
+uint64_t RefClock::ns_to_ticks(uint64_t ns) const { return g_have_hpet ? g_hpet.ns_to_ticks(ns) : g_pmt.ns_to_ticks(ns); }
+uint64_t RefClock::ticks_to_ns(uint64_t t) const { return g_have_hpet ? g_hpet.ticks_to_ns(t) : g_pmt.ticks_to_ns(t); }
+void RefClock::wait_ns(uint64_t ns) const {
+  if (g_have_hpet) {
+    g_hpet.wait_ns(ns);
+  } else {
+    g_pmt.wait_ns(ns);
+  }
+}
 
 const IoApic* io_apic_for(uint32_t gsi) {
   for (size_t i = 0; i < g_ioapic_count; ++i) {

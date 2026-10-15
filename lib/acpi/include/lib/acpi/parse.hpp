@@ -107,7 +107,12 @@ struct FadtInfo {
   uint16_t sci_interrupt;   // смещение 46
   uint16_t iapc_boot_arch;  // смещение 109
   uint32_t flags;           // смещение 112
+  // PM-таймер (табл. 5.9; §4.8.3.3): X_PM_TMR_BLK (GAS, смещение 208) важнее
+  // PM_TMR_BLK (порт, смещение 76). 0 — таймера нет.
+  uint64_t pm_timer_address;
+  bool pm_timer_memory;  // GAS Address Space ID 0 — память, иначе порт
 };
+inline constexpr uint32_t kFadtTmrValExt = 1u << 8;  // табл. 5.10: 32-битный PM-таймер
 
 lib::core::Status<AcpiError> parse_fadt(const SdtHeader* fadt, FadtInfo* out);
 

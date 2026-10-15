@@ -6,6 +6,7 @@
 #include <abi/boot.hpp>
 #include <arch/x86_64/apic.hpp>
 #include <arch/x86_64/hpet.hpp>
+#include <arch/x86_64/pm_timer.hpp>
 #include <arch/x86_64/idt.hpp>
 #include <lib/acpi/parse.hpp>
 
@@ -32,7 +33,20 @@ void init_this_cpu();
 const lib::acpi::MadtInfo& madt();
 const lib::acpi::FadtInfo& fadt();
 arch::x86_64::LocalApic& local_apic();
-const arch::x86_64::Hpet& hpet();
+const arch::x86_64::Hpet& hpet();  // только если has_hpet()
+bool has_hpet();
+
+// Эталон времени для калибровки и коротких активных ожиданий: HPET, а без
+// него — ACPI PM-таймер (VMware и часть реальных машин HPET не дают).
+class RefClock {
+ public:
+  uint64_t counter() const;
+  uint64_t elapsed(uint64_t from, uint64_t to) const;
+  uint64_t ns_to_ticks(uint64_t ns) const;
+  uint64_t ticks_to_ns(uint64_t ticks) const;
+  void wait_ns(uint64_t ns) const;
+};
+const RefClock& ref_clock();
 
 // I/O APIC, обслуживающий данный GSI, либо nullptr.
 const arch::x86_64::IoApic* io_apic_for(uint32_t gsi);

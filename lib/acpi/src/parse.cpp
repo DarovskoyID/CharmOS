@@ -203,6 +203,16 @@ lib::core::Status<AcpiError> parse_fadt(const SdtHeader* fadt, FadtInfo* out) {
     out->iapc_boot_arch = read<uint16_t>(base + kBootArchOffset);
   }
   if (fadt->length >= kFlagsOffset + 4) out->flags = read<uint32_t>(base + kFlagsOffset);
+  constexpr size_t kPmTmrBlk = 76;
+  constexpr size_t kXPmTmrBlk = 208;  // GAS: space id (0), ..., address (4, 8 байт) — §5.2.3.2
+  if (fadt->length >= kPmTmrBlk + 4) out->pm_timer_address = read<uint32_t>(base + kPmTmrBlk);
+  if (fadt->length >= kXPmTmrBlk + 12) {
+    uint64_t x = read<uint64_t>(base + kXPmTmrBlk + 4);
+    if (x != 0) {
+      out->pm_timer_address = x;
+      out->pm_timer_memory = base[kXPmTmrBlk] == 0;
+    }
+  }
   return ok();
 }
 
