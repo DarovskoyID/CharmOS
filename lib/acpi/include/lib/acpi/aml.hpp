@@ -135,6 +135,10 @@ class Interpreter {
   Error evaluate(Node* node, const Value* args, uint32_t argc, Value* out);
   Error evaluate(lib::core::StringView path, Value* out, Node* scope = nullptr);
 
+  // Узел имени из пакета (NameRef): найден при создании или ищется сейчас от scope
+  // (имена в Name-пакетах могут ссылаться вперёд по таблице).
+  Node* resolve_ref(const Value& v, Node* scope) const;
+
   // Вызов для каждого узла поддерева (в глубину). Остановка — fn вернул false.
   void walk(Node* from, bool (*fn)(Node* n, void* ctx), void* ctx) const;
   Type type_of(const Node* n) const;

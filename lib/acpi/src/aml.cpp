@@ -2060,6 +2060,18 @@ void Interpreter::walk(Node* from, bool (*fn)(Node* n, void* ctx), void* ctx) co
   }
 }
 
+Node* Interpreter::resolve_ref(const Value& v, Node* scope) const {
+  if (v.type == Type::Reference) return v.node;
+  if (v.type != Type::NameRef) return nullptr;
+  if (v.node != nullptr) return v.node;
+  Ctx c{};
+  c.in = const_cast<Interpreter*>(this);
+  c.p = reinterpret_cast<const uint8_t*>(v.str);
+  Path path;
+  if (!Impl::name_string(c, c.p + v.size, &path)) return nullptr;
+  return Impl::resolve(c.in, scope != nullptr ? scope : root_, path);
+}
+
 Type Interpreter::type_of(const Node* n) const {
   return n == nullptr || n->object == nullptr ? Type::Scope : n->object->type;
 }

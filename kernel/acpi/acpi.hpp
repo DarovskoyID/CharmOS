@@ -12,6 +12,15 @@ void init();
 bool ready();
 lib::acpi::aml::Interpreter& interpreter();
 
+// INTx функции PCI (driver.md §10): линия по _PRT корневого моста. false —
+// у функции есть MSI/MSI-X, нет вывода или маршрута.
+struct Intx {
+  uint32_t gsi;
+  bool level;
+  bool active_low;
+};
+bool intx(uint32_t pci_index, Intx* out);
+
 // Выключить машину (S5). Возвращается только при неудаче.
 void power_off();
 // Перезагрузить через RESET_REG. Возвращается только при неудаче.

@@ -1,6 +1,7 @@
 // Интерпретатор AML на настоящих DSDT: QEMU q35 и VMware (снятые с acpi=dump,
 // tools/acpi-extract.py). Оборудование — заглушка, которая помнит записи.
 #include <lib/acpi/aml.hpp>
+#include <lib/acpi/pci_route.hpp>
 
 #include <cstdio>
 #include <cstdlib>
@@ -146,6 +147,38 @@ TEST(aml_vmware_loads) {
   char path[128];
   if (prt != nullptr) l.in.path_of(prt, path, sizeof path);
   std::printf("  vmware: %s has %d entries\n", prt != nullptr ? path : "(no _PRT)", entries);
+}
+
+// INTx по _PRT: в режиме APIC (\_PIC(1)) у каждого устройства INTA есть линия.
+void check_routes(Interpreter& in, const char* who) {
+  if (Node* pic = in.find("\\_PIC")) {
+    Value arg{};
+    arg.type = Type::Integer;
+    arg.integer = 1;
+    Value r{};
+    (void)in.evaluate(pic, &arg, 1, &r);
+  }
+  Node* bridge = lib::acpi::find_root_bridge(in);
+  CHECK(bridge != nullptr);
+  int routed = 0;
+  for (uint8_t dev = 0; dev < 32; ++dev) {
+    lib::acpi::IntxRoute r{};
+    if (!lib::acpi::route_intx(in, bridge, dev, 0, &r)) continue;
+    ++routed;
+    if (dev <= 3) std::printf("  %s: dev %u INTA -> %s %u %s %s\n", who, dev, r.isa ? "IRQ" : "GSI", r.irq,
+                              r.level ? "level" : "edge", r.active_low ? "low" : "high");
+    CHECK(r.irq < 256);
+  }
+  std::printf("  %s: %d devices routed\n", who, routed);
+  CHECK(routed >= 4);
+}
+
+TEST(aml_intx_routes) {
+  Loaded q;
+  if (load(q, "qemu-q35-dsdt.aml") && q.err == Error::Ok) check_routes(q.in, "qemu");
+  Loaded v;
+  if (load(v, "vmware-dsdt.aml") && v.err == Error::Ok) check_routes(v.in, "vmware");
+  CHECK(lib::acpi::eisa_id("PNP0A08") == 0x080ad041);
 }
 
 TEST(aml_methods_and_fields) {

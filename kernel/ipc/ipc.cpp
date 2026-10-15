@@ -4,6 +4,7 @@
 #include <abi/process.hpp>
 #include <arch/x86_64/paging.hpp>
 
+#include "../acpi/acpi.hpp"
 #include "../core/panic.hpp"
 #include "../mm/heap.hpp"
 #include "../mm/layout.hpp"
@@ -99,6 +100,8 @@ struct Interrupt {
   uint8_t vector;
   bool masked;     // после доставки — до interrupt_ack
   bool hw_mask;    // функция умеет маскировать вектор сама
+  bool intx;       // линия INTx (driver.md §10), общая с другими устройствами
+  bool owed;       // INTx: срабатывание доставлено, ждём interrupt_ack
   uint64_t pending;
   uint64_t last_ns;
   Port* bound;
@@ -290,6 +293,41 @@ void fire(Endpoint* ep, uint32_t type) {
 
 constinit Interrupt* g_vector_irq[256] = {};
 
+// Линии INTx (driver.md §10): один вектор на GSI, пользователи делят линию.
+// Вывод I/O APIC замаскирован от срабатывания до подтверждения всеми.
+struct IntxLine {
+  uint32_t gsi;
+  uint8_t vector;
+  arch::x86_64::IoApic::Route route;
+  Interrupt* users[8];
+  uint32_t count;
+};
+constexpr uint32_t kMaxIntxLines = 16;
+constinit IntxLine g_intx[kMaxIntxLines] = {};
+
+IntxLine* intx_line_by_vector(uint8_t v) {
+  for (IntxLine& l : g_intx) {
+    if (l.count != 0 && l.vector == v) return &l;
+  }
+  return nullptr;
+}
+
+IntxLine* intx_line_of(const Interrupt* irq) {
+  for (IntxLine& l : g_intx) {
+    for (uint32_t i = 0; i < l.count; ++i) {
+      if (l.users[i] == irq) return &l;
+    }
+  }
+  return nullptr;
+}
+
+void intx_unmask_if_done(IntxLine* l) {
+  for (uint32_t i = 0; i < l->count; ++i) {
+    if (l->users[i]->owed) return;
+  }
+  if (const auto* io = platform::io_apic_for(l->gsi)) io->route(l->gsi, l->route);
+}
+
 // Маскирование вектора в устройстве, если оно это умеет.
 void hw_mask(Interrupt* irq, bool masked) {
   const pci::Function& f = pci::function(irq->dev->pci_index);
@@ -310,6 +348,25 @@ void deliver(Interrupt* irq) {
   irq->masked = true;
   hw_mask(irq, true);
   release_object(&port->base);
+}
+
+void intx_interrupt(arch::x86_64::InterruptFrame& frame) {
+  {
+    sync::SpinGuard guard(g_lock);
+    IntxLine* l = intx_line_by_vector(static_cast<uint8_t>(frame.vector & 0xff));
+    if (l != nullptr) {
+      // По уровню: держим вывод замаскированным, пока все не подтвердят.
+      if (const auto* io = platform::io_apic_for(l->gsi)) io->mask(l->gsi);
+      for (uint32_t i = 0; i < l->count; ++i) {
+        Interrupt* irq = l->users[i];
+        ++irq->pending;
+        irq->last_ns = platform::now_ns();
+        irq->owed = true;
+        if (!irq->masked && irq->bound != nullptr) deliver(irq);
+      }
+    }
+  }
+  platform::local_apic().eoi();
 }
 
 void device_interrupt(arch::x86_64::InterruptFrame& frame) {
@@ -437,6 +494,31 @@ void release_object(Object* obj) {
     uint64_t node = reinterpret_cast<FsNode*>(obj)->node;
     mm::kfree(obj);
     if (g_fs_node_closed != nullptr) g_fs_node_closed(node);
+    return;
+  }
+  if (obj->type == Type::Interrupt && reinterpret_cast<Interrupt*>(obj)->intx) {
+    auto* irq = reinterpret_cast<Interrupt*>(obj);
+    if (IntxLine* l = intx_line_of(irq)) {
+      for (uint32_t i = 0; i < l->count; ++i) {
+        if (l->users[i] == irq) {
+          l->users[i] = l->users[--l->count];
+          break;
+        }
+      }
+      if (l->count == 0) {
+        if (const auto* io = platform::io_apic_for(l->gsi)) io->mask(l->gsi);
+        platform::free_device_vector(l->vector);
+      } else {
+        intx_unmask_if_done(l);
+      }
+    }
+    if (irq->bound != nullptr) {
+      --irq->bound->armed;
+      release_object(&irq->bound->base);
+    }
+    irq->dev->irqs[irq->index] = nullptr;
+    release_object(&irq->dev->base);
+    mm::kfree(irq);
     return;
   }
   if (obj->type == Type::Interrupt) {
@@ -1350,11 +1432,15 @@ Status install_new(Object* obj, uint32_t r, uint64_t* out) {
 
 namespace {
 
-// MSI-X, если есть (до kMaxDeviceIrqs векторов), иначе один вектор MSI.
-uint32_t irq_count(const pci::Function& f) {
+// MSI-X, если есть (до kMaxDeviceIrqs векторов), иначе один вектор MSI,
+// иначе линия INTx по _PRT (driver.md §10).
+uint32_t irq_count(uint32_t pci_index) {
+  const pci::Function& f = pci::function(pci_index);
   uint32_t n = pci::msix_vectors(f);
   if (n != 0) return n < kMaxDeviceIrqs ? n : kMaxDeviceIrqs;
-  return f.msi_cap != 0 ? 1 : 0;
+  if (f.msi_cap != 0) return 1;
+  acpi::Intx line;
+  return acpi::intx(pci_index, &line) ? 1 : 0;
 }
 
 // DMA выдаётся только в домен IOMMU, без него — лишь при явном iommu=off.
@@ -1380,7 +1466,7 @@ Status sys_device_info(uint32_t h, uint64_t user_out) {
     info.vendor = f.vendor;
     info.device_id = f.device_id;
     info.class_code = f.class_code;
-    info.irq_count = irq_count(f);
+    info.irq_count = irq_count(d->pci_index);
     info.flags = dma_available(d) ? abi::syscall::kDeviceDma : 0;
     for (int i = 0; i < 6; ++i) {
       switch (f.bars[i].kind) {
@@ -1446,14 +1532,64 @@ Status sys_device_map_bar(uint32_t h, uint64_t bar, uint64_t* out) {
   return s;
 }
 
+// Под g_lock: хендл Interrupt на линию INTx (общую — с одним вектором).
+Status device_intx(Device* d, const acpi::Intx& line, uint64_t* out) {
+  const auto* io = platform::io_apic_for(line.gsi);
+  if (io == nullptr) return Status::NotSupported;
+  IntxLine* l = nullptr;
+  for (IntxLine& x : g_intx) {
+    if (x.count != 0 && x.gsi == line.gsi) l = &x;
+  }
+  bool fresh = l == nullptr;
+  if (fresh) {
+    for (IntxLine& x : g_intx) {
+      if (x.count == 0) {
+        l = &x;
+        break;
+      }
+    }
+    if (l == nullptr) return Status::NoMemory;
+  }
+  if (l->count == 8) return Status::NoMemory;
+  auto* irq = alloc_zeroed<Interrupt>(sizeof(Interrupt));
+  if (irq == nullptr) return Status::NoMemory;
+  if (fresh) {
+    uint8_t vector = platform::alloc_device_vector(&intx_interrupt);
+    if (vector == 0) {
+      mm::kfree(irq);
+      return Status::NoMemory;
+    }
+    *l = {};
+    l->gsi = line.gsi;
+    l->vector = vector;
+    l->route = {vector, line.level, line.active_low, static_cast<uint8_t>(smp::cpu(0).apic_id)};
+  }
+  irq->base.type = Type::Interrupt;
+  irq->dev = d;
+  ++d->base.refs;
+  irq->vector = l->vector;
+  irq->intx = true;
+  d->irqs[0] = irq;
+  l->users[l->count++] = irq;
+  Status s = install_new(&irq->base, rights::kInterruptDefault, out);
+  if (s != Status::Ok) return s;  // объект уже освобождён (и снят с линии)
+  pci::set_command_bits(pci::function(d->pci_index), 0, pci::kCommandIntxDisable);
+  if (fresh) io->route(line.gsi, l->route);
+  return Status::Ok;
+}
+
 Status sys_device_irq(uint32_t h, uint64_t index, uint64_t* out) {
   sync::SpinGuard guard(g_lock);
   Status s;
   Device* d = device_from(h, rights::kRead, &s);
   if (d == nullptr) return s;
   const pci::Function& f = pci::function(d->pci_index);
-  if (index >= irq_count(f)) return Status::OutOfRange;
+  if (index >= irq_count(d->pci_index)) return Status::OutOfRange;
   if (d->irqs[index] != nullptr) return Status::Busy;
+  acpi::Intx line{};
+  if (pci::msix_vectors(f) == 0 && f.msi_cap == 0 && acpi::intx(d->pci_index, &line)) {
+    return device_intx(d, line, out);
+  }
   bool msix = pci::msix_vectors(f) != 0;
   if (msix && !pci::msix_prepare(d->pci_index)) return Status::NoMemory;
   auto* irq = alloc_zeroed<Interrupt>(sizeof(Interrupt));
@@ -1500,6 +1636,10 @@ Status sys_interrupt_ack(uint32_t h) {
   if ((c->rights & rights::kWrite) == 0) return Status::AccessDenied;
   auto* irq = reinterpret_cast<Interrupt*>(c->obj);
   irq->masked = false;
+  if (irq->intx) {
+    irq->owed = false;
+    if (IntxLine* l = intx_line_of(irq)) intx_unmask_if_done(l);
+  }
   hw_mask(irq, false);
   if (irq->pending != 0 && irq->bound != nullptr) deliver(irq);
   return Status::Ok;

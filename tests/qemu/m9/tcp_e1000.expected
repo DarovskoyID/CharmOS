@@ -1,0 +1,9 @@
+# M9a: e1000 на прерываниях INTx — линия по _PRT (driver.md §10).
+acpi: pci 0:2.0 INTA -> GSI
+devmgr: 0:2.0 0x8086:0x100e -> e1000
+[e1000] e1000: ready
+[e1000] e1000: INTx
+net: dhcp address 10.0.2.15
+ktest: tcp echo 8 connections x 64 KiB ok
+ktest: tcp echo with 1/10 segment loss ok
+ktest: PASS tcp

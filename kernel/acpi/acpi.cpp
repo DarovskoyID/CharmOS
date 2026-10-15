@@ -2,6 +2,7 @@
 
 #include <arch/x86_64/io.hpp>
 #include <lib/acpi/parse.hpp>
+#include <lib/acpi/pci_route.hpp>
 
 #include "../core/log.hpp"
 #include "../mm/heap.hpp"
@@ -19,6 +20,12 @@ using lib::core::StringView;
 
 constinit aml::Interpreter g_aml;
 constinit bool g_ready = false;
+
+struct Route {
+  bool valid;
+  Intx line;
+};
+constinit Route g_routes[pci::kMaxFunctions] = {};
 
 void* alloc(void*, size_t n) {
   auto r = mm::kmalloc(n);
@@ -157,7 +164,53 @@ uint64_t gas_read(const lib::acpi::Gas& g, uint32_t width) {
   return host_read(nullptr, g.space == 0 ? aml::Space::SystemMemory : aml::Space::SystemIO, g.address, width, nullptr);
 }
 
+// MPS INTI (ACPI 6.5 табл. 5.26): полярность биты 1:0, режим биты 3:2; 0 — как у шины.
+void isa_to_gsi(uint32_t irq, Intx* out) {
+  out->gsi = irq;
+  const auto& m = platform::madt();
+  for (size_t i = 0; i < m.override_count; ++i) {
+    if (m.overrides[i].source != irq) continue;
+    out->gsi = m.overrides[i].gsi;
+    uint16_t f = m.overrides[i].flags;
+    if ((f & lib::acpi::kIntiPolarityMask) != 0) out->active_low = (f & lib::acpi::kIntiPolarityMask) == lib::acpi::kIntiPolarityLow;
+    if ((f & lib::acpi::kIntiTriggerMask) != 0) out->level = (f & lib::acpi::kIntiTriggerMask) == lib::acpi::kIntiTriggerLevel;
+  }
+}
+
+// Маршруты для функций корневой шины без MSI/MSI-X (за мостами PCI-PCI — пока нет).
+void route_pci() {
+  aml::Node* bridge = lib::acpi::find_root_bridge(g_aml);
+  if (bridge == nullptr) {
+    kprint("acpi: no PCI root bridge in the namespace\n");
+    return;
+  }
+  uint64_t bbn = 0;
+  if (aml::Node* n = g_aml.find("_BBN", bridge); n != nullptr && n->parent == bridge) {
+    aml::Value v{};
+    if (g_aml.evaluate(n, nullptr, 0, &v) == aml::Error::Ok && v.type == aml::Type::Integer) bbn = v.integer;
+  }
+  for (uint32_t i = 0; i < pci::function_count(); ++i) {
+    const pci::Function& f = pci::function(i);
+    if (f.bus != bbn || f.msi_cap != 0 || pci::msix_vectors(f) != 0) continue;
+    uint8_t pin = pci::read8(f, 0x3d);  // Interrupt Pin: 1 — INTA … 4 — INTD
+    if (pin < 1 || pin > 4) continue;
+    lib::acpi::IntxRoute r{};
+    if (!lib::acpi::route_intx(g_aml, bridge, f.device, static_cast<uint8_t>(pin - 1), &r)) continue;
+    Intx line{r.irq, r.level, r.active_low};
+    if (r.isa) isa_to_gsi(r.irq, &line);
+    g_routes[i] = {true, line};
+    kprint("acpi: pci {}:{}.{} INT{} -> GSI {} {} {}\n", f.bus, f.device, f.function, static_cast<char>('A' + pin - 1),
+           line.gsi, line.level ? "level" : "edge", line.active_low ? "low" : "high");
+  }
+}
+
 }  // namespace
+
+bool intx(uint32_t pci_index, Intx* out) {
+  if (pci_index >= pci::kMaxFunctions || !g_routes[pci_index].valid) return false;
+  *out = g_routes[pci_index].line;
+  return true;
+}
 
 void init() {
   const auto& fadt = platform::fadt();
@@ -195,6 +248,7 @@ void init() {
     (void)g_aml.evaluate(pic, &arg, 1, &r);
   }
   g_ready = true;
+  route_pci();
   kprint("acpi: AML: {} nodes, {} methods, {} SSDT, {}-bit integers\n", g_aml.node_count(), g_aml.method_count(),
          ssdts, g_aml.integer_width());
 }

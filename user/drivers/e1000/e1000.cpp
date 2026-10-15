@@ -1,8 +1,8 @@
 // Драйвер Intel 8254x (e1000): docs/specs/intel-8254x-sdm.pdf — регистры
 // §13 (CTRL, STATUS, RCTL, TCTL, TIPG, RDBA/RDLEN/RDH/RDT, TDBA/…, RAL/RAH,
 // MTA), дескрипторы §3.2 (табл. 3-1) и §3.3 (табл. 3-8, 3-10).
-// Прерывание у 8254x — только INTx (нет MSI/MSI-X), а маршрутизация INTx
-// требует _PRT из ACPI AML (ROADMAP M9): пока драйвер работает опросом.
+// Прерывание у 8254x — только INTx (нет MSI/MSI-X): линию ядро находит по _PRT
+// (driver.md §10). ICR/IMS — §13.4.17, §13.4.20. Без линии — опрос.
 // С ядром — по протоколу docs/abi/net.md.
 #include <abi/net.hpp>
 
@@ -13,7 +13,7 @@ namespace abin = abi::net;
 
 namespace {
 
-constexpr uint64_t kCtrl = 0x0000, kStatus = 0x0008, kImc = 0x00d8;
+constexpr uint64_t kCtrl = 0x0000, kStatus = 0x0008, kIcr = 0x00c0, kIms = 0x00d0, kImc = 0x00d8;
 constexpr uint64_t kRctl = 0x0100, kTctl = 0x0400, kTipg = 0x0410;
 constexpr uint64_t kRdbal = 0x2800, kRdbah = 0x2804, kRdlen = 0x2808, kRdh = 0x2810, kRdt = 0x2818;
 constexpr uint64_t kTdbal = 0x3800, kTdbah = 0x3804, kTdlen = 0x3808, kTdh = 0x3810, kTdt = 0x3818;
@@ -25,6 +25,8 @@ constexpr uint32_t kTctlEn = 1u << 1, kTctlPsp = 1u << 3;
 constexpr uint32_t kTctlCt = 0x10u << 4, kTctlCold = 0x40u << 12;  // рекомендованные значения (§13)
 constexpr uint32_t kTipgValue = 10u | 8u << 10 | 6u << 20;          // IPGT/IPGR1/IPGR2 для 8254x
 constexpr uint8_t kRxDd = 1u << 0;
+// TXDW, LSC, RXDMT0, RXO, RXT0 (табл. 13-65).
+constexpr uint32_t kImsMask = 1u << 0 | 1u << 2 | 1u << 4 | 1u << 6 | 1u << 7;
 constexpr uint8_t kTxEop = 1u << 0, kTxIfcs = 1u << 1, kTxRs = 1u << 3, kTxDd = 1u << 0;
 
 struct RxDesc {
@@ -144,7 +146,16 @@ extern "C" int64_t charm_main(Handle kernel) {
   auto port = port_create();
   EXPECT(port.ok());
   Handle port_h = static_cast<Handle>(port.value);
-  bool kick_armed = false, kernel_armed = false;
+  bool kick_armed = false, kernel_armed = false, irq_armed = false;
+  Handle irq_h = 0;
+  if (info.irq_count >= 1) {
+    auto irq = syscall2(Number::DeviceIrq, dev, 0);
+    EXPECT(irq.ok());
+    irq_h = static_cast<Handle>(irq.value);
+    (void)r32(kIcr);  // сбросить накопленные причины
+    w32(kIms, kImsMask);
+    print("e1000: INTx\n");
+  }
 
   for (;;) {
     __atomic_store_n(&h->link_up, (r32(kStatus) & kStatusLu) != 0 ? 1u : 0u, __ATOMIC_RELEASE);
@@ -217,13 +228,24 @@ extern "C" int64_t charm_main(Handle kernel) {
     // выдаются снова только по записи RDT при свободных дескрипторах. На железе
     // запись того же значения ничего не меняет (m7/tcp_e1000 без неё стоит).
     w32(kRdt, rx_tail);
-    // Опрос: короткий сон на порту (звонок ядра или закрытие канала будят раньше).
+    // Ждём прерывания (или, без линии, короткий сон опроса); звонок ядра и
+    // закрытие канала будят раньше.
     __atomic_store_n(&h->driver_wants_kick, 1u, __ATOMIC_SEQ_CST);
+    if (h->rx_free_head != __atomic_load_n(&h->rx_free_tail, __ATOMIC_ACQUIRE) ||
+        h->tx_head != __atomic_load_n(&h->tx_tail, __ATOMIC_ACQUIRE)) {
+      continue;
+    }
+    if (irq_h != 0 && !irq_armed) irq_armed = object_bind(port_h, irq_h, 1) == Status::Ok;
     if (!kick_armed) kick_armed = object_bind(port_h, note, 2) == Status::Ok;
     if (!kernel_armed) kernel_armed = object_bind(port_h, kernel, 3) == Status::Ok;
     PortPacket pk;
-    if (port_wait(port_h, &pk, now_ns() + 1'000'000) != Status::Ok) continue;
-    if (pk.key == 2) {
+    uint64_t wait = irq_h != 0 ? 100'000'000 : 1'000'000;
+    if (port_wait(port_h, &pk, now_ns() + wait) != Status::Ok) continue;
+    if (pk.key == 1) {
+      irq_armed = false;
+      (void)r32(kIcr);  // чтение снимает причины и опускает линию
+      (void)syscall1(Number::InterruptAck, irq_h);
+    } else if (pk.key == 2) {
       kick_armed = false;
       Handle none_h[1];
       while (channel_read(note, buf, sizeof buf, none_h, 1, 0).ok()) {
