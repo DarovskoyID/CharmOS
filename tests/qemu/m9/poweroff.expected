@@ -1,0 +1,6 @@
+# M9: свой интерпретатор AML в ядре — DSDT QEMU загружен, _S5 и _PRT
+# вычисляются; выключение через ACPI S5 (QEMU выходит с кодом 0).
+acpi: AML:
+ktest: _S5 SLP_TYPa
+ktest: _PRT 128 entries
+acpi: entering S5

@@ -48,6 +48,10 @@ class RefClock {
 };
 const RefClock& ref_clock();
 
+// Таблицы ACPI: отобразить физический диапазон; найти таблицу по сигнатуре (n-ю).
+const void* map_acpi_table(uint64_t phys, size_t size);
+const lib::acpi::SdtHeader* find_acpi_table(const char* sig, uint32_t index);
+
 // I/O APIC, обслуживающий данный GSI, либо nullptr.
 const arch::x86_64::IoApic* io_apic_for(uint32_t gsi);
 

@@ -39,6 +39,7 @@ constinit uint64_t g_tsc_hz = 0;
 constinit uint64_t g_apic_timer_hz = 0;
 constinit volatile uint64_t g_ticks = 0;
 constinit bool g_dump_acpi = false;
+constinit const SdtHeader* g_xsdt = nullptr;
 
 // Таблицы ACPI лежат либо в RAM (AcpiReclaimable/AcpiNvs — уже в HHDM), либо
 // в зарезервированной памяти — тогда отображаем отдельно.
@@ -91,6 +92,7 @@ void init_acpi(const abi::boot::BootInfo& info) {
     panic("acpi: XSDT: {}", lib::acpi::error_name(v.error()));
   }
 
+  g_xsdt = xsdt;
   auto madt_ok = lib::acpi::parse_madt(require_table(xsdt, "APIC"), &g_madt);
   if (madt_ok.is_err()) panic("acpi: MADT: {}", lib::acpi::error_name(madt_ok.error()));
   auto fadt_ok = lib::acpi::parse_fadt(require_table(xsdt, "FACP"), &g_fadt);
@@ -261,6 +263,14 @@ const lib::acpi::FadtInfo& fadt() { return g_fadt; }
 LocalApic& local_apic() { return g_lapic; }
 const Hpet& hpet() { return g_hpet; }
 bool has_hpet() { return g_have_hpet; }
+
+const void* map_acpi_table(uint64_t phys, size_t size) { return map_acpi(nullptr, phys, size); }
+
+const SdtHeader* find_acpi_table(const char* sig, uint32_t index) {
+  if (g_xsdt == nullptr) return nullptr;
+  auto r = lib::acpi::find_table(g_xsdt, sig, index, &map_acpi, nullptr);
+  return r.is_ok() ? r.value() : nullptr;
+}
 const RefClock& ref_clock() { return g_ref; }
 
 uint64_t RefClock::counter() const { return g_have_hpet ? g_hpet.counter() : g_pmt.counter(); }

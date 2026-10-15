@@ -54,8 +54,10 @@ for exp in "$dir"/*.expected; do
   fi
 
   ok=1
-  if [[ $code -ne 33 ]]; then
-    echo "FAIL $phase/$name: exit code $code (want 33; 124 = timeout)"
+  want=33  # isa-debug-exit; <сценарий>.exitcode — другой (например, 0 при выключении ACPI)
+  [[ -f "$dir/$name.exitcode" ]] && want=$(tr -d '\r\n' <"$dir/$name.exitcode")
+  if [[ $code -ne $want ]]; then
+    echo "FAIL $phase/$name: exit code $code (want $want; 124 = timeout)"
     ok=0
   fi
   # Ожидаемые строки по порядку.

@@ -206,6 +206,33 @@ lib::core::Status<AcpiError> parse_fadt(const SdtHeader* fadt, FadtInfo* out) {
   constexpr size_t kDsdt = 40, kXDsdt = 140;
   if (fadt->length >= kDsdt + 4) out->dsdt_address = read<uint32_t>(base + kDsdt);
   if (fadt->length >= kXDsdt + 8 && read<uint64_t>(base + kXDsdt) != 0) out->dsdt_address = read<uint64_t>(base + kXDsdt);
+  auto gas = [&](size_t off, Gas* g) {
+    if (fadt->length < off + 12) return;
+    g->space = base[off];
+    g->bit_width = base[off + 1];
+    g->bit_offset = base[off + 2];
+    g->access_size = base[off + 3];
+    g->address = read<uint64_t>(base + off + 4);
+  };
+  auto port = [&](size_t off, Gas* g) {
+    if (fadt->length < off + 4) return;
+    uint32_t p = read<uint32_t>(base + off);
+    if (p != 0) *g = {1, 16, 0, 2, p};
+  };
+  port(64, &out->pm1a_cnt);
+  port(68, &out->pm1b_cnt);
+  Gas xg{};
+  gas(172, &xg);
+  if (xg.address != 0) out->pm1a_cnt = xg;
+  xg = {};
+  gas(184, &xg);
+  if (xg.address != 0) out->pm1b_cnt = xg;
+  if (fadt->length >= 52 + 1) {
+    out->smi_cmd = read<uint32_t>(base + 48);
+    out->acpi_enable = base[52];
+  }
+  gas(116, &out->reset_reg);
+  if (fadt->length >= 129) out->reset_value = base[128];
   constexpr size_t kPmTmrBlk = 76;
   constexpr size_t kXPmTmrBlk = 208;  // GAS: space id (0), ..., address (4, 8 байт) — §5.2.3.2
   if (fadt->length >= kPmTmrBlk + 4) out->pm_timer_address = read<uint32_t>(base + kPmTmrBlk);

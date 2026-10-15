@@ -11,6 +11,7 @@
 #include "../block/block.hpp"
 #include <abi/process.hpp>
 
+#include "../acpi/acpi.hpp"
 #include "../console/console.hpp"
 #include "../drivers/devmgr.hpp"
 #include "../fs/cache.hpp"
@@ -1058,6 +1059,27 @@ void test_signals() {
   pass();
 }
 
+// Пространство имён из DSDT: устройства, методы, _S5, _PRT корня PCI.
+void aml_check() {
+  auto& in = acpi::interpreter();
+  kprint("ktest: aml {} nodes {} methods\n", in.node_count(), in.method_count());
+  lib::acpi::aml::Value v{};
+  if (in.evaluate("\\_S5", &v) != lib::acpi::aml::Error::Ok || v.type != lib::acpi::aml::Type::Package) fail("_S5");
+  kprint("ktest: _S5 SLP_TYPa {}\n", v.items[0].integer);
+  if (in.evaluate("\\_SB.PCI0._PRT", &v) != lib::acpi::aml::Error::Ok || v.type != lib::acpi::aml::Type::Package) {
+    fail("_PRT");
+  }
+  kprint("ktest: _PRT {} entries\n", v.size);
+}
+
+// M9: выключение через ACPI S5 (_S5 + PM1a_CNT). QEMU выходит с кодом 0.
+void test_poweroff() {
+  if (!acpi::ready()) fail("AML not loaded");
+  aml_check();
+  acpi::power_off();
+  fail("still running after S5");
+}
+
 struct Test {
   StringView name;
   void (*fn)();
@@ -1089,6 +1111,7 @@ constexpr Test kTests[] = {
     {"drivers", &test_drivers},
     {"blk", &test_blk},
     {"console", &test_console},
+    {"poweroff", &test_poweroff},
     {"threads", &test_threads},
     {"spawn", &test_spawn},
     {"signals", &test_signals},

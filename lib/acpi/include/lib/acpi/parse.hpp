@@ -102,6 +102,16 @@ namespace lib::acpi {
 
 // FADT (ACPI §5.2.9, табл. 5.9) — только поля, нужные M2. Поля за пределами
 // длины таблицы (старые ревизии) остаются нулевыми.
+// Generic Address Structure (§5.2.3.2): 0 — память, 1 — порт, 2 — PCI config.
+struct Gas {
+  uint8_t space;
+  uint8_t bit_width;
+  uint8_t bit_offset;
+  uint8_t access_size;
+  uint64_t address;  // 0 — регистра нет
+};
+inline constexpr uint32_t kFadtResetRegSup = 1u << 10;  // табл. 5.10
+
 struct FadtInfo {
   uint8_t revision;
   uint16_t sci_interrupt;   // смещение 46
@@ -111,6 +121,12 @@ struct FadtInfo {
   // PM_TMR_BLK (порт, смещение 76). 0 — таймера нет.
   uint64_t pm_timer_address;
   uint64_t dsdt_address;  // X_DSDT (смещение 140) или DSDT (40), табл. 5.9
+  // Управление питанием (табл. 5.9, §4.8.3.1, §4.8.3.6).
+  Gas pm1a_cnt, pm1b_cnt;  // X_PM1x_CNT_BLK (172/184) или порт PM1x_CNT_BLK (64/68)
+  uint32_t smi_cmd;        // смещение 48, порт SMI
+  uint8_t acpi_enable;     // смещение 52
+  Gas reset_reg;           // смещение 116
+  uint8_t reset_value;     // смещение 128
   bool pm_timer_memory;  // GAS Address Space ID 0 — память, иначе порт
 };
 inline constexpr uint32_t kFadtTmrValExt = 1u << 8;  // табл. 5.10: 32-битный PM-таймер

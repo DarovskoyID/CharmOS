@@ -11,6 +11,7 @@
 #include "../mm/layout.hpp"
 #include "../mm/pmm.hpp"
 #include "../mm/vmm.hpp"
+#include "../acpi/acpi.hpp"
 #include "../console/console.hpp"
 #include "../drivers/devmgr.hpp"
 #include "../fs/vfs.hpp"
@@ -173,7 +174,10 @@ constinit size_t g_init_len = 0;
   kernel::ipc::close_detached(mine);
   kprint("init: exited with {}, halting\n", code);
   (void)kernel::fs::sync_all();
+  // В тестах QEMU есть isa-debug-exit — выход с кодом; иначе — выключение ACPI.
   arch::x86_64::qemu_exit(code == 0 ? arch::x86_64::kExitSuccess : arch::x86_64::kExitFailure);
+  kernel::acpi::power_off();
+  arch::x86_64::halt_forever();
 }
 
 // Первый поток ядра: всё, что идёт после запуска планировщика.
@@ -234,6 +238,7 @@ extern "C" [[noreturn]] void kernel_main(uint64_t boot_info_phys, uint64_t stack
   kernel::platform::platform_init(info, cmdline);
   kernel::pci::pci_init(info);
   kernel::pci::iommu::init(info, cmdline);
+  kernel::acpi::init();
   kernel::console::init();
   kernel::console::set_control_handler(&kernel::proc::signal_foreground);
   kernel::proc::init_accounting();

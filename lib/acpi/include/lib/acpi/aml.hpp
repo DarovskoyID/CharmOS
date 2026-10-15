@@ -151,16 +151,16 @@ class Interpreter {
 
   // Внутреннее (используется реализацией).
   struct Arena {
-    Allocator src;
-    uint8_t* cur;
-    size_t left;
-    struct Chunk* chunks;   // для повторного использования после reset
-    struct Chunk* used;
+    Allocator src{};
+    uint8_t* cur = nullptr;
+    size_t left = 0;
+    struct Chunk* chunks = nullptr;   // для повторного использования после reset
+    struct Chunk* used = nullptr;
     void* get(size_t size);
     void reset();
   };
-  Arena perm_, scratch_;
-  Host host_;
+  Arena perm_{}, scratch_{};
+  Host host_{};
   Node* root_ = nullptr;
   uint32_t nodes_ = 0, methods_ = 0;
   uint32_t int_bits_ = 64;
