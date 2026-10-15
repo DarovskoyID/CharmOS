@@ -41,6 +41,13 @@ struct Thread {
   uint64_t user_cr3;   // PML4 процесса
   void* process;       // proc::Process
   uint8_t* fpu;        // 512 байт FXSAVE, выровнено на 16 (владеет процесс)
+  uint64_t fs_base;    // TLS (process.md §4), грузится при переключении
+  void* user_obj;      // объект IPC Thread (nullptr у главного потока)
+  Thread* proc_next;   // список потоков процесса (под его блокировкой)
+
+  // Прерывание ожиданий (убийство процесса, сигналы): см. interrupt().
+  volatile bool interrupt_pending;
+  volatile bool interruptible;
 };
 
 // Пользовательский контекст для spawn: задаётся до того, как поток попадёт
@@ -49,6 +56,7 @@ struct UserContext {
   uint64_t cr3;
   void* process;
   uint8_t* fpu;
+  void* user_obj;
 };
 
 using ThreadFn = void (*)(void* arg);
@@ -88,6 +96,15 @@ void block_current();
 // сам. Бесконечный срок (UINT64_MAX) — обычное block_current.
 void block_current_until(uint64_t deadline_ns);
 void wake(Thread* t);
+
+// Прерываемые ожидания. interrupt(t) ставит потоку флаг и, если он в
+// прерываемом ожидании, будит его; ожидающий видит interrupted() и выходит
+// (Interrupted). block_interruptible_until — как block_current_until; после
+// schedule() вызывающий зовёт end_interruptible(). Потоки ядра не прерываются.
+void interrupt(Thread* t);
+bool interrupted();
+void block_interruptible_until(uint64_t deadline_ns);
+void end_interruptible();
 // Переключается на следующий готовый поток. Прерывания должны быть запрещены,
 // spinlock'и — отпущены.
 void schedule();

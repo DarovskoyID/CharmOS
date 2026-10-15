@@ -16,6 +16,7 @@
 #include "../pci/iommu.hpp"
 #include "../pci/pci.hpp"
 #include "../platform/platform.hpp"
+#include "../proc/process.hpp"
 #include "../proc/uaccess.hpp"
 #include "../sched/sched.hpp"
 #include "../smp/smp.hpp"
@@ -158,6 +159,7 @@ extern "C" [[noreturn]] void kernel_main(uint64_t boot_info_phys, uint64_t stack
   kernel::pci::pci_init(info);
   kernel::pci::iommu::init(info, cmdline);
   kernel::console::init();
+  kernel::console::set_control_handler(&kernel::proc::signal_foreground);
   kernel::smp::late_init_bsp();
   kernel::smp::start_aps();
 

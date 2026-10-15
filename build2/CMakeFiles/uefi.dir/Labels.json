@@ -1,0 +1,43 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/mnt/a/CharmOS/build2/CMakeFiles/uefi"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/CMakeFiles/uefi.rule"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/CMakeFiles/uefi-complete.rule"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/uefi-prefix/src/uefi-stamp/uefi-build.rule"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/uefi-prefix/src/uefi-stamp/uefi-configure.rule"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/uefi-prefix/src/uefi-stamp/uefi-download.rule"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/uefi-prefix/src/uefi-stamp/uefi-install.rule"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/uefi-prefix/src/uefi-stamp/uefi-mkdir.rule"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/uefi-prefix/src/uefi-stamp/uefi-patch.rule"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/uefi-prefix/src/uefi-stamp/uefi-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"uefi"
+		],
+		"name" : "uefi"
+	}
+}

@@ -374,6 +374,7 @@ Status sys_socket_recv(uint32_t h, uint64_t buf, uint64_t cap, uint64_t user_fro
         return Status::Ok;
       }
       if (deadline == 0) return Status::WouldBlock;
+      if (sched::interrupted()) return Status::Interrupted;
       if (platform::now_ns() >= deadline) return Status::TimedOut;
       sched::sleep_ns(1'000'000);
     }

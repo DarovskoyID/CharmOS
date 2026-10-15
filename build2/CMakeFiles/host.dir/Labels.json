@@ -1,0 +1,43 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/mnt/a/CharmOS/build2/CMakeFiles/host"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/CMakeFiles/host.rule"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/CMakeFiles/host-complete.rule"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/host-prefix/src/host-stamp/host-build.rule"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/host-prefix/src/host-stamp/host-configure.rule"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/host-prefix/src/host-stamp/host-download.rule"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/host-prefix/src/host-stamp/host-install.rule"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/host-prefix/src/host-stamp/host-mkdir.rule"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/host-prefix/src/host-stamp/host-patch.rule"
+		},
+		{
+			"file" : "/mnt/a/CharmOS/build2/host-prefix/src/host-stamp/host-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"host"
+		],
+		"name" : "host"
+	}
+}

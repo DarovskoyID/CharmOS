@@ -28,6 +28,7 @@ add_executable(kernel
   net/socket.cpp
   net/dns.cpp
   console/console.cpp
+  proc/futex.cpp
   platform/platform.cpp
   proc/process.cpp
   proc/syscall.cpp

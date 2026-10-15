@@ -1,0 +1,13 @@
+# Target labels
+ user
+# Source files and their labels
+/mnt/a/CharmOS/build2/CMakeFiles/user
+/mnt/a/CharmOS/build2/CMakeFiles/user.rule
+/mnt/a/CharmOS/build2/CMakeFiles/user-complete.rule
+/mnt/a/CharmOS/build2/user-prefix/src/user-stamp/user-build.rule
+/mnt/a/CharmOS/build2/user-prefix/src/user-stamp/user-configure.rule
+/mnt/a/CharmOS/build2/user-prefix/src/user-stamp/user-download.rule
+/mnt/a/CharmOS/build2/user-prefix/src/user-stamp/user-install.rule
+/mnt/a/CharmOS/build2/user-prefix/src/user-stamp/user-mkdir.rule
+/mnt/a/CharmOS/build2/user-prefix/src/user-stamp/user-patch.rule
+/mnt/a/CharmOS/build2/user-prefix/src/user-stamp/user-update.rule

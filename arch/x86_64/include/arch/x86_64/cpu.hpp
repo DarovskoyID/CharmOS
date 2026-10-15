@@ -56,6 +56,9 @@ inline constexpr uint64_t kRflagsIf = 1ull << 9;
 inline constexpr uint64_t kRflagsDf = 1ull << 10;
 inline constexpr uint64_t kCr0Wp = 1ull << 16;
 inline constexpr uint32_t kMsrEfer = 0xc0000080;
+// IA32_FS_BASE (SDM Vol. 4, табл. 2-2): база сегмента FS — указатель TLS потока.
+inline constexpr uint32_t kMsrFsBase = 0xc0000100;
+inline void set_fs_base(uint64_t base) { wrmsr(kMsrFsBase, base); }
 inline constexpr uint64_t kEferNxe = 1ull << 11;
 
 }  // namespace arch::x86_64

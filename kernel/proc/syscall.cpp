@@ -55,8 +55,17 @@ void sys_debug_write(SyscallFrame& f) {
 void sys_nanosleep(SyscallFrame& f) {
   uint64_t deadline = f.rdi;
   uint64_t now = platform::now_ns();
-  if (deadline > now) sched::sleep_ns(deadline - now);
-  set_result(f, Status::Ok);
+  if (deadline <= now) return set_result(f, Status::Ok);
+  // Прерываемый сон (process.md §9): убийство процесса будит сразу.
+  bool irq = (arch::x86_64::read_rflags() & arch::x86_64::kRflagsIf) != 0;
+  arch::x86_64::cli();
+  if (!sched::interrupted()) {
+    sched::block_interruptible_until(deadline);
+    sched::schedule();
+    sched::end_interruptible();
+  }
+  if (irq) arch::x86_64::sti();
+  set_result(f, sched::interrupted() && platform::now_ns() < deadline ? Status::Interrupted : Status::Ok);
 }
 
 }  // namespace
@@ -245,6 +254,52 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
       set_result(f, kernel::net::sys_dns_resolve(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, f.r10, &v), v);
       break;
     }
+    case Number::ProcessSpawn: {
+      uint64_t v = 0;
+      set_result(f, sys_process_spawn(f.rdi, &v), v);
+      break;
+    }
+    case Number::ProcessKill:
+      set_result(f, sys_process_kill(static_cast<uint32_t>(f.rdi)));
+      break;
+    case Number::ProcessInfo:
+      set_result(f, sys_process_info(static_cast<uint32_t>(f.rdi), f.rsi));
+      break;
+    case Number::JobCreate: {
+      uint64_t v = 0;
+      set_result(f, kernel::ipc::sys_job_create(static_cast<uint32_t>(f.rdi), &v), v);
+      break;
+    }
+    case Number::JobKill:
+      set_result(f, sys_job_kill(static_cast<uint32_t>(f.rdi)));
+      break;
+    case Number::JobInfo:
+      set_result(f, kernel::ipc::sys_job_info(static_cast<uint32_t>(f.rdi), f.rsi));
+      break;
+    case Number::ConsoleSetForeground:
+      set_result(f, sys_console_set_foreground(static_cast<uint32_t>(f.rdi), static_cast<uint32_t>(f.rsi)));
+      break;
+    case Number::ThreadCreate: {
+      uint64_t v = 0;
+      set_result(f, sys_thread_create(f.rdi, f.rsi, f.rdx, &v), v);
+      break;
+    }
+    case Number::ThreadExit:
+      exit_current_thread(static_cast<int64_t>(f.rdi));
+    case Number::ThreadInfo:
+      set_result(f, kernel::ipc::sys_thread_info(static_cast<uint32_t>(f.rdi), f.rsi));
+      break;
+    case Number::FutexWait:
+      set_result(f, sys_futex_wait(f.rdi, f.rsi, f.rdx));
+      break;
+    case Number::FutexWake: {
+      uint64_t v = 0;
+      set_result(f, sys_futex_wake(f.rdi, f.rsi, &v), v);
+      break;
+    }
+    case Number::ThreadSetFs:
+      set_result(f, sys_thread_set_fs(f.rdi));
+      break;
     case Number::ConsoleRead: {
       uint64_t v = 0;
       set_result(f, kernel::console::sys_console_read(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, f.r10, &v), v);

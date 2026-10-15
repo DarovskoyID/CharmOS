@@ -646,6 +646,7 @@ Status tcp_accept(int l, uint64_t deadline, int* out, uint32_t* peer_ip, uint16_
       }
     }
     if (deadline == 0) return Status::WouldBlock;
+    if (sched::interrupted()) return Status::Interrupted;
     if (platform::now_ns() >= deadline) return Status::TimedOut;
     sched::sleep_ns(kMs);
   }
@@ -685,6 +686,7 @@ Status tcp_connect(uint32_t ip, uint16_t port, uint64_t deadline, int* out) {
       if (t.state == State::Established) return Status::Ok;
       if (t.state == State::Closed) return t.error != Status::Ok ? t.error : Status::ConnectionRefused;
     }
+    if (sched::interrupted()) return Status::Interrupted;
     if (platform::now_ns() >= deadline) return Status::TimedOut;
     sched::sleep_ns(kMs);
   }
@@ -711,6 +713,7 @@ Status tcp_send(int c, const void* buf, uint32_t len, uint64_t deadline, uint32_
     }
     if (*sent != 0 && deadline == 0) return Status::Ok;
     if (deadline == 0) return Status::WouldBlock;
+    if (sched::interrupted()) return *sent != 0 ? Status::Ok : Status::Interrupted;
     if (platform::now_ns() >= deadline) return *sent != 0 ? Status::Ok : Status::TimedOut;
     sched::sleep_ns(kMs);
   }
@@ -736,6 +739,7 @@ Status tcp_recv(int c, void* buf, uint32_t cap, uint64_t deadline, uint32_t* got
       if (t.state == State::Closed) return t.error != Status::Ok ? t.error : Status::Ok;
     }
     if (deadline == 0) return Status::WouldBlock;
+    if (sched::interrupted()) return Status::Interrupted;
     if (platform::now_ns() >= deadline) return Status::TimedOut;
     sched::sleep_ns(kMs);
   }

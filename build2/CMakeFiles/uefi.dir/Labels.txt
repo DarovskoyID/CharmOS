@@ -1,0 +1,13 @@
+# Target labels
+ uefi
+# Source files and their labels
+/mnt/a/CharmOS/build2/CMakeFiles/uefi
+/mnt/a/CharmOS/build2/CMakeFiles/uefi.rule
+/mnt/a/CharmOS/build2/CMakeFiles/uefi-complete.rule
+/mnt/a/CharmOS/build2/uefi-prefix/src/uefi-stamp/uefi-build.rule
+/mnt/a/CharmOS/build2/uefi-prefix/src/uefi-stamp/uefi-configure.rule
+/mnt/a/CharmOS/build2/uefi-prefix/src/uefi-stamp/uefi-download.rule
+/mnt/a/CharmOS/build2/uefi-prefix/src/uefi-stamp/uefi-install.rule
+/mnt/a/CharmOS/build2/uefi-prefix/src/uefi-stamp/uefi-mkdir.rule
+/mnt/a/CharmOS/build2/uefi-prefix/src/uefi-stamp/uefi-patch.rule
+/mnt/a/CharmOS/build2/uefi-prefix/src/uefi-stamp/uefi-update.rule

@@ -1,6 +1,7 @@
 #include "ipc.hpp"
 
 #include <arch/x86_64/cpu.hpp>
+#include <abi/process.hpp>
 #include <arch/x86_64/paging.hpp>
 
 #include "../core/panic.hpp"
@@ -28,7 +29,7 @@ using arch::x86_64::kPageSize;
 
 // --- объекты ------------------------------------------------------------------------
 
-enum class Type : uint8_t { Endpoint, Vmo, Port, Device, Interrupt, FsNode, Net, Socket, Console };
+enum class Type : uint8_t { Endpoint, Vmo, Port, Device, Interrupt, FsNode, Net, Socket, Console, Thread, Process, Job };
 
 struct Object {
   Type type;
@@ -133,6 +134,41 @@ struct ConsoleObj {
 constexpr uint32_t kMaxConsoleBinds = 8;
 constinit bool (*console_has_input)() = nullptr;
 constinit ConsoleObj* g_console_binds[kMaxConsoleBinds] = {};
+
+// Запущенный процесс (docs/abi/process.md §3): держит ссылку на proc::Process.
+struct ProcessObj {
+  Object base;
+  proc::Process* proc;
+  ProcessObj* next_watch;  // в списке proc->watchers, пока процесс жив
+  Port* bound;
+  uint64_t bound_key;
+};
+
+// Job (docs/abi/process.md §5). Ссылки: капабилити, процессы, дочерние Job,
+// передний план консоли. Счётчики — по всему поддереву.
+struct Job {
+  Object base;
+  Job* parent;  // не меняется: предки читаются без блокировки
+  uint32_t processes;
+  uint32_t threads;
+  uint64_t memory_pages;
+  uint64_t cpu_ns;
+  abi::process::JobLimits limits;  // действующие (не больше, чем у родителя)
+  Port* bound;
+  uint64_t bound_key;
+};
+constinit Job* g_root_job = nullptr;
+constinit Job* g_foreground = nullptr;  // передний Job консоли (§5.1)
+
+// Поток процесса (docs/abi/process.md §4). Ссылки: капабилити + сам поток,
+// пока не завершился.
+struct ThreadObj {
+  Object base;
+  bool exited;
+  int64_t code;
+  Port* bound;
+  uint64_t bound_key;
+};
 constexpr uint32_t kMaxSocketBinds = 64;
 constinit SocketObj* g_socket_binds[kMaxSocketBinds] = {};
 
@@ -323,6 +359,42 @@ void release_object(Object* obj) {
     mm::kfree(obj);
     return;
   }
+  if (obj->type == Type::Process) {
+    auto* po = reinterpret_cast<ProcessObj*>(obj);
+    for (auto** it = reinterpret_cast<ProcessObj**>(&po->proc->watchers); *it != nullptr; it = &(*it)->next_watch) {
+      if (*it == po) {
+        *it = po->next_watch;
+        break;
+      }
+    }
+    if (po->bound != nullptr) {
+      --po->bound->armed;
+      release_object(&po->bound->base);
+    }
+    proc::put_process(po->proc);
+    mm::kfree(obj);
+    return;
+  }
+  if (obj->type == Type::Job) {
+    auto* j = reinterpret_cast<Job*>(obj);
+    if (j->bound != nullptr) {
+      --j->bound->armed;
+      release_object(&j->bound->base);
+    }
+    Job* parent = j->parent;
+    mm::kfree(obj);
+    if (parent != nullptr) release_object(&parent->base);
+    return;
+  }
+  if (obj->type == Type::Thread) {
+    auto* to = reinterpret_cast<ThreadObj*>(obj);
+    if (to->bound != nullptr) {
+      --to->bound->armed;
+      release_object(&to->bound->base);
+    }
+    mm::kfree(obj);
+    return;
+  }
   if (obj->type == Type::Console) {
     auto* co = reinterpret_cast<ConsoleObj*>(obj);
     for (ConsoleObj*& b : g_console_binds) {
@@ -422,7 +494,7 @@ void detach_mapping(Mapping* m, Pending* p) {
     }
   }
   for (uint64_t off = 0; off < m->size; off += kPageSize) m->proc->space.unmap(m->addr + off);
-  p->cpus |= 1ull << m->proc->cpu;
+  p->cpus |= __atomic_load_n(&m->proc->cpus, __ATOMIC_ACQUIRE);
   m->next_in_proc = p->list;
   p->list = m;
 }
@@ -480,8 +552,8 @@ void teardown_process(proc::Process* p) {
   while (uint32_t h = p->ipc.table.next_used(&cursor)) {
     close_cap(static_cast<Cap*>(p->ipc.table.remove(h)));
   }
-  // CR3 этого процесса больше нигде не загружен (он исполнялся только на
-  // своём CPU, который уже перешёл на таблицы ядра) — сброс TLB не нужен.
+  // CR3 этого процесса больше нигде не загружен (каждый его поток, уходя,
+  // перешёл на таблицы ядра, что сбросило TLB) — сброс TLB не нужен.
   while (Mapping* m = p->ipc.mappings) {
     Pending pend;
     detach_mapping(m, &pend);
@@ -823,11 +895,16 @@ Status sys_channel_read(uint32_t h, uint64_t bytes, uint64_t cap, uint64_t handl
       g_lock.unlock(irq);
       return Status::TimedOut;
     }
+    if (sched::interrupted()) {
+      g_lock.unlock(irq);
+      return Status::Interrupted;
+    }
     sched::Thread* self = sched::current();
     ep->readers.push(self);
-    sched::block_current_until(deadline);
+    sched::block_interruptible_until(deadline);
     g_lock.unlock(false);
     sched::schedule();
+    sched::end_interruptible();
     // Проснулись: либо писатель вынул нас из очереди, либо истёк срок
     // (тогда мы ещё в очереди). Конец канала мог исчезнуть — ищем заново.
     {
@@ -993,6 +1070,55 @@ Status sys_object_bind(uint32_t port_h, uint32_t h, uint64_t key) {
     if (!irq->masked && irq->pending != 0) deliver(irq);
     return Status::Ok;
   }
+  if (oc->obj->type == Type::Process || oc->obj->type == Type::Job) {
+    Port** bound;
+    uint64_t* bound_key;
+    bool fire_now;
+    uint32_t packet;
+    uint64_t data0 = 0;
+    if (oc->obj->type == Type::Process) {
+      auto* po = reinterpret_cast<ProcessObj*>(oc->obj);
+      if ((oc->rights & rights::kRead) == 0) return Status::AccessDenied;
+      bound = &po->bound;
+      bound_key = &po->bound_key;
+      fire_now = __atomic_load_n(&po->proc->dead, __ATOMIC_ACQUIRE);
+      packet = abi::syscall::kPacketProcessExited;
+      data0 = static_cast<uint64_t>(po->proc->exit_code);
+    } else {
+      auto* j = reinterpret_cast<Job*>(oc->obj);
+      bound = &j->bound;
+      bound_key = &j->bound_key;
+      fire_now = j->processes == 0;
+      packet = abi::syscall::kPacketJobEmpty;
+    }
+    if (*bound != nullptr) return Status::Busy;
+    auto* port = reinterpret_cast<Port*>(pc->obj);
+    if (port->count + port->armed >= abi::syscall::kPortMaxPackets) return Status::Busy;
+    if (fire_now) {
+      port_push(port, key, packet, data0);
+      return Status::Ok;
+    }
+    *bound = port;
+    *bound_key = key;
+    ++port->armed;
+    ++port->base.refs;
+    return Status::Ok;
+  }
+  if (oc->obj->type == Type::Thread) {
+    auto* to = reinterpret_cast<ThreadObj*>(oc->obj);
+    if (to->bound != nullptr) return Status::Busy;
+    auto* port = reinterpret_cast<Port*>(pc->obj);
+    if (port->count + port->armed >= abi::syscall::kPortMaxPackets) return Status::Busy;
+    if (to->exited) {
+      port_push(port, key, abi::syscall::kPacketThreadExited, static_cast<uint64_t>(to->code));
+      return Status::Ok;
+    }
+    to->bound = port;
+    to->bound_key = key;
+    ++port->armed;
+    ++port->base.refs;
+    return Status::Ok;
+  }
   if (oc->obj->type == Type::Console) {
     auto* co = reinterpret_cast<ConsoleObj*>(oc->obj);
     if (co->bound != nullptr) return Status::Busy;
@@ -1102,11 +1228,16 @@ Status sys_port_wait(uint32_t port_h, uint64_t user_packet, uint64_t deadline) {
       g_lock.unlock(irq);
       return Status::TimedOut;
     }
+    if (sched::interrupted()) {
+      g_lock.unlock(irq);
+      return Status::Interrupted;
+    }
     sched::Thread* self = sched::current();
     port->waiters.push(self);
-    sched::block_current_until(deadline);
+    sched::block_interruptible_until(deadline);
     g_lock.unlock(false);
     sched::schedule();
+    sched::end_interruptible();
     {
       sync::SpinGuard guard(g_lock);
       Cap* again = lookup(p, port_h);
@@ -1496,11 +1627,16 @@ Status kernel_recv_caps(Cap* endpoint, void* buf, uint64_t cap, uint32_t* len, C
       g_lock.unlock(irq);
       return Status::TimedOut;
     }
+    if (sched::interrupted()) {
+      g_lock.unlock(irq);
+      return Status::Interrupted;
+    }
     sched::Thread* self = sched::current();
     ep->readers.push(self);
-    sched::block_current_until(deadline);
+    sched::block_interruptible_until(deadline);
     g_lock.unlock(false);
     sched::schedule();
+    sched::end_interruptible();
     {
       sync::SpinGuard guard(g_lock);
       ep->readers.remove(self);  // проснулись по сроку — ещё в очереди
@@ -1742,6 +1878,346 @@ void console_readable() {
     release_object(&port->base);
     b = nullptr;
   }
+}
+
+// --- потоки ----------------------------------------------------------------------------
+
+Status create_thread_obj(void** obj, uint64_t* handle) {
+  auto* to = alloc_zeroed<ThreadObj>(sizeof(ThreadObj));
+  if (to == nullptr) return Status::NoMemory;
+  to->base.type = Type::Thread;
+  to->base.refs = 1;  // ссылка самого потока
+  sync::SpinGuard guard(g_lock);
+  Status s = install_new(&to->base, rights::kDuplicate | rights::kTransfer | rights::kRead, handle);
+  if (s != Status::Ok) {
+    mm::kfree(to);
+    return s;
+  }
+  *obj = to;
+  return Status::Ok;
+}
+
+void thread_exited(void* obj, int64_t code) {
+  auto* to = static_cast<ThreadObj*>(obj);
+  sync::SpinGuard guard(g_lock);
+  to->exited = true;
+  to->code = code;
+  if (Port* port = to->bound) {
+    to->bound = nullptr;
+    --port->armed;
+    port_push(port, to->bound_key, abi::syscall::kPacketThreadExited, static_cast<uint64_t>(code));
+    release_object(&port->base);
+  }
+  release_object(&to->base);
+}
+
+Status sys_thread_info(uint32_t h, uint64_t user_out) {
+  abi::syscall::ThreadInfo info{};
+  {
+    sync::SpinGuard guard(g_lock);
+    Cap* c = lookup(me(), h);
+    if (c == nullptr) return Status::BadHandle;
+    if (c->obj->type != Type::Thread) return Status::WrongType;
+    if ((c->rights & rights::kRead) == 0) return Status::AccessDenied;
+    auto* to = reinterpret_cast<ThreadObj*>(c->obj);
+    info.state = to->exited ? abi::syscall::kThreadExited : abi::syscall::kThreadRunning;
+    info.exit_code = to->code;
+  }
+  return proc::copy_to_user(user_out, &info, sizeof info) ? Status::Ok : Status::BadAddress;
+}
+
+// --- запуск: сообщение с хендлами вызывающего --------------------------------------------
+
+Status send_from_table(Cap* endpoint, const void* bytes, uint64_t len, const uint32_t* handles,
+                       uint32_t count) {
+  if (len > kChannelMaxBytes || count > kChannelMaxHandles) return Status::InvalidArgs;
+  auto* m = alloc_zeroed<Message>(sizeof(Message) + len);
+  if (m == nullptr) return Status::NoMemory;
+  __builtin_memcpy(m->data, bytes, len);
+  m->bytes = static_cast<uint32_t>(len);
+  Status result = Status::Ok;
+  {
+    sync::SpinGuard guard(g_lock);
+    proc::Process* p = me();
+    auto* ep = reinterpret_cast<Endpoint*>(endpoint->obj);
+    Cap* moved[kChannelMaxHandles] = {};
+    if (ep->peer == nullptr) result = Status::PeerClosed;
+    // Всё проверяется до перемещения: при ошибке хендлы остаются у вызывающего.
+    for (uint32_t i = 0; i < count && result == Status::Ok; ++i) {
+      Cap* t = lookup(p, handles[i]);
+      if (t == nullptr) {
+        result = Status::BadHandle;
+      } else if ((t->rights & rights::kTransfer) == 0) {
+        result = Status::AccessDenied;
+      } else {
+        for (uint32_t j = 0; j < i; ++j) {
+          if (moved[j] == t) result = Status::InvalidArgs;
+        }
+        moved[i] = t;
+      }
+    }
+    if (result == Status::Ok) {
+      for (uint32_t i = 0; i < count; ++i) {
+        p->ipc.table.remove(moved[i]->handle);
+        moved[i]->where = Where::Message;
+        moved[i]->owner = nullptr;
+        moved[i]->msg = m;
+        m->caps[i] = moved[i];
+      }
+      m->ncaps = count;
+      Endpoint* peer = ep->peer;
+      if (peer->tail != nullptr) {
+        peer->tail->next = m;
+      } else {
+        peer->head = m;
+      }
+      peer->tail = m;
+      ++peer->count;
+      if (sched::Thread* t = peer->readers.pop()) sched::wake(t);
+      fire(peer, abi::syscall::kPacketChannelReadable);
+      m = nullptr;
+    }
+  }
+  if (m != nullptr) mm::kfree(m);
+  return result;
+}
+
+// --- процессы ---------------------------------------------------------------------------
+
+Status install_process(proc::Process* p, uint64_t* handle) {
+  auto* po = alloc_zeroed<ProcessObj>(sizeof(ProcessObj));
+  if (po == nullptr) return Status::NoMemory;
+  po->base.type = Type::Process;
+  po->proc = p;  // ссылку отдаёт вызывающий
+  sync::SpinGuard guard(g_lock);
+  Cap* c = new_cap(&po->base, rights::kDuplicate | rights::kTransfer | rights::kRead | rights::kWrite |
+                                  rights::kSignal,
+                   nullptr);
+  if (c == nullptr) {
+    mm::kfree(po);
+    return Status::NoMemory;
+  }
+  proc::Process* self = me();
+  auto h = self->ipc.table.insert(c);
+  if (h.is_err()) {
+    unlink(c);
+    mm::kfree(c);
+    mm::kfree(po);
+    return Status::NoMemory;
+  }
+  c->where = Where::Table;
+  c->owner = self;
+  c->handle = h.value();
+  if (!__atomic_load_n(&p->dead, __ATOMIC_ACQUIRE)) {
+    po->next_watch = static_cast<ProcessObj*>(p->watchers);
+    p->watchers = po;
+  }
+  *handle = h.value();
+  return Status::Ok;
+}
+
+Status get_process(uint32_t h, uint32_t need, proc::Process** out) {
+  sync::SpinGuard guard(g_lock);
+  Cap* c = lookup(me(), h);
+  if (c == nullptr) return Status::BadHandle;
+  if (c->obj->type != Type::Process) return Status::WrongType;
+  if ((c->rights & need) != need) return Status::AccessDenied;
+  *out = reinterpret_cast<ProcessObj*>(c->obj)->proc;
+  proc::get_process_ref(*out);
+  return Status::Ok;
+}
+
+void process_exited(proc::Process* p) {
+  sync::SpinGuard guard(g_lock);
+  __atomic_store_n(&p->dead, true, __ATOMIC_RELEASE);
+  auto* po = static_cast<ProcessObj*>(p->watchers);
+  p->watchers = nullptr;
+  while (po != nullptr) {
+    ProcessObj* next = po->next_watch;
+    po->next_watch = nullptr;
+    if (Port* port = po->bound) {
+      po->bound = nullptr;
+      --port->armed;
+      port_push(port, po->bound_key, abi::syscall::kPacketProcessExited, static_cast<uint64_t>(p->exit_code));
+      release_object(&port->base);
+    }
+    po = next;
+  }
+}
+
+// --- Job --------------------------------------------------------------------------------
+
+namespace {
+
+Job* new_job(Job* parent) {
+  auto* j = alloc_zeroed<Job>(sizeof(Job));
+  if (j == nullptr) return nullptr;
+  j->base.type = Type::Job;
+  j->parent = parent;
+  if (parent != nullptr) {
+    j->limits = parent->limits;
+    ++parent->base.refs;
+  }
+  return j;
+}
+
+bool over(uint64_t used, uint64_t limit) { return limit != 0 && used >= limit; }
+
+}  // namespace
+
+Job* root_job() {
+  sync::SpinGuard guard(g_lock);
+  if (g_root_job == nullptr) {
+    g_root_job = new_job(nullptr);
+    if (g_root_job == nullptr) panic("ipc: no memory for the root job");
+    g_root_job->base.refs = 1;  // ядро держит корень всегда
+  }
+  return g_root_job;
+}
+
+bool job_contains(const Job* ancestor, const Job* j) {
+  for (; j != nullptr; j = j->parent) {
+    if (j == ancestor) return true;
+  }
+  return false;
+}
+
+Status job_enter(Job* j) {
+  sync::SpinGuard guard(g_lock);
+  for (Job* a = j; a != nullptr; a = a->parent) {
+    if (over(a->processes, a->limits.processes) || over(a->threads, a->limits.threads)) return Status::NoSpace;
+  }
+  for (Job* a = j; a != nullptr; a = a->parent) {
+    ++a->processes;
+    ++a->threads;
+  }
+  ++j->base.refs;
+  return Status::Ok;
+}
+
+void job_leave(Job* j) {
+  sync::SpinGuard guard(g_lock);
+  for (Job* a = j; a != nullptr; a = a->parent) {
+    --a->processes;
+    if (a->processes == 0 && a->bound != nullptr) {
+      Port* port = a->bound;
+      a->bound = nullptr;
+      --port->armed;
+      port_push(port, a->bound_key, abi::syscall::kPacketJobEmpty);
+      release_object(&port->base);
+    }
+  }
+  release_object(&j->base);
+}
+
+Status job_thread_enter(Job* j) {
+  sync::SpinGuard guard(g_lock);
+  for (Job* a = j; a != nullptr; a = a->parent) {
+    if (over(a->threads, a->limits.threads)) return Status::NoSpace;
+  }
+  for (Job* a = j; a != nullptr; a = a->parent) ++a->threads;
+  return Status::Ok;
+}
+
+void job_thread_leave(Job* j) {
+  sync::SpinGuard guard(g_lock);
+  for (Job* a = j; a != nullptr; a = a->parent) --a->threads;
+}
+
+Status get_job(uint32_t h, uint32_t need, Job** out) {
+  sync::SpinGuard guard(g_lock);
+  Cap* c = lookup(me(), h);
+  if (c == nullptr) return Status::BadHandle;
+  if (c->obj->type != Type::Job) return Status::WrongType;
+  if ((c->rights & need) != need) return Status::AccessDenied;
+  *out = reinterpret_cast<Job*>(c->obj);
+  ++(*out)->base.refs;
+  return Status::Ok;
+}
+
+void job_put(Job* j) {
+  sync::SpinGuard guard(g_lock);
+  release_object(&j->base);
+}
+
+void job_get(Job* j) {
+  sync::SpinGuard guard(g_lock);
+  ++j->base.refs;
+}
+
+Status create_job_cap(Job* j, Cap** out) {
+  sync::SpinGuard guard(g_lock);
+  Cap* c = new_cap(&j->base, rights::kDuplicate | rights::kTransfer | rights::kRead | rights::kWrite | rights::kSpawn,
+                   nullptr);
+  if (c == nullptr) return Status::NoMemory;
+  *out = c;
+  return Status::Ok;
+}
+
+Status sys_job_create(uint32_t parent_h, uint64_t* out) {
+  *out = 0;
+  Job* parent;
+  Status s = get_job(parent_h, rights::kSpawn, &parent);
+  if (s != Status::Ok) return s;
+  Job* j = new_job(parent);
+  if (j == nullptr) {
+    job_put(parent);
+    return Status::NoMemory;
+  }
+  sync::SpinGuard guard(g_lock);
+  release_object(&parent->base);  // ссылку держит сам дочерний Job
+  Cap* c = new_cap(&j->base, rights::kDuplicate | rights::kTransfer | rights::kRead | rights::kWrite | rights::kSpawn,
+                   nullptr);
+  if (c == nullptr) {
+    release_object(&parent->base);
+    mm::kfree(j);
+    return Status::NoMemory;
+  }
+  proc::Process* self = me();
+  auto h = self->ipc.table.insert(c);
+  if (h.is_err()) {
+    release_detached(c);  // освобождает и Job (с его ссылкой на родителя)
+    return Status::NoMemory;
+  }
+  c->where = Where::Table;
+  c->owner = self;
+  c->handle = h.value();
+  *out = h.value();
+  return Status::Ok;
+}
+
+Status sys_job_info(uint32_t h, uint64_t user_out) {
+  abi::process::JobInfo info{};
+  {
+    sync::SpinGuard guard(g_lock);
+    Cap* c = lookup(me(), h);
+    if (c == nullptr) return Status::BadHandle;
+    if (c->obj->type != Type::Job) return Status::WrongType;
+    if ((c->rights & rights::kRead) == 0) return Status::AccessDenied;
+    auto* j = reinterpret_cast<Job*>(c->obj);
+    info.processes = j->processes;
+    info.threads = j->threads;
+    info.memory_pages = j->memory_pages;
+    info.cpu_ns = j->cpu_ns;
+  }
+  return proc::copy_to_user(user_out, &info, sizeof info) ? Status::Ok : Status::BadAddress;
+}
+
+Status set_foreground(Job* j) {
+  Job* old;
+  {
+    sync::SpinGuard guard(g_lock);
+    ++j->base.refs;
+    old = g_foreground;
+    g_foreground = j;
+    if (old != nullptr) release_object(&old->base);
+  }
+  return Status::Ok;
+}
+
+void with_foreground(void (*fn)(Job* j, void* ctx), void* ctx) {
+  sync::SpinGuard guard(g_lock);
+  if (g_foreground != nullptr) fn(g_foreground, ctx);
 }
 
 }  // namespace kernel::ipc

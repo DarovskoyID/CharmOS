@@ -132,6 +132,17 @@ inline constexpr uint8_t kBarIo = 3;
 inline constexpr uint32_t kDeviceDma = 1u << 0;
 inline constexpr uint64_t kDmaContiguous = 1u << 0;  // флаг dma_alloc
 
+// Состояние потока (docs/abi/process.md §4).
+struct ThreadInfo {
+  uint32_t state;
+  uint32_t reserved;
+  int64_t exit_code;
+};
+static_assert(sizeof(ThreadInfo) == 16);
+static_assert(__builtin_offsetof(ThreadInfo, exit_code) == 8);
+inline constexpr uint32_t kThreadRunning = 1;
+inline constexpr uint32_t kThreadExited = 2;
+
 // Права хендла (docs/abi/ipc.md §3).
 namespace rights {
 inline constexpr uint32_t kDuplicate = 1u << 0;

@@ -1,0 +1,7 @@
+# Драйвер контроллера NVMe (NVM Express Base 2.1, NVM Command Set 1.1, PCIe Transport 1.4).
+name = "nvme"
+class = "block"
+
+[[match]]
+class_code = 0x010802   # Mass storage / NVM / NVM Express
+score = 50

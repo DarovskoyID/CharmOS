@@ -111,6 +111,7 @@ Status read(void* buf, uint32_t cap, uint64_t deadline, uint32_t* got) {
       }
     }
     if (deadline == 0) return Status::WouldBlock;
+    if (sched::interrupted()) return Status::Interrupted;
     if (platform::now_ns() >= deadline) return Status::TimedOut;
     sched::sleep_ns(2'000'000);  // опрос кольца (правило 9: очередь ожидания — после замеров)
   }

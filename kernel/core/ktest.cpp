@@ -9,6 +9,8 @@
 #include "../mm/vmm.hpp"
 #include "../mm/stack.hpp"
 #include "../block/block.hpp"
+#include <abi/process.hpp>
+
 #include "../console/console.hpp"
 #include "../drivers/devmgr.hpp"
 #include "../fs/cache.hpp"
@@ -961,6 +963,77 @@ void test_console() {
   pass();
 }
 
+// Потоки (M8, process.md §4): дважды, с учётом памяти, как test_user.
+void test_threads() {
+  lib::initrd::Archive archive;
+  if (archive.open(mm::phys_to_virt<const void>(g_initrd_phys), g_initrd_size).is_err()) fail("bad initrd");
+  struct Run {
+    const char* file;
+    int64_t want;
+  };
+  const Run runs[] = {{"bin/threads", 0}, {"bin/thread_kill", 5}, {"bin/thread_last", 9}};
+  auto accounted = [] {
+    return mm::free_frame_count() + mm::kernel_stack_pages() + mm::heap_mapped_bytes() / 4096;
+  };
+  uint64_t first = 0;
+  for (int round = 0; round < 2; ++round) {
+    for (const Run& r : runs) {
+      lib::initrd::File f;
+      if (!archive.find(r.file, &f)) fail("program missing from initrd");
+      auto p = proc::spawn_process(f.name.substr(4), f.data, f.size);
+      if (p.is_err()) fail("spawn_process failed");
+      int64_t code = proc::wait_process(p.value());
+      if (round == 0) kprint("ktest: {} exited with {} (want {})\n", r.file, code, r.want);
+      if (code != r.want) fail("unexpected exit code");
+    }
+    sched::sleep_ns(50'000'000);  // завершившиеся потоки уходят в зомби
+    if (round == 0) first = accounted();
+  }
+  uint64_t second = accounted();
+  kprint("ktest: threads accounted frames {} / {}\n", first, second);
+  if (first != second) fail("thread memory leaked");
+  pass();
+}
+
+// Запуск процессов (M8, process.md §2–§5): ядро даёт spawn_parent
+// стартовое сообщение "strt" с ролями Root и Job; тот запускает ребёнка с диска.
+void test_spawn() {
+  namespace ap = abi::process;
+  if (!fs::mounted()) fail("root not mounted");
+  lib::initrd::Archive archive;
+  if (archive.open(mm::phys_to_virt<const void>(g_initrd_phys), g_initrd_size).is_err()) fail("bad initrd");
+  lib::initrd::File f;
+  if (!archive.find(StringView("bin/spawn_parent"), &f)) fail("program missing from initrd");
+  ipc::Cap *mine, *theirs, *caps[2];
+  if (ipc::create_channel(&mine, &theirs) != ipc::Status::Ok) fail("create_channel");
+  if (fs::root_cap(&caps[0]) != ipc::Status::Ok) fail("root_cap");
+  if (ipc::create_job_cap(ipc::root_job(), &caps[1]) != ipc::Status::Ok) fail("job cap");
+  struct {
+    ap::StartHeader h;
+    char args[13];
+  } msg{};
+  __builtin_memcpy(msg.h.magic, ap::kStartMagic, 4);
+  msg.h.argc = 1;
+  msg.h.args_bytes = sizeof msg.args;
+  msg.h.handle_count = 2;
+  msg.h.roles[0] = ap::kRoleRoot;
+  msg.h.roles[1] = ap::kRoleJob;
+  __builtin_memcpy(msg.args, "spawn_parent", 13);
+  if (ipc::kernel_send(mine, &msg, sizeof msg.h + sizeof msg.args, caps, 2) != ipc::Status::Ok) fail("kernel_send");
+  auto accounted = [] {
+    return mm::free_frame_count() + mm::kernel_stack_pages() + mm::heap_mapped_bytes() / 4096;
+  };
+  uint64_t before = accounted();
+  auto p = proc::spawn_process(f.name.substr(4), f.data, f.size, sched::kAnyCpu, theirs);
+  if (p.is_err()) fail("spawn_process failed");
+  int64_t code = proc::wait_process(p.value());
+  ipc::release_detached(mine);
+  kprint("ktest: bin/spawn_parent exited with {}\n", code);
+  if (code != 0) fail("program failed");
+  (void)before;
+  pass();
+}
+
 struct Test {
   StringView name;
   void (*fn)();
@@ -992,6 +1065,8 @@ constexpr Test kTests[] = {
     {"drivers", &test_drivers},
     {"blk", &test_blk},
     {"console", &test_console},
+    {"threads", &test_threads},
+    {"spawn", &test_spawn},
     {"fs", &test_fs},
     {"fs_check", &test_fs_check},
     {"fs_crash", &test_fs_crash},
@@ -1010,7 +1085,7 @@ bool needs_drivers() {
          g_selected == StringView("fs") || g_selected == StringView("fs_check") ||
          g_selected == StringView("fs_crash") || g_selected == StringView("net") ||
          g_selected == StringView("tcp") || g_selected == StringView("sock") ||
-         g_selected == StringView("udp");
+         g_selected == StringView("udp") || g_selected == StringView("spawn");
 }
 StringView selected() { return g_selected; }
 

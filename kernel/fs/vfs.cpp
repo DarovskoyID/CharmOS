@@ -350,6 +350,36 @@ Status sys_file_sync(uint32_t h) {
   return sync_all();
 }
 
+Status read_file(uint32_t h, uint64_t max, void** data, uint64_t* size) {
+  Node file;
+  uint32_t r;
+  Status s = node_from(h, rights::kRead, false, &file, &r);
+  if (s != Status::Ok) return s;
+  uint64_t len;
+  {
+    sync::MutexGuard guard(g_vfs);
+    auto st = g_fs->stat(file);
+    if (st.is_err()) return map(st.error());
+    len = st.value().size;
+  }
+  if (len == 0 || len > max) return Status::InvalidArgs;
+  auto mem = mm::kmalloc(static_cast<size_t>(len));
+  if (mem.is_err()) return Status::NoMemory;
+  for (uint64_t done = 0; done < len;) {
+    sync::MutexGuard guard(g_vfs);
+    size_t chunk = len - done < 65536 ? static_cast<size_t>(len - done) : 65536;
+    auto rd = g_fs->read(file, done, static_cast<uint8_t*>(mem.value()) + done, chunk);
+    if (rd.is_err() || rd.value() == 0) {
+      mm::kfree(mem.value());
+      return rd.is_err() ? map(rd.error()) : Status::IoError;
+    }
+    done += rd.value();
+  }
+  *data = mem.value();
+  *size = len;
+  return Status::Ok;
+}
+
 Status sys_fs_stat(uint32_t h, uint64_t user_out) {
   if (g_fs == nullptr) return Status::NotSupported;
   uint64_t id;

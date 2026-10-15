@@ -186,6 +186,7 @@ void schedule() {
     c.kernel_rsp = next->stack.top;
     arch::x86_64::set_kernel_entry_stack(c.descriptors, next->stack.top);
     if (arch::x86_64::read_cr3() != next->user_cr3) arch::x86_64::write_cr3(next->user_cr3);
+    arch::x86_64::set_fs_base(next->fs_base);  // ядро FS не использует
   }
   if (next->fpu != nullptr) asm volatile("fxrstor64 (%0)" : : "r"(next->fpu) : "memory");
   switch_context(&prev->rsp, next->rsp);
@@ -198,6 +199,8 @@ void detach_user_context() {
   me->fpu = nullptr;
   me->process = nullptr;
   me->user_cr3 = 0;
+  me->user_obj = nullptr;
+  me->fs_base = 0;
   restore_if(irq);
 }
 
@@ -247,6 +250,7 @@ Result<Thread*, SchedError> spawn(const char* name, ThreadFn fn, void* arg, int 
     t->user_cr3 = user->cr3;
     t->process = user->process;
     t->fpu = user->fpu;
+    t->user_obj = user->user_obj;
   }
 
   // Начальный стек для switch_context: 6 сохраняемых регистров, затем адрес
@@ -350,6 +354,24 @@ void wake(Thread* t) {
   }
   if (woke) kick_cpu(target);
 }
+
+void interrupt(Thread* t) {
+  __atomic_store_n(&t->interrupt_pending, true, __ATOMIC_SEQ_CST);
+  if (__atomic_load_n(&t->interruptible, __ATOMIC_SEQ_CST)) wake(t);
+}
+
+bool interrupted() { return __atomic_load_n(&local_rq().current->interrupt_pending, __ATOMIC_ACQUIRE); }
+
+void block_interruptible_until(uint64_t deadline_ns) {
+  Thread* me = local_rq().current;
+  __atomic_store_n(&me->interruptible, true, __ATOMIC_SEQ_CST);
+  block_current_until(deadline_ns);
+  // interrupt() мог прийти до того, как мы стали прерываемыми: тогда он нас
+  // не будил — будим себя сами (wake до schedule безопасен).
+  if (__atomic_load_n(&me->interrupt_pending, __ATOMIC_SEQ_CST)) wake(me);
+}
+
+void end_interruptible() { __atomic_store_n(&local_rq().current->interruptible, false, __ATOMIC_RELEASE); }
 
 void on_timer_tick() {
   RunQueue& q = local_rq();

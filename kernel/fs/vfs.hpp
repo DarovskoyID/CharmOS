@@ -26,6 +26,10 @@ Status root_cap(ipc::Cap** out);
 // Сбросить всё на диск (метаданные ФС, кэш, кэш устройства).
 Status sync_all();
 
+// Файл по хендлу (право Read) целиком в куче ядра (освободить — mm::kfree).
+// Пустой или больше max — InvalidArgs.
+Status read_file(uint32_t file, uint64_t max, void** data, uint64_t* size);
+
 // --- системные вызовы 23–30 ---------------------------------------------------------------
 Status sys_fs_open(uint32_t dir, uint64_t path, uint64_t len, uint64_t flags, uint64_t* out);
 Status sys_file_read(uint32_t file, uint64_t buf, uint64_t len, uint64_t offset, uint64_t* out);

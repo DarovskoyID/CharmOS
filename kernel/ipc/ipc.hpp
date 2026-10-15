@@ -98,6 +98,45 @@ Status get_socket(uint32_t h, uint32_t need, uint64_t* id);
 // Для стека: пройти подписки на сокеты; ready возвращает true и тип пакета.
 void poll_sockets(bool (*ready)(uint64_t id, uint32_t* packet));
 
+// --- запуск процессов и Job (docs/abi/process.md §3, §5) ---------------------------------
+// Сообщение в канал (endpoint — отсоединённая капабилити ядра) с хендлами
+// из таблицы текущего процесса; атомарно: при ошибке хендлы остаются.
+Status send_from_table(Cap* endpoint, const void* bytes, uint64_t len, const uint32_t* handles,
+                       uint32_t count);
+// Хендл Process в таблице текущего процесса; ссылку на p передаёт вызывающий.
+Status install_process(proc::Process* p, uint64_t* handle);
+// По хендлу Process: ссылка на процесс (снять — proc::put_process).
+Status get_process(uint32_t h, uint32_t need, proc::Process** out);
+// Процесс завершился (exit_code задан): пакеты подписчикам.
+void process_exited(proc::Process* p);
+
+struct Job;
+Job* root_job();
+// Предки Job неизменны: проверка без блокировки (оба держатся ссылками).
+bool job_contains(const Job* ancestor, const Job* j);
+// Процесс входит в Job (с первым потоком) / выходит; лимиты — NoSpace.
+Status job_enter(Job* j);
+void job_leave(Job* j);
+Status job_thread_enter(Job* j);
+void job_thread_leave(Job* j);
+// По хендлу Job: ссылка (снять — job_put).
+Status get_job(uint32_t h, uint32_t need, Job** out);
+void job_get(Job* j);
+void job_put(Job* j);
+Status create_job_cap(Job* j, Cap** out);
+Status sys_job_create(uint32_t parent, uint64_t* out);
+Status sys_job_info(uint32_t h, uint64_t user_out);
+// Передний план консоли (§5.1); with_foreground — под блокировкой IPC (можно из прерывания).
+Status set_foreground(Job* j);
+void with_foreground(void (*fn)(Job* j, void* ctx), void* ctx);
+
+// --- потоки (docs/abi/process.md §4) ----------------------------------------------------
+// Объект Thread с капабилити в таблице текущего процесса (+ ссылка потока).
+Status create_thread_obj(void** obj, uint64_t* handle);
+// Поток завершился: пакет подписчику, ссылка потока снимается.
+void thread_exited(void* obj, int64_t code);
+Status sys_thread_info(uint32_t h, uint64_t user_out);
+
 // --- консоль (docs/abi/console.md) ------------------------------------------------------
 Status create_console(uint32_t rights, Cap** out);
 Status get_console(uint32_t h, uint32_t need);

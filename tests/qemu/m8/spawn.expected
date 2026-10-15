@@ -1,0 +1,6 @@
+# M8: process_spawn ребёнка с диска (аргументы, окружение, хендлы с ролями),
+# ожидание через порт, process_info, process_kill, Job и JobEmpty, ошибки.
+[spawn_parent] spawn: child says argv0=spawn_child envc=2 env0=A=1 env1=B=two handles=2 file=hello
+[spawn_parent] spawn: ok
+ktest: bin/spawn_parent exited with 0
+ktest: PASS spawn

@@ -1,0 +1,36 @@
+# CMake generated Testfile for 
+# Source directory: /mnt/a/CharmOS/tests/host
+# Build directory: /mnt/a/CharmOS/build2/host/tests/host
+# 
+# This file includes the relevant testing commands required for 
+# testing this directory and lists subdirectories to be tested as well.
+add_test([=[test_format]=] "/mnt/a/CharmOS/build2/host/tests/host/test_format")
+set_tests_properties([=[test_format]=] PROPERTIES  _BACKTRACE_TRIPLES "/mnt/a/CharmOS/tests/host/CMakeLists.txt;5;add_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;8;charmos_host_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;0;")
+add_test([=[test_abi_boot]=] "/mnt/a/CharmOS/build2/host/tests/host/test_abi_boot")
+set_tests_properties([=[test_abi_boot]=] PROPERTIES  _BACKTRACE_TRIPLES "/mnt/a/CharmOS/tests/host/CMakeLists.txt;5;add_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;9;charmos_host_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;0;")
+add_test([=[test_elf]=] "/mnt/a/CharmOS/build2/host/tests/host/test_elf")
+set_tests_properties([=[test_elf]=] PROPERTIES  _BACKTRACE_TRIPLES "/mnt/a/CharmOS/tests/host/CMakeLists.txt;5;add_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;11;charmos_host_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;0;")
+add_test([=[test_memmap]=] "/mnt/a/CharmOS/build2/host/tests/host/test_memmap")
+set_tests_properties([=[test_memmap]=] PROPERTIES  _BACKTRACE_TRIPLES "/mnt/a/CharmOS/tests/host/CMakeLists.txt;5;add_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;13;charmos_host_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;0;")
+add_test([=[test_paging]=] "/mnt/a/CharmOS/build2/host/tests/host/test_paging")
+set_tests_properties([=[test_paging]=] PROPERTIES  _BACKTRACE_TRIPLES "/mnt/a/CharmOS/tests/host/CMakeLists.txt;5;add_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;16;charmos_host_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;0;")
+add_test([=[test_boot_info]=] "/mnt/a/CharmOS/build2/host/tests/host/test_boot_info")
+set_tests_properties([=[test_boot_info]=] PROPERTIES  _BACKTRACE_TRIPLES "/mnt/a/CharmOS/tests/host/CMakeLists.txt;5;add_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;18;charmos_host_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;0;")
+add_test([=[test_core]=] "/mnt/a/CharmOS/build2/host/tests/host/test_core")
+set_tests_properties([=[test_core]=] PROPERTIES  _BACKTRACE_TRIPLES "/mnt/a/CharmOS/tests/host/CMakeLists.txt;5;add_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;21;charmos_host_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;0;")
+add_test([=[test_mm]=] "/mnt/a/CharmOS/build2/host/tests/host/test_mm")
+set_tests_properties([=[test_mm]=] PROPERTIES  _BACKTRACE_TRIPLES "/mnt/a/CharmOS/tests/host/CMakeLists.txt;5;add_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;22;charmos_host_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;0;")
+add_test([=[test_cmdline]=] "/mnt/a/CharmOS/build2/host/tests/host/test_cmdline")
+set_tests_properties([=[test_cmdline]=] PROPERTIES  _BACKTRACE_TRIPLES "/mnt/a/CharmOS/tests/host/CMakeLists.txt;5;add_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;24;charmos_host_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;0;")
+add_test([=[test_acpi]=] "/mnt/a/CharmOS/build2/host/tests/host/test_acpi")
+set_tests_properties([=[test_acpi]=] PROPERTIES  _BACKTRACE_TRIPLES "/mnt/a/CharmOS/tests/host/CMakeLists.txt;5;add_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;26;charmos_host_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;0;")
+add_test([=[test_initrd]=] "/mnt/a/CharmOS/build2/host/tests/host/test_initrd")
+set_tests_properties([=[test_initrd]=] PROPERTIES  _BACKTRACE_TRIPLES "/mnt/a/CharmOS/tests/host/CMakeLists.txt;5;add_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;28;charmos_host_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;0;")
+add_test([=[test_cap]=] "/mnt/a/CharmOS/build2/host/tests/host/test_cap")
+set_tests_properties([=[test_cap]=] PROPERTIES  _BACKTRACE_TRIPLES "/mnt/a/CharmOS/tests/host/CMakeLists.txt;5;add_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;30;charmos_host_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;0;")
+add_test([=[test_manifest]=] "/mnt/a/CharmOS/build2/host/tests/host/test_manifest")
+set_tests_properties([=[test_manifest]=] PROPERTIES  _BACKTRACE_TRIPLES "/mnt/a/CharmOS/tests/host/CMakeLists.txt;5;add_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;32;charmos_host_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;0;")
+add_test([=[test_fs]=] "/mnt/a/CharmOS/build2/host/tests/host/test_fs")
+set_tests_properties([=[test_fs]=] PROPERTIES  _BACKTRACE_TRIPLES "/mnt/a/CharmOS/tests/host/CMakeLists.txt;5;add_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;34;charmos_host_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;0;")
+add_test([=[check_mkdisk]=] "bash" "/mnt/a/CharmOS/tests/host/check_mkdisk.sh" "/mnt/a/CharmOS/build2/host/tools/mkdisk/mkdisk")
+set_tests_properties([=[check_mkdisk]=] PROPERTIES  _BACKTRACE_TRIPLES "/mnt/a/CharmOS/tests/host/CMakeLists.txt;36;add_test;/mnt/a/CharmOS/tests/host/CMakeLists.txt;0;")

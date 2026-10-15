@@ -1,0 +1,13 @@
+# Target labels
+ kernel
+# Source files and their labels
+/mnt/a/CharmOS/build2/CMakeFiles/kernel
+/mnt/a/CharmOS/build2/CMakeFiles/kernel.rule
+/mnt/a/CharmOS/build2/CMakeFiles/kernel-complete.rule
+/mnt/a/CharmOS/build2/kernel-prefix/src/kernel-stamp/kernel-build.rule
+/mnt/a/CharmOS/build2/kernel-prefix/src/kernel-stamp/kernel-configure.rule
+/mnt/a/CharmOS/build2/kernel-prefix/src/kernel-stamp/kernel-download.rule
+/mnt/a/CharmOS/build2/kernel-prefix/src/kernel-stamp/kernel-install.rule
+/mnt/a/CharmOS/build2/kernel-prefix/src/kernel-stamp/kernel-mkdir.rule
+/mnt/a/CharmOS/build2/kernel-prefix/src/kernel-stamp/kernel-patch.rule
+/mnt/a/CharmOS/build2/kernel-prefix/src/kernel-stamp/kernel-update.rule

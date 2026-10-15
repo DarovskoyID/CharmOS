@@ -1,0 +1,16 @@
+{
+	"InstallScripts" : 
+	[
+		"/mnt/a/CharmOS/build2/uefi/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/uefi/lib/core/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/uefi/lib/elf/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/uefi/lib/mm/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/uefi/lib/acpi/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/uefi/lib/initrd/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/uefi/lib/cap/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/uefi/lib/manifest/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/uefi/lib/fs/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/uefi/boot/uefi/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

@@ -109,7 +109,8 @@
 | 51 | `futex_wake` | `const uint32_t* addr, count` | разбужено потоков |
 | 52 | `thread_set_fs` | `uint64_t base` | — |
 
-- `thread_create`: поток начинает с `entry(arg)` (`RDI = arg`) на стеке
+- `thread_create`: поток начинает с `entry(arg)` (`RDI = arg`, `RSP = stack_top`,
+  как у `_start`: функции на C нужен переходник libc) на стеке
   `stack_top` (выровнен на 16; стек выделяет вызывающий, например VMO).
   Адреса — в пользовательской половине, иначе `BadAddress`.
 - `thread_exit` завершает вызвавший поток; последний поток процесса —

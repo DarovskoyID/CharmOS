@@ -1,0 +1,9 @@
+# M8: потоки процесса — futex-мьютекс, TLS (FS-база), FPU на поток,
+# пакет ThreadExited; process_exit прерывает спящие потоки; код процесса —
+# код последнего потока; память возвращается полностью.
+[threads] threads: counter 80000
+ktest: bin/threads exited with 0 (want 0)
+[thread_kill] thread_kill: process_exit from a thread
+ktest: bin/thread_kill exited with 5 (want 5)
+ktest: bin/thread_last exited with 9 (want 9)
+ktest: PASS threads

@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/mnt/a/CharmOS/build2/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

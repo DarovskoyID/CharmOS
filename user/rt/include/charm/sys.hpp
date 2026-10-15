@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include <abi/fs.hpp>
+#include <abi/process.hpp>
 #include <abi/syscall.hpp>
 
 namespace charm {
@@ -191,6 +192,55 @@ inline Status socket_shutdown(Handle s, uint64_t how) { return syscall2(Number::
 // DMA-буфер устройства (docs/abi/driver.md §5): VMO и адрес для устройства.
 inline SysResult dma_alloc(Handle dev, uint64_t size, uint64_t flags, uint64_t* device_addr) {
   return syscall5(Number::DmaAlloc, dev, size, flags, reinterpret_cast<uint64_t>(device_addr), 0);
+}
+
+
+// --- v1.5: потоки (docs/abi/process.md §4) ---------------------------------------
+// entry стартует с RSP = stack_top (выровнен на 16), RDI = arg.
+inline SysResult thread_create(void (*entry)(uint64_t), uint64_t stack_top, uint64_t arg) {
+  return syscall3(Number::ThreadCreate, reinterpret_cast<uint64_t>(entry), stack_top, arg);
+}
+[[noreturn]] inline void thread_exit(int64_t code) {
+  syscall1(Number::ThreadExit, static_cast<uint64_t>(code));
+  __builtin_unreachable();
+}
+[[noreturn]] inline void process_exit(int64_t code) {
+  syscall1(Number::ProcessExit, static_cast<uint64_t>(code));
+  __builtin_unreachable();
+}
+inline Status thread_info(Handle t, abi::syscall::ThreadInfo* out) {
+  return syscall2(Number::ThreadInfo, t, reinterpret_cast<uint64_t>(out)).status;
+}
+inline Status futex_wait(const volatile uint32_t* addr, uint32_t expected, uint64_t deadline) {
+  return syscall3(Number::FutexWait, reinterpret_cast<uint64_t>(addr), expected, deadline).status;
+}
+inline SysResult futex_wake(const volatile uint32_t* addr, uint64_t count) {
+  return syscall2(Number::FutexWake, reinterpret_cast<uint64_t>(addr), count);
+}
+inline Status thread_set_fs(uint64_t base) { return syscall1(Number::ThreadSetFs, base).status; }
+
+
+// --- v1.5: процессы и Job (docs/abi/process.md §3, §5) --------------------------
+inline SysResult process_spawn(const abi::process::SpawnArgs* a) {
+  return syscall1(Number::ProcessSpawn, reinterpret_cast<uint64_t>(a));
+}
+inline Status process_kill(Handle p) { return syscall1(Number::ProcessKill, p).status; }
+inline Status process_info(Handle p, abi::process::ProcessInfo* out) {
+  return syscall2(Number::ProcessInfo, p, reinterpret_cast<uint64_t>(out)).status;
+}
+inline SysResult job_create(Handle parent) { return syscall1(Number::JobCreate, parent); }
+inline Status job_kill(Handle j) { return syscall1(Number::JobKill, j).status; }
+inline Status job_info(Handle j, abi::process::JobInfo* out) {
+  return syscall2(Number::JobInfo, j, reinterpret_cast<uint64_t>(out)).status;
+}
+inline Status console_set_foreground(Handle con, Handle job) {
+  return syscall2(Number::ConsoleSetForeground, con, job).status;
+}
+inline SysResult console_read(Handle con, void* buf, uint64_t cap, uint64_t deadline) {
+  return syscall5(Number::ConsoleRead, con, reinterpret_cast<uint64_t>(buf), cap, deadline, 0);
+}
+inline SysResult console_write(Handle con, const void* buf, uint64_t len) {
+  return syscall3(Number::ConsoleWrite, con, reinterpret_cast<uint64_t>(buf), len);
 }
 
 }  // namespace charm

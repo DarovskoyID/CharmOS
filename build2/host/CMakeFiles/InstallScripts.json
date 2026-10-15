@@ -1,0 +1,18 @@
+{
+	"InstallScripts" : 
+	[
+		"/mnt/a/CharmOS/build2/host/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/host/lib/core/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/host/lib/elf/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/host/lib/mm/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/host/lib/acpi/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/host/lib/initrd/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/host/lib/cap/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/host/lib/manifest/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/host/lib/fs/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/host/tests/host/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/host/tools/mkinitrd/cmake_install.cmake",
+		"/mnt/a/CharmOS/build2/host/tools/mkdisk/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
