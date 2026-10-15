@@ -5,12 +5,13 @@
 #     строкой ядра из <сценарий>.cmdline, если они есть);
 #   - строки .expected должны встретиться в serial-выводе в этом порядке;
 #   - код выхода QEMU должен быть 33 (isa-debug-exit 0x10).
+#   - <сценарий>.timeout — свой таймаут в секундах (иначе общий, по умолчанию 60).
 set -uo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 build="${CHARMOS_BUILD:-$root/build}"
 phase="${1:?usage: test.sh <phase> [timeout]}"
-timeout_s="${2:-60}"
+default_timeout="${2:-60}"
 dir="$root/tests/qemu/$phase"
 [[ -d "$dir" ]] || { echo "test.sh: no tests in $dir" >&2; exit 2; }
 
@@ -18,6 +19,8 @@ failed=0
 for exp in "$dir"/*.expected; do
   name=$(basename "$exp" .expected)
   log="$build/test-$phase-$name.serial"
+  timeout_s=$default_timeout
+  [[ -f "$dir/$name.timeout" ]] && timeout_s=$(head -n1 "$dir/$name.timeout" | tr -d '\r')
   cfg=()
   [[ -f "$root/tools/qemu/$name.args" ]] && cfg=(--config "$name")
   [[ -f "$dir/$name.cmdline" ]] && cfg+=(--cmdline "$(head -n1 "$dir/$name.cmdline" | tr -d '\r')")
@@ -77,6 +80,7 @@ for exp in "$dir"/*.expected; do
     echo "ok   $phase/$name"
   else
     failed=1
+    cp "$log" "$log.fail"  # следующий прогон перезапишет лог, а разбирать — этот
     echo "     serial: $log (последние 25 строк):"
     grep -av '^\s*$' "$log.clean" | tail -n 25 | sed 's/^/     | /'
   fi

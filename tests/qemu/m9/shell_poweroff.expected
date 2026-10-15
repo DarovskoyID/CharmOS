@@ -1,0 +1,6 @@
+# M9a: «svc poweroff» в шелле — init останавливает службы и выключает
+# машину через хендл Power (power.md §2); QEMU выходит с кодом 0.
+init: CharmOS init
+charm:/$
+init: poweroff: stopping services
+acpi: entering S5

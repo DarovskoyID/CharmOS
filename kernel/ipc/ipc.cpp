@@ -30,7 +30,7 @@ using arch::x86_64::kPageSize;
 
 // --- объекты ------------------------------------------------------------------------
 
-enum class Type : uint8_t { Endpoint, Vmo, Port, Device, Interrupt, FsNode, Net, Socket, Console, Thread, Process, Job };
+enum class Type : uint8_t { Endpoint, Vmo, Port, Device, Interrupt, FsNode, Net, Socket, Console, Thread, Process, Job, Power };
 
 struct Object {
   Type type;
@@ -548,6 +548,10 @@ void release_object(Object* obj) {
       g_current_device[d->pci_index] = nullptr;
     }
     if (d->domain != nullptr) pci::iommu::domain_destroy(d->domain);
+    mm::kfree(obj);
+    return;
+  }
+  if (obj->type == Type::Power) {
     mm::kfree(obj);
     return;
   }
@@ -2029,6 +2033,28 @@ Status create_console(uint32_t r, Cap** out) {
   }
   *out = c;
   return Status::Ok;
+}
+
+Status create_power(uint32_t r, Cap** out) {
+  auto* o = alloc_zeroed<Object>(sizeof(Object));
+  if (o == nullptr) return Status::NoMemory;
+  o->type = Type::Power;
+  sync::SpinGuard guard(g_lock);
+  Cap* c = new_cap(o, r, nullptr);
+  if (c == nullptr) {
+    mm::kfree(o);
+    return Status::NoMemory;
+  }
+  *out = c;
+  return Status::Ok;
+}
+
+Status get_power(uint32_t h, uint32_t need) {
+  sync::SpinGuard guard(g_lock);
+  Cap* c = lookup(me(), h);
+  if (c == nullptr) return Status::BadHandle;
+  if (c->obj->type != Type::Power) return Status::WrongType;
+  return (c->rights & need) == need ? Status::Ok : Status::AccessDenied;
 }
 
 Status get_console(uint32_t h, uint32_t need) {

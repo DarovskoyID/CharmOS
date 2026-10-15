@@ -136,12 +136,17 @@ constinit size_t g_init_len = 0;
     auto s = kernel::net::dhcp_configure(kernel::platform::now_ns() + 10'000'000'000ull);
     if (s != kernel::net::Status::Ok) kprint("init: no DHCP lease\n");
   }
-  Cap* caps[5];
-  uint32_t roles[5];
+  Cap* caps[6];
+  uint32_t roles[6];
   uint32_t n = 0;
   if (kernel::fs::mounted() && kernel::fs::root_cap(&caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleRoot;
   if (kernel::fs::system_mounted() && kernel::fs::system_cap(&caps[n]) == kernel::ipc::Status::Ok) {
     roles[n++] = ap::kRoleSystem;  // pkg.md §1: только init, дальше — pkgd
+  }
+  // power.md §1: хендл Power — только init.
+  if (kernel::ipc::create_power(abi::syscall::rights::kDuplicate | abi::syscall::rights::kTransfer | abi::syscall::rights::kWrite, &caps[n]) ==
+      kernel::ipc::Status::Ok) {
+    roles[n++] = ap::kRolePower;
   }
   if (kernel::console::console_cap(&caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleConsole;
   if (kernel::net::net_cap(&caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleNet;

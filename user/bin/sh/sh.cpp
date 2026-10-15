@@ -117,8 +117,10 @@ void svc(int argc, char** argv) {
     snprintf(msg, sizeof msg, "list");
   } else if (argc >= 3 && strcmp(argv[1], "kill") == 0) {
     snprintf(msg, sizeof msg, "kill %s", argv[2]);
+  } else if (argc >= 2 && (strcmp(argv[1], "poweroff") == 0 || strcmp(argv[1], "reboot") == 0)) {
+    snprintf(msg, sizeof msg, "%s", argv[1]);
   } else {
-    printf("usage: svc list | svc kill <name>\n");
+    printf("usage: svc list | svc kill <name> | svc poweroff | svc reboot\n");
     return;
   }
   if (charm::channel_write(g_control, msg, strlen(msg), nullptr, 0) != Status::Ok) return;

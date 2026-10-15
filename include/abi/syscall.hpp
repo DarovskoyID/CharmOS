@@ -10,7 +10,7 @@
 namespace abi::syscall {
 
 inline constexpr uint16_t kVersionMajor = 1;
-inline constexpr uint16_t kVersionMinor = 6;
+inline constexpr uint16_t kVersionMinor = 7;
 
 // §5
 enum class Number : uint64_t {
@@ -83,7 +83,12 @@ enum class Number : uint64_t {
   SignalMask = 61,
   SignalReturn = 62,
   SignalAlarm = 63,
+  SystemPower = 64,  // v1.7, power.md §2
 };
+
+// system_power: действие (power.md §2).
+inline constexpr uint64_t kPowerOff = 1;
+inline constexpr uint64_t kPowerReboot = 2;
 
 // Пакет порта (docs/abi/driver.md §4).
 struct PortPacket {

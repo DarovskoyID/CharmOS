@@ -1,0 +1,2 @@
+#wait charm:/$
+svc poweroff

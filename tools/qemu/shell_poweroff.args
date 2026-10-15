@@ -1,0 +1,5 @@
+# M9a: шелл → init → system_power (power.md) на системном диске (system.sh).
+-device intel-iommu
+-drive if=none,id=d0,format=raw,file=build/disk-system.img
+-device virtio-blk-pci,drive=d0,disable-legacy=on,iommu_platform=on
+-nic none

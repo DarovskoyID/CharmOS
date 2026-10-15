@@ -4,7 +4,8 @@
 //   console <имя> <путь> [аргументы...]   — сеанс на консоли (шелл); его
 //                                            выход — завершение системы
 // Первой запускается служба logd: ей init передаёт концы каналов журнала
-// всех остальных. Шелл получает канал управления init: «list», «kill <имя>».
+// всех остальных. Шелл получает канал управления init: «list», «kill <имя>»,
+// «poweroff», «reboot» (power.md: хендл Power есть только у init).
 #include <abi/process.hpp>
 #include <charm/libc.h>
 #include <charm/sys.hpp>
@@ -191,6 +192,8 @@ bool start(int i) {
 
 void reply(const char* text) { (void)charm::channel_write(g_control, text, strlen(text), nullptr, 0); }
 
+void power(uint64_t action);
+
 void control() {
   char msg[128];
   Handle none[1];
@@ -217,9 +220,36 @@ void control() {
       }
     }
     reply("no such service\n");
+  } else if (strcmp(msg, "poweroff") == 0) {
+    power(abi::syscall::kPowerOff);
+  } else if (strcmp(msg, "reboot") == 0) {
+    power(abi::syscall::kPowerReboot);
   } else {
     reply("unknown command\n");
   }
+}
+
+void stop_services() {
+  for (int i = 0; i < g_count; ++i) {
+    if (g_svc[i].proc == 0) continue;
+    (void)charm_kill(g_svc[i].proc);
+    int64_t code;
+    (void)charm_wait(g_svc[i].proc, &code);
+    g_svc[i].proc = 0;
+  }
+}
+
+// power.md §2: сначала службы, потом машина. Вернулись — не вышло.
+void power(uint64_t action) {
+  if (charm_power() == 0) {
+    reply("no power handle\n");
+    return;
+  }
+  printf("init: %s: stopping services\n", action == abi::syscall::kPowerOff ? "poweroff" : "reboot");
+  reply("ok\n");
+  stop_services();
+  auto r = charm::syscall2(charm::Number::SystemPower, charm_power(), action);
+  printf("init: system_power failed (%d)\n", static_cast<int>(r.status));
 }
 
 [[noreturn]] void shutdown() {

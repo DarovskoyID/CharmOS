@@ -1,3 +1,4 @@
+#include "../acpi/acpi.hpp"
 #include "../console/console.hpp"
 #include "../fs/vfs.hpp"
 #include "../net/socket.hpp"
@@ -83,6 +84,20 @@ void init_syscall_this_cpu() {
 }
 
 }  // namespace kernel::proc
+
+// power.md §2: при успехе не возвращается.
+static abi::syscall::Status sys_system_power(uint32_t h, uint64_t action) {
+  if (action != abi::syscall::kPowerOff && action != abi::syscall::kPowerReboot) return abi::syscall::Status::InvalidArgs;
+  abi::syscall::Status s = kernel::ipc::get_power(h, abi::syscall::rights::kWrite);
+  if (s != abi::syscall::Status::Ok) return s;
+  (void)kernel::fs::sync_all();
+  if (action == abi::syscall::kPowerOff) {
+    kernel::acpi::power_off();
+  } else {
+    kernel::acpi::reboot();
+  }
+  return abi::syscall::Status::NotSupported;
+}
 
 extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
   using namespace kernel::proc;
@@ -335,6 +350,9 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
       set_result(f, kernel::console::sys_console_write(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, &v), v);
       break;
     }
+    case Number::SystemPower:
+      set_result(f, sys_system_power(static_cast<uint32_t>(f.rdi), f.rsi));
+      break;
     case Number::ObjectBind:
       set_result(f, kernel::ipc::sys_object_bind(static_cast<uint32_t>(f.rdi),
                                                  static_cast<uint32_t>(f.rsi), f.rdx));
