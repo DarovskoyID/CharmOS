@@ -5,3 +5,6 @@
 -nic none
 -netdev user,id=n0
 -device virtio-net-pci,netdev=n0,disable-legacy=on,iommu_platform=on
+-chardev socket,id=chrtpm,path=/tmp/charmos-swtpm/sock
+-tpmdev emulator,id=tpm0,chardev=chrtpm
+-device tpm-crb,tpmdev=tpm0

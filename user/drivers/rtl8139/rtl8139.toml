@@ -1,0 +1,8 @@
+# Драйвер Realtek RTL8139 (docs/specs/rtl8139d.pdf, rtl8139-rx-ring.md).
+name = "rtl8139"
+class = "net"
+
+[[match]]
+vendor = 0x10ec
+device = 0x8139
+score = 100

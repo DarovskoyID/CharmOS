@@ -1,0 +1,5 @@
+# M9a: Realtek RTL8139 на user-net; эхо-сервер на хосте — tcp.sh.
+-nic none
+-device intel-iommu
+-netdev user,id=n0
+-device rtl8139,netdev=n0

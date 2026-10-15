@@ -1,0 +1,7 @@
+# M9a: та же машина (диск и состояние TPM) — вторая загрузка.
+-device intel-iommu
+-drive if=none,id=d0,format=raw,file=build/disk-sysarea.img
+-device virtio-blk-pci,drive=d0,disable-legacy=on,iommu_platform=on
+-chardev socket,id=chrtpm,path=/tmp/charmos-swtpm/sock
+-tpmdev emulator,id=tpm0,chardev=chrtpm
+-device tpm-crb,tpmdev=tpm0

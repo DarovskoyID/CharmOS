@@ -25,6 +25,8 @@ Status root_cap(ipc::Cap** out);
 // Закрытая системная область (docs/abi/pkg.md §1): раздел GPT с типом
 // CharmOS System Area на корневом диске, вторая ФС. Хендл — только init.
 bool system_mounted();
+// Для ktest: файл name в корне закрытой области (до cap байт).
+Status system_read(lib::core::StringView name, void* buf, uint64_t cap, uint64_t* got);
 Status system_cap(ipc::Cap** out);
 
 // Сбросить всё на диск (метаданные ФС, кэш, кэш устройства).

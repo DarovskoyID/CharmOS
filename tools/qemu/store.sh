@@ -1,4 +1,5 @@
 # M8.5: системный диск с закрытой областью (раздел 3) и тестовыми пакетами,
+bash "$(dirname "$0")/swtpm.sh" "$1"
 # собранными tools/sign: магазин (тестовый ключ), без подписи, с испорченной
 # подписью, с изменённым файлом.
 build="$1"
@@ -45,7 +46,7 @@ for p in hello-store hello-bad hello-tampered free; do puts+=(--put "2:/pkgs/$p.
 for p in init logd sh echo cat ls mkdir rm sleep pkgd corrupt; do
   puts+=(--put "2:/bin/$p=$build/user/user/$p.elf")
 done
-"$build/host/tools/mkdisk/mkdisk" "$build/disk-store.img" 128 --esp 40 --system 32 --root ext2 "${puts[@]}"
+"$build/host/tools/mkdisk/mkdisk" "$build/disk-store.img" 128 --esp 40 --system 16 --root ext2 "${puts[@]}"
 # Тестовый «магазин»: HTTP-сервер на хосте; гость видит хост как 10.0.2.2.
 pkill -f "http.server 18090" 2>/dev/null || true
 (cd "$work" && timeout 300 python3 -m http.server 18090 --bind 127.0.0.1 >"$build/store-http.log" 2>&1 &)

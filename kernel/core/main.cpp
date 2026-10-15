@@ -12,6 +12,7 @@
 #include "../mm/pmm.hpp"
 #include "../mm/vmm.hpp"
 #include "../acpi/acpi.hpp"
+#include "../tpm/tpm.hpp"
 #include "../console/console.hpp"
 #include "../drivers/devmgr.hpp"
 #include "../fs/vfs.hpp"
@@ -244,6 +245,7 @@ extern "C" [[noreturn]] void kernel_main(uint64_t boot_info_phys, uint64_t stack
   kernel::pci::pci_init(info);
   kernel::pci::iommu::init(info, cmdline);
   kernel::acpi::init();
+  (void)kernel::tpm::init();  // закрытая область (sysarea-crypt.md)
   kernel::console::init();
   kernel::console::set_control_handler(&kernel::proc::signal_foreground);
   kernel::proc::init_accounting();

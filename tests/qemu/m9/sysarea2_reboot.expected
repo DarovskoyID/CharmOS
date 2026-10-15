@@ -1,0 +1,7 @@
+# M9a: вторая загрузка — ключ распечатан TPM (те же PCR), без повторного
+# шифрования; открытого текста на диске нет (проверка в tools/qemu/sysarea2_reboot.sh).
+tpm: TPM 2.0 (CRB)
+sysarea: unlocked (AES-256-XTS)
+vfs: system area is disk0p3 (ext2)
+ktest: system area file ok
+ktest: PASS sysarea

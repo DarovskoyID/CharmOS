@@ -1,0 +1,9 @@
+# M9a: первая загрузка — ключ запечатан в TPM (PCR 0–7), область зашифрована
+# на месте (docs/abi/sysarea-crypt.md §4) и смонтирована, файл читается.
+tpm: TPM 2.0 (CRB)
+sysarea: key sealed to TPM
+sysarea: encrypted
+sysarea: unlocked (AES-256-XTS)
+vfs: system area is disk0p3 (ext2)
+ktest: system area file ok
+ktest: PASS sysarea

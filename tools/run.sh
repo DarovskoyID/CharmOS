@@ -72,7 +72,10 @@ if [[ $trace -eq 1 ]]; then args+=(-d int,guest_errors,cpu_reset); else args+=(-
 [[ $headless -eq 1 ]] && args+=(-display none)
 if [[ -n "$config" ]]; then
   # Подготовка сценария (образы дисков и т. п.): tools/qemu/<имя>.sh <каталог сборки>.
-  [[ -f "$root/tools/qemu/$config.sh" ]] && bash "$root/tools/qemu/$config.sh" "$build"
+  if [[ -f "$root/tools/qemu/$config.sh" ]] && ! bash "$root/tools/qemu/$config.sh" "$build"; then
+    echo "run.sh: tools/qemu/$config.sh failed" >&2
+    exit 3
+  fi
   mapfile -t extra < <(grep -v '^\s*#' "$root/tools/qemu/$config.args" | tr ' ' '\n' | grep -v '^$')
   args+=("${extra[@]}")
 fi

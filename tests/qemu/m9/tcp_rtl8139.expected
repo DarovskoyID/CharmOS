@@ -1,0 +1,8 @@
+# M9a: драйвер RTL8139 на прерываниях INTx (_PRT), DHCP и TCP-эхо с потерями.
+devmgr: 0:2.0 0x10ec:0x8139 -> rtl8139
+[rtl8139] rtl8139: INTx
+[rtl8139] rtl8139: ready
+net: dhcp address 10.0.2.15
+ktest: tcp echo 8 connections x 64 KiB ok
+ktest: tcp echo with 1/10 segment loss ok
+ktest: PASS tcp

@@ -1,0 +1,4 @@
+# M9a: тот же диск без TPM — область заперта.
+-device intel-iommu
+-drive if=none,id=d0,format=raw,file=build/disk-sysarea.img
+-device virtio-blk-pci,drive=d0,disable-legacy=on,iommu_platform=on

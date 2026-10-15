@@ -1,0 +1,7 @@
+# M9a: закрытая область, первая загрузка — ключ в TPM, шифрование на месте.
+-device intel-iommu
+-drive if=none,id=d0,format=raw,file=build/disk-sysarea.img
+-device virtio-blk-pci,drive=d0,disable-legacy=on,iommu_platform=on
+-chardev socket,id=chrtpm,path=/tmp/charmos-swtpm/sock
+-tpmdev emulator,id=tpm0,chardev=chrtpm
+-device tpm-crb,tpmdev=tpm0

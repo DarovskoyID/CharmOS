@@ -1,3 +1,4 @@
+#include "sysarea.hpp"
 #include "vfs.hpp"
 
 #include <abi/fs.hpp>
@@ -30,6 +31,8 @@ constinit sync::Mutex g_vfs{"vfs"};
 // (docs/abi/pkg.md §1). id узла в хендле — (номер ФС << 56) | id в ФС.
 struct Mount {
   DiskIo io;
+  lib::crypto::Xts256 key;    // закрытая область (sysarea-crypt.md)
+  lib::sysarea::XtsIo xts;
   lib::fs::Ext2 ext2;
   lib::fs::Fat32 fat;
   lib::fs::FileSystem* fs;
@@ -203,9 +206,14 @@ bool mount_partition(uint32_t m, uint32_t disk, uint32_t part, const char* what)
   mt.io.init(disk, p.first_lba * 512, (p.last_lba - p.first_lba + 1) * 512);
   (void)bs;
   ipc::set_fs_node_closed_hook(&node_closed);
-  if (mt.ext2.mount(&mt.io).is_ok()) {
+  lib::fs::Io* io = &mt.io;
+  if (m == 1) {  // закрытая область: только зашифрованной, ключ из TPM
+    if (!sysarea_unlock(&mt.io, &mt.key, &mt.xts)) return false;
+    io = &mt.xts;
+  }
+  if (mt.ext2.mount(io).is_ok()) {
     mt.fs = &mt.ext2;
-  } else if (m == 0 && mt.fat.mount(&mt.io).is_ok()) {
+  } else if (m == 0 && mt.fat.mount(io).is_ok()) {
     mt.fs = &mt.fat;
   } else {
     kprint("vfs: disk{}p{}: neither ext2 nor FAT32\n", disk, part);
@@ -276,6 +284,18 @@ Status mount_cap(uint32_t m, ipc::Cap** out) {
 Status root_cap(ipc::Cap** out) { return mount_cap(0, out); }
 Status system_cap(ipc::Cap** out) { return mount_cap(1, out); }
 bool system_mounted() { return g_mounts[1].fs != nullptr; }
+
+Status system_read(StringView name, void* buf, uint64_t cap, uint64_t* got) {
+  sync::MutexGuard guard(g_vfs);
+  lib::fs::FileSystem* fs = g_mounts[1].fs;
+  if (fs == nullptr) return Status::NotSupported;
+  auto node = fs->lookup(fs->root(), name);
+  if (node.is_err()) return Status::NotFound;
+  auto n = fs->read(node.value(), 0, buf, static_cast<size_t>(cap));
+  if (n.is_err()) return Status::IoError;
+  *got = n.value();
+  return Status::Ok;
+}
 
 Status sync_all() {
   sync::MutexGuard guard(g_vfs);

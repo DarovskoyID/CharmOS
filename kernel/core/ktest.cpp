@@ -850,10 +850,16 @@ bool tcp_round(uint32_t conn_no, uint32_t bytes) {
     }
     if (rs == net::Status::Ok && g == 0) ok = false;  // сервер закрыл раньше времени
     for (uint32_t i = 0; i < g && ok; ++i) {
-      if (in[i] != static_cast<uint8_t>((got_total + i) * 7 + conn_no)) ok = false;
+      if (in[i] != static_cast<uint8_t>((got_total + i) * 7 + conn_no)) {
+        kprint("ktest: tcp round {} wrong byte at {}\n", conn_no, got_total + i);
+        ok = false;
+      }
     }
     got_total += g;
-    if (platform::now_ns() > deadline) ok = false;
+    if (platform::now_ns() > deadline) {
+      kprint("ktest: tcp round {} deadline\n", conn_no);
+      ok = false;
+    }
   }
   if (!ok) {
     kprint("ktest: tcp round {} failed: sent={} got={}\n", conn_no, sent_total, got_total);
@@ -1080,6 +1086,26 @@ void test_poweroff() {
   fail("still running after S5");
 }
 
+// M9a: закрытая область (sysarea-crypt.md) смонтирована и читается: файл,
+// положенный mkdisk открытым, после шифрования на месте — тот же.
+void test_sysarea() {
+  if (!fs::system_mounted()) fail("system area not mounted");
+  static char buf[128];
+  uint64_t got = 0;
+  if (fs::system_read("secret.txt", buf, sizeof buf - 1, &got) != ipc::Status::Ok) fail("cannot read secret.txt");
+  buf[got] = 0;
+  if (!StringView(buf, got).starts_with("sysarea secret: only through the TPM")) fail("wrong content");
+  kprint("ktest: system area file ok\n");
+  pass();
+}
+
+// Без TPM закрытая область не монтируется (журнал решений 2026-10-15).
+void test_sysarea_locked() {
+  if (fs::system_mounted()) fail("system area mounted without TPM");
+  kprint("ktest: system area locked\n");
+  pass();
+}
+
 struct Test {
   StringView name;
   void (*fn)();
@@ -1112,6 +1138,8 @@ constexpr Test kTests[] = {
     {"blk", &test_blk},
     {"console", &test_console},
     {"poweroff", &test_poweroff},
+    {"sysarea", &test_sysarea},
+    {"sysarea_locked", &test_sysarea_locked},
     {"threads", &test_threads},
     {"spawn", &test_spawn},
     {"signals", &test_signals},
@@ -1135,7 +1163,8 @@ bool needs_drivers() {
          g_selected == StringView("fs_crash") || g_selected == StringView("net") ||
          g_selected == StringView("tcp") || g_selected == StringView("sock") ||
          g_selected == StringView("udp") || g_selected == StringView("spawn") ||
-         g_selected == StringView("signals") || g_selected == StringView("libc");
+         g_selected == StringView("signals") || g_selected == StringView("libc") ||
+         g_selected == StringView("sysarea") || g_selected == StringView("sysarea_locked");
 }
 StringView selected() { return g_selected; }
 

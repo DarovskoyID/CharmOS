@@ -7,6 +7,7 @@
 #include <lib/fs/ext2.hpp>
 #include <lib/fs/fat32.hpp>
 #include <lib/fs/gpt.hpp>
+#include <lib/sysarea/sysarea.hpp>
 
 #include <cstdio>
 #include <cstdlib>
@@ -165,11 +166,19 @@ int main(int argc, char** argv) {
     if (root_fat.mount(&rootp).is_err()) die("cannot mount new root");
     root = &root_fat;
   }
+  // Закрытая область (docs/abi/sysarea-crypt.md): заголовок с state = Plain
+  // и открытая ext2 с 1 МиБ; шифрует её ядро при первой загрузке (§4).
   SubIo sysp(disk, sys_first * 512, (sys_last - sys_first + 1) * 512);
+  lib::sysarea::Header sys_header;
+  lib::crypto::Xts256 no_key;
+  lib::sysarea::XtsIo sys_data;
   Ext2 sys_fs;
   if (system_mib != 0) {
-    if (auto s = Ext2::format(sysp, block, "charmos-system"); s.is_err()) die("system format", error_name(s.error()));
-    if (sys_fs.mount(&sysp).is_err()) die("cannot mount new system area");
+    lib::sysarea::make_plain(&sys_header, sysp.size());
+    if (sysp.write(0, &sys_header, sizeof sys_header).is_err()) die("cannot write system area header");
+    sys_data.init(&sysp, &no_key, sys_header.f.data_units, 0);
+    if (auto s = Ext2::format(sys_data, block, "charmos-system"); s.is_err()) die("system format", error_name(s.error()));
+    if (sys_fs.mount(&sys_data).is_err()) die("cannot mount new system area");
   }
   for (auto& [part, pf] : puts) {
     if (part == 3 && system_mib == 0) die("--put 3: needs --system");

@@ -1,0 +1,4 @@
+# M9a: нет TPM — закрытая область не монтируется (журнал решений 2026-10-15).
+sysarea: locked: no TPM
+ktest: system area locked
+ktest: PASS sysarea_locked
