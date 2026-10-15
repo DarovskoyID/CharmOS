@@ -1,8 +1,0 @@
-# Драйвер сетевого устройства virtio (VIRTIO 1.2 §5.1), современный интерфейс PCI.
-name = "virtio_net"
-class = "net"
-
-[[match]]
-vendor = 0x1af4
-device = 0x1041   # 0x1040 + тип устройства 1 (VIRTIO 1.2 §4.1.2)
-score = 100

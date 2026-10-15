@@ -35,8 +35,14 @@ endfunction()
 
 charmos_c_program(libc_test tests/libc_test.cpp)
 charmos_c_program(init init/init.cpp)
-foreach(prog logd sh echo cat ls mkdir rm sleep httpd)
+foreach(prog logd sh echo cat ls mkdir rm sleep httpd corrupt)
   charmos_c_program(${prog} bin/${prog}/${prog}.cpp)
+endforeach()
+# Служба пакетов (M8.5) и тестовые программы для пакетов.
+charmos_c_program(pkgd bin/pkgd/pkgd.cpp)
+target_link_libraries(pkgd PRIVATE package)
+foreach(app hello free)
+  charmos_c_program(app_${app} tests/apps/${app}.cpp)
 endforeach()
 
 # Драйверы: drivers/<имя>.elf и drivers/<имя>.toml (docs/abi/driver.md §7).

@@ -135,10 +135,13 @@ constinit size_t g_init_len = 0;
     auto s = kernel::net::dhcp_configure(kernel::platform::now_ns() + 10'000'000'000ull);
     if (s != kernel::net::Status::Ok) kprint("init: no DHCP lease\n");
   }
-  Cap* caps[4];
-  uint32_t roles[4];
+  Cap* caps[5];
+  uint32_t roles[5];
   uint32_t n = 0;
   if (kernel::fs::mounted() && kernel::fs::root_cap(&caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleRoot;
+  if (kernel::fs::system_mounted() && kernel::fs::system_cap(&caps[n]) == kernel::ipc::Status::Ok) {
+    roles[n++] = ap::kRoleSystem;  // pkg.md §1: только init, дальше — pkgd
+  }
   if (kernel::console::console_cap(&caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleConsole;
   if (kernel::net::net_cap(&caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleNet;
   if (kernel::ipc::create_job_cap(kernel::ipc::root_job(), &caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleJob;

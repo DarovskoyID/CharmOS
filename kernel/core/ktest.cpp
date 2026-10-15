@@ -854,7 +854,10 @@ bool tcp_round(uint32_t conn_no, uint32_t bytes) {
     got_total += g;
     if (platform::now_ns() > deadline) ok = false;
   }
-  if (!ok) kprint("ktest: tcp round {} failed: sent={} got={}\n", conn_no, sent_total, got_total);
+  if (!ok) {
+    kprint("ktest: tcp round {} failed: sent={} got={}\n", conn_no, sent_total, got_total);
+    net::tcp_dump(c);
+  }
   (void)net::tcp_shutdown(c, false, true);
   net::tcp_release(c);
   return ok && got_total == bytes;

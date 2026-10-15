@@ -103,6 +103,7 @@ int main(int argc, char** argv) {
   const char* image = argv[1];
   uint64_t mib = std::strtoull(argv[2], nullptr, 10);
   uint64_t esp_mib = 40;
+  uint64_t system_mib = 0;  // 0 — без закрытой области (раздел 3, ext2)
   std::string root_fs = "ext2";
   uint32_t block = 1024;
   std::vector<std::pair<int, std::pair<std::string, std::string>>> puts;
@@ -112,13 +113,15 @@ int main(int argc, char** argv) {
     std::string v = argv[++i];
     if (a == "--esp") {
       esp_mib = std::strtoull(v.c_str(), nullptr, 10);
+    } else if (a == "--system") {
+      system_mib = std::strtoull(v.c_str(), nullptr, 10);
     } else if (a == "--root") {
       root_fs = v;
     } else if (a == "--block") {
       block = static_cast<uint32_t>(std::strtoul(v.c_str(), nullptr, 10));
     } else if (a == "--put") {
       size_t colon = v.find(':'), eq = v.find('=');
-      if (colon != 1 || eq == std::string::npos || (v[0] != '1' && v[0] != '2')) die("bad --put", v.c_str());
+      if (colon != 1 || eq == std::string::npos || v[0] < '1' || v[0] > '3') die("bad --put", v.c_str());
       puts.push_back({v[0] - '0', {v.substr(2, eq - 2), v.substr(eq + 1)}});
     } else {
       die("unknown option", a.c_str());
@@ -134,11 +137,15 @@ int main(int argc, char** argv) {
 
   uint64_t sectors = bytes / 512;
   uint64_t esp_first = 2048, esp_last = esp_first + esp_mib * 2048 - 1;
-  uint64_t root_first = esp_last + 1, root_last = sectors - 34 - 1;
+  uint64_t root_first = esp_last + 1, root_last = sectors - 34 - 1 - system_mib * 2048;
+  uint64_t sys_first = root_last + 1, sys_last = sectors - 34 - 1;
   if (root_first + 2048 > root_last) die("disk too small");
-  GptPartition parts[2] = {{kGuidEsp, {{0x11, 0x22, 0x33, 1}}, esp_first, esp_last},
-                           {kGuidLinuxData, {{0x11, 0x22, 0x33, 2}}, root_first, root_last}};
-  if (write_gpt(disk, parts, 2, Guid{{0x43, 0x48, 0x41, 0x52, 0x4d}}).is_err()) die("cannot write GPT");
+  GptPartition parts[3] = {{kGuidEsp, {{0x11, 0x22, 0x33, 1}}, esp_first, esp_last},
+                           {kGuidLinuxData, {{0x11, 0x22, 0x33, 2}}, root_first, root_last},
+                           {kGuidSystemArea, {{0x11, 0x22, 0x33, 3}}, sys_first, sys_last}};
+  if (write_gpt(disk, parts, system_mib != 0 ? 3 : 2, Guid{{0x43, 0x48, 0x41, 0x52, 0x4d}}).is_err()) {
+    die("cannot write GPT");
+  }
 
   SubIo esp(disk, esp_first * 512, (esp_last - esp_first + 1) * 512);
   SubIo rootp(disk, root_first * 512, (root_last - root_first + 1) * 512);
@@ -158,8 +165,19 @@ int main(int argc, char** argv) {
     if (root_fat.mount(&rootp).is_err()) die("cannot mount new root");
     root = &root_fat;
   }
-  for (auto& [part, pf] : puts) put(part == 1 ? static_cast<FileSystem&>(esp_fs) : *root, pf.first, pf.second);
+  SubIo sysp(disk, sys_first * 512, (sys_last - sys_first + 1) * 512);
+  Ext2 sys_fs;
+  if (system_mib != 0) {
+    if (auto s = Ext2::format(sysp, block, "charmos-system"); s.is_err()) die("system format", error_name(s.error()));
+    if (sys_fs.mount(&sysp).is_err()) die("cannot mount new system area");
+  }
+  for (auto& [part, pf] : puts) {
+    if (part == 3 && system_mib == 0) die("--put 3: needs --system");
+    FileSystem& target = part == 1 ? static_cast<FileSystem&>(esp_fs) : part == 2 ? *root : sys_fs;
+    put(target, pf.first, pf.second);
+  }
   if (esp_fs.sync().is_err() || root->sync().is_err()) die("sync failed");
+  if (system_mib != 0 && sys_fs.sync().is_err()) die("sync failed");
   close(fd);
   return 0;
 }

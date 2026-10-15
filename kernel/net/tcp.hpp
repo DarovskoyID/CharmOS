@@ -24,6 +24,8 @@ Status tcp_recv(int c, void* buf, uint32_t cap, uint64_t deadline, uint32_t* got
 Status tcp_shutdown(int c, bool read, bool write);
 // Хендл ушёл: закрыть (FIN) и освободить, когда соединение доведено.
 void tcp_release(int c);
+// Отладка: состояние соединения в журнал ядра.
+void tcp_dump(int c);
 // Готовность для портов: есть что читать (или конец, или входящее), есть место.
 bool tcp_readable(int c);
 bool tcp_writable(int c);

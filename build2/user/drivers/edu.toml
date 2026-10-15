@@ -1,7 +1,0 @@
-# Драйвер учебного устройства QEMU edu (тест M5).
-name = "edu"
-
-[[match]]
-vendor = 0x1234
-device = 0x11e8
-score = 100

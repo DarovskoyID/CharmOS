@@ -137,6 +137,8 @@ Status sys_job_info(uint32_t h, uint64_t user_out);
 // Передний план консоли (§5.1); with_foreground — под блокировкой IPC (можно из прерывания).
 Status set_foreground(Job* j);
 void with_foreground(void (*fn)(Job* j, void* ctx), void* ctx);
+// v1.6 (pkg.md §2): процесс в переднем Job (или вложенном).
+bool in_foreground(const proc::Process* p);
 
 // Лимиты Job (§7): действуют все предки; значения урезаются родителем.
 void job_set_limits(Job* j, const abi::process::JobLimits& limits);

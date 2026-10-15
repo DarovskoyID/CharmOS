@@ -1148,6 +1148,11 @@ Status sys_object_bind(uint32_t port_h, uint32_t h, uint64_t key) {
   }
   if (oc->obj->type == Type::Console) {
     auto* co = reinterpret_cast<ConsoleObj*>(oc->obj);
+    // v1.6 (pkg.md §2): только передний Job. g_lock уже взят — проверка на месте.
+    proc::Process* self = me();
+    if (g_foreground == nullptr || self == nullptr || !job_contains(g_foreground, self->job)) {
+      return Status::AccessDenied;
+    }
     if (co->bound != nullptr) return Status::Busy;
     auto* port = reinterpret_cast<Port*>(pc->obj);
     if (port->count + port->armed >= abi::syscall::kPortMaxPackets) return Status::Busy;
@@ -2241,6 +2246,11 @@ Status set_foreground(Job* j) {
     if (old != nullptr) release_object(&old->base);
   }
   return Status::Ok;
+}
+
+bool in_foreground(const proc::Process* p) {
+  sync::SpinGuard guard(g_lock);
+  return g_foreground != nullptr && p != nullptr && job_contains(g_foreground, p->job);
 }
 
 void with_foreground(void (*fn)(Job* j, void* ctx), void* ctx) {

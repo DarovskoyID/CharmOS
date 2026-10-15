@@ -22,6 +22,10 @@ const char* root_type();
 
 // Отсоединённая капабилити на корень (права Duplicate | Transfer | Read | Write).
 Status root_cap(ipc::Cap** out);
+// Закрытая системная область (docs/abi/pkg.md §1): раздел GPT с типом
+// CharmOS System Area на корневом диске, вторая ФС. Хендл — только init.
+bool system_mounted();
+Status system_cap(ipc::Cap** out);
 
 // Сбросить всё на диск (метаданные ФС, кэш, кэш устройства).
 Status sync_all();

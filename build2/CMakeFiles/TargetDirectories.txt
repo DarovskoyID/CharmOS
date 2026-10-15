@@ -1,6 +1,0 @@
-/mnt/a/CharmOS/build2/CMakeFiles/uefi.dir
-/mnt/a/CharmOS/build2/CMakeFiles/kernel.dir
-/mnt/a/CharmOS/build2/CMakeFiles/user.dir
-/mnt/a/CharmOS/build2/CMakeFiles/host.dir
-/mnt/a/CharmOS/build2/CMakeFiles/edit_cache.dir
-/mnt/a/CharmOS/build2/CMakeFiles/rebuild_cache.dir

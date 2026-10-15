@@ -78,6 +78,7 @@ extern "C" [[noreturn]] void __libc_start(uint64_t boot) {
           case ap::kRoleNet: g_start.net = hs[i]; break;
           case ap::kRoleLog: g_start.log = hs[i]; break;
           case ap::kRoleJob: g_start.job = hs[i]; break;
+          case ap::kRoleSystem: g_start.system = hs[i]; break;
           default: g_start.extra[g_start.extra_count++] = hs[i]; break;  // без роли: программа знает сама
         }
       }
@@ -118,6 +119,7 @@ uint32_t charm_console(void) { return g_start.console; }
 uint32_t charm_net(void) { return g_start.net; }
 uint32_t charm_log(void) { return g_start.log; }
 uint32_t charm_job(void) { return g_start.job; }
+uint32_t charm_system(void) { return g_start.system; }
 uint32_t charm_extra_handle(int i) {
   return i >= 0 && static_cast<uint32_t>(i) < g_start.extra_count ? g_start.extra[i] : 0;
 }

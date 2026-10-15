@@ -37,6 +37,7 @@ inline constexpr uint32_t kRoleConsole = 3;
 inline constexpr uint32_t kRoleNet = 4;
 inline constexpr uint32_t kRoleLog = 5;
 inline constexpr uint32_t kRoleJob = 6;
+inline constexpr uint32_t kRoleSystem = 7;  // v1.6: закрытая область (docs/abi/pkg.md §1)
 
 // §3.1
 struct SpawnArgs {

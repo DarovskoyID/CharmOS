@@ -6,6 +6,7 @@
 #include "../core/log.hpp"
 #include "../ipc/ipc.hpp"
 #include "../platform/platform.hpp"
+#include "../proc/process.hpp"
 #include "../proc/uaccess.hpp"
 #include "../sched/sched.hpp"
 #include "../smp/cpu.hpp"
@@ -128,6 +129,8 @@ Status sys_console_read(uint32_t con, uint64_t ubuf, uint64_t cap, uint64_t dead
   Status s = ipc::get_console(con, rights::kRead);
   if (s != Status::Ok) return s;
   if (cap == 0) return Status::InvalidArgs;
+  // v1.6 (pkg.md §2): читать может только передний Job.
+  if (!ipc::in_foreground(proc::current_process())) return Status::AccessDenied;
   uint8_t tmp[512];
   uint32_t n = cap < sizeof tmp ? static_cast<uint32_t>(cap) : sizeof tmp;
   uint32_t got;

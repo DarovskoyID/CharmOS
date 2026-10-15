@@ -1,8 +1,0 @@
-# Драйвер блочного устройства virtio (VIRTIO 1.2 §5.2), современный интерфейс PCI.
-name = "virtio_blk"
-class = "block"
-
-[[match]]
-vendor = 0x1af4
-device = 0x1042   # 0x1040 + тип устройства 2 (VIRTIO 1.2 §4.1.2)
-score = 100

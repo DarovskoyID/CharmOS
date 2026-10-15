@@ -2,7 +2,7 @@
 // Syscall ABI v1.5. Нормативные документы — docs/abi/syscalls.md (v1.0),
 // docs/abi/ipc.md (v1.1), docs/abi/driver.md (v1.2), docs/abi/block.md и
 // docs/abi/fs.md (v1.3), docs/abi/net.md и docs/abi/socket.md (v1.4),
-// docs/abi/process.md и docs/abi/console.md (v1.5).
+// docs/abi/process.md и docs/abi/console.md (v1.5), docs/abi/pkg.md (v1.6).
 // Номера вызовов и коды статусов никогда не переиспользуются и не меняют смысл.
 
 #include <stdint.h>
@@ -10,7 +10,7 @@
 namespace abi::syscall {
 
 inline constexpr uint16_t kVersionMajor = 1;
-inline constexpr uint16_t kVersionMinor = 5;
+inline constexpr uint16_t kVersionMinor = 6;
 
 // §5
 enum class Number : uint64_t {

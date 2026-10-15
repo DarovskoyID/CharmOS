@@ -101,6 +101,14 @@ char* strcat(char* dst, const char* src) {
   return dst;
 }
 
+char* strncat(char* dst, const char* src, size_t n) {
+  char* d = dst + strlen(dst);
+  size_t i = 0;
+  for (; i < n && src[i] != 0; ++i) d[i] = src[i];
+  d[i] = 0;
+  return dst;
+}
+
 char* strchr(const char* s, int c) {
   for (;; ++s) {
     if (*s == static_cast<char>(c)) return const_cast<char*>(s);

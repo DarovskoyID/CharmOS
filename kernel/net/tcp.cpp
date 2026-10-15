@@ -259,6 +259,10 @@ void retransmit(Tcb& t) {
     emit(t, t.snd_una, kAck | kPsh, 0, len);
     // snd_nxt откатывается: дальнейшие сегменты пойдут заново по окну.
     t.snd_nxt = t.snd_una + len;
+    // Сегмент мог захватить ещё не отправленные байты: иначе их ACK (выше
+    // snd_max) отбрасывался бы как подтверждение неотправленного (RFC 9293
+    // §3.10.7.4) и соединение вечно повторяло бы одно и то же.
+    if (lt(t.snd_max, t.snd_nxt)) t.snd_max = t.snd_nxt;
     t.fin_sent = false;  // FIN уйдёт заново после данных
   } else if (t.fin_sent) {
     emit(t, t.snd_una, kFin | kAck, 0, 0);
@@ -328,6 +332,7 @@ void established_ack(Tcb& t, uint32_t ack, uint32_t wnd, uint32_t seq, uint32_t 
       uint32_t flight = t.snd_max - t.snd_una;
       t.ssthresh = flight / 2 > 2 * kMss ? flight / 2 : 2 * kMss;
       uint32_t len = t.snd.size < kMss ? t.snd.size : kMss;
+      if (len > flight) len = flight;  // повторяем только отправленное (snd_max не меняется)
       emit(t, t.snd_una, kAck | kPsh, 0, len);
       t.cwnd = t.ssthresh + 3 * kMss;
       t.rtt_running = false;
@@ -747,6 +752,18 @@ Status tcp_recv(int c, void* buf, uint32_t cap, uint64_t deadline, uint32_t* got
     if (platform::now_ns() >= deadline) return Status::TimedOut;
     sched::sleep_ns(kMs);
   }
+}
+
+void tcp_dump(int c) {
+  sync::MutexGuard guard(g_lock);
+  const Tcb& t = g_tcb[c];
+  uint64_t now = platform::now_ns();
+  kprint("tcp: conn {} state {} una {} nxt {} max {} wnd {} sndbuf {} rcv_nxt {} rcvbuf {} rto {} ms "
+         "retx_in {} ms retries {} cwnd {} ssthresh {} dup {} fin_sent {} ooo {}\n",
+         c, static_cast<uint32_t>(t.state), t.snd_una - t.iss, t.snd_nxt - t.iss, t.snd_max - t.iss, t.snd_wnd,
+         t.snd.size, t.rcv_nxt - t.irs, t.rcv.size, t.rto / kMs,
+         t.retx_at > now ? (t.retx_at - now) / kMs : 0, t.retries, t.cwnd, t.ssthresh, t.dup_acks,
+         static_cast<uint32_t>(t.fin_sent), t.ooo_count);
 }
 
 Status tcp_shutdown(int c, bool read, bool write) {

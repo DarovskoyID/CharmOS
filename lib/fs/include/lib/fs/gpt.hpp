@@ -24,6 +24,9 @@ extern const Guid kGuidEsp;
 // Тип раздела «данные Linux» (0FC63DAF-8483-4772-8E79-3D69D8477DE4) —
 // источник вторичный: в UEFI не определён, общепринятое значение.
 extern const Guid kGuidLinuxData;
+// Закрытая системная область CharmOS (docs/abi/pkg.md §1):
+// C4A12F0E-6A3B-4D52-9E3A-43484152534F.
+extern const Guid kGuidSystemArea;
 
 struct GptPartition {
   Guid type;

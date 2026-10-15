@@ -41,6 +41,7 @@ Handle g_port = 0;
 Handle g_logd_ctl = 0;   // наш конец канала управления logd
 Handle g_control = 0;    // наш конец канала управления init (для шелла)
 Handle g_control_peer = 0;
+Handle g_pkgd_peer = 0;  // конец канала запросов pkgd — сеансу на консоли
 
 bool parse_conf() {
   FILE* f = fopen("/etc/init.conf", "r");
@@ -96,7 +97,7 @@ Handle log_channel(const char* name) {
 
 bool start(int i) {
   Service& s = g_svc[i];
-  uint32_t extra[3], roles[3];
+  uint32_t extra[6], roles[6];
   uint32_t n = 0;
   charm_spawn_opts o{};
   o.give = CHARM_GIVE_ROOT | CHARM_GIVE_CWD;
@@ -112,6 +113,37 @@ bool start(int i) {
     roles[n++] = ap::kRoleLog;
   }
   Handle job = 0;
+  bool pkgd = strcmp(s.name, "pkgd") == 0;
+  if (pkgd) {
+    // pkg.md §3: закрытая область — только pkgd; свой Job (передний план для
+    // подтверждений), консоль, канал запросов (хендл без роли №0).
+    Handle ch[2];
+    if (charm::channel_create(ch) != Status::Ok) return false;
+    extra[n] = ch[0];
+    roles[n++] = ap::kRoleNone;
+    if (g_pkgd_peer != 0) (void)charm::handle_close(g_pkgd_peer);
+    g_pkgd_peer = ch[1];
+    if (charm_system() != 0) {
+      auto sd = charm::handle_duplicate(charm_system(), charm::rights::kDuplicate | charm::rights::kTransfer |
+                                                            charm::rights::kRead | charm::rights::kWrite);
+      if (sd.ok()) {
+        extra[n] = static_cast<Handle>(sd.value);
+        roles[n++] = ap::kRoleSystem;
+      }
+    }
+    auto j = charm::job_create(charm_job());
+    if (j.ok()) {
+      job = static_cast<Handle>(j.value);
+      auto jd = charm::handle_duplicate(job, charm::rights::kDuplicate | charm::rights::kTransfer |
+                                                 charm::rights::kRead | charm::rights::kWrite | charm::rights::kSpawn);
+      if (jd.ok()) {
+        extra[n] = static_cast<Handle>(jd.value);
+        roles[n++] = ap::kRoleJob;
+      }
+      o.job = job;
+    }
+    o.give |= CHARM_GIVE_CONSOLE;
+  }
   if (s.console) {
     // Сеанс: свой Job (передний план консоли), канал управления init.
     auto j = charm::job_create(charm_job());
@@ -129,10 +161,15 @@ bool start(int i) {
       roles[n++] = ap::kRoleNone;
       g_control_peer = 0;
     }
+    if (g_pkgd_peer != 0) {  // второй хендл без роли — канал pkgd
+      extra[n] = g_pkgd_peer;
+      roles[n++] = ap::kRoleNone;
+      g_pkgd_peer = 0;
+    }
     o.give |= CHARM_GIVE_CONSOLE;
     o.job = job;
   } else {
-    o.give |= CHARM_GIVE_NET;
+    o.give |= CHARM_GIVE_NET;  // pkgd тоже: сеть — программам с правом net
   }
   o.extra = extra;
   o.extra_roles = roles;

@@ -1,8 +1,0 @@
-# Драйвер Intel 8254x (e1000), Intel 317453006 (PCI/PCI-X GbE SDM).
-name = "e1000"
-class = "net"
-
-[[match]]
-vendor = 0x8086
-device = [0x100e, 0x100f]   # 82540EM (QEMU e1000), 82545EM
-score = 100

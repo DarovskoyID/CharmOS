@@ -1,0 +1,27 @@
+# M8.5: пакет магазина (подписан ключом магазина) ставится в закрытую
+# область и запускается; испорченная подпись и изменённый файл отвергаются;
+# программа не из магазина ставится вне закрытой области только после
+# подтверждения; изменённый установленный файл не запускается; шелл не
+# видит закрытую область.
+vfs: system area is disk0p3 (ext2)
+pkgd: system area available
+pkg: installed org.charmos.hello 1.0 (store, system area)
+hello from a store app (hello, 3 args)
+org.charmos.hello  (store)
+pkg: error: rejected: bad signature
+pkg: error: rejected: file hash mismatch
+*** Free 1.0 (org.example.free) is NOT from the CharmOS store.
+*** It asks for: network, its own data folder, the console.
+pkg: installed org.example.free 1.0 (not from store)
+free app: data folder writable
+org.example.free/
+saved
+corrupt: flipped byte 100 of /apps/org.example.free/bin/free
+sh: org.example.free: verification failed (file hash mismatch), not started
+hello from a store app (hello, 1 args)
+pkg: error: cancelled by user
+*** Remove org.example.free?
+pkg: removed org.example.free
+sh: free: command not found
+sh: bye
+init: exited with 0, halting

@@ -26,10 +26,35 @@ using lib::fs::NodeType;
 namespace rights = abi::syscall::rights;
 
 constinit sync::Mutex g_vfs{"vfs"};
-constinit DiskIo g_io;
-constinit lib::fs::Ext2 g_ext2;
-constinit lib::fs::Fat32 g_fat;
-constinit lib::fs::FileSystem* g_fs = nullptr;
+// Смонтированные ФС: 0 — корень, 1 — закрытая системная область
+// (docs/abi/pkg.md §1). id узла в хендле — (номер ФС << 56) | id в ФС.
+struct Mount {
+  DiskIo io;
+  lib::fs::Ext2 ext2;
+  lib::fs::Fat32 fat;
+  lib::fs::FileSystem* fs;
+};
+constexpr uint32_t kMaxMounts = 2;
+constexpr uint32_t kMountShift = 56;
+constexpr uint64_t kLocalMask = (uint64_t{1} << kMountShift) - 1;
+constinit Mount g_mounts[kMaxMounts] = {};
+constinit lib::fs::FileSystem* g_fs = nullptr;  // корень (g_mounts[0].fs)
+
+uint64_t global_id(uint32_t mount, uint64_t local) { return (uint64_t{mount} << kMountShift) | local; }
+
+uint32_t mount_of(const lib::fs::FileSystem* fs) {
+  for (uint32_t i = 0; i < kMaxMounts; ++i) {
+    if (g_mounts[i].fs == fs) return i;
+  }
+  return 0;
+}
+
+// Хендл → ФС и локальный id; nullptr — ФС не смонтирована.
+lib::fs::FileSystem* fs_of(uint64_t id, uint64_t* local) {
+  uint64_t m = id >> kMountShift;
+  *local = id & kLocalMask;
+  return m < kMaxMounts ? g_mounts[m].fs : nullptr;
+}
 
 // Сколько хендлов открыто на каждый узел: удалять открытое нельзя (fs.md §5).
 constexpr uint32_t kMaxOpen = 512;
@@ -108,7 +133,7 @@ Status copy_path(uint64_t user, uint64_t len, char** out) {
 
 // Разбирает путь (без начального '/', компоненты непустые, без «.» и «..»):
 // идёт от dir до родителя последней компоненты. *last — она (пустая — сам dir).
-Status walk_parent(Node dir, StringView path, Node* parent, StringView* last) {
+Status walk_parent(lib::fs::FileSystem* fs, Node dir, StringView path, Node* parent, StringView* last) {
   *parent = dir;
   *last = StringView();
   if (path.empty()) return Status::Ok;
@@ -122,7 +147,7 @@ Status walk_parent(Node dir, StringView path, Node* parent, StringView* last) {
       *last = comp;
       return Status::Ok;
     }
-    auto next = g_fs->lookup(*parent, comp);
+    auto next = fs->lookup(*parent, comp);
     if (next.is_err()) return map(next.error());
     if (next.value().type != NodeType::Directory) return Status::WrongType;
     *parent = next.value();
@@ -130,14 +155,16 @@ Status walk_parent(Node dir, StringView path, Node* parent, StringView* last) {
   }
 }
 
-Status node_from(uint32_t h, uint32_t need, bool want_dir, Node* node, uint32_t* r) {
-  if (g_fs == nullptr) return Status::NotSupported;
+Status node_from(uint32_t h, uint32_t need, bool want_dir, Node* node, uint32_t* r, lib::fs::FileSystem** fs) {
   uint64_t id;
   bool dir;
   Status s = ipc::get_fs_node(h, need, &id, &dir, r);
   if (s != Status::Ok) return s;
+  uint64_t local;
+  *fs = fs_of(id, &local);
+  if (*fs == nullptr) return Status::NotSupported;
   if (dir != want_dir) return Status::WrongType;
-  *node = {id, dir ? NodeType::Directory : NodeType::File};
+  *node = {local, dir ? NodeType::Directory : NodeType::File};
   return Status::Ok;
 }
 
@@ -148,25 +175,10 @@ void node_closed(uint64_t node) { open_unref(node); }
 bool mounted() { return g_fs != nullptr; }
 const char* root_type() { return g_fs != nullptr ? g_fs->type_name() : "none"; }
 
-bool mount_root(StringView spec) {
-  // «disk<N>p<M>»
-  uint32_t disk = 0, part = 0;
-  size_t i = 4;
-  if (!spec.starts_with("disk") || spec.size() < 7) {
-    kprint("vfs: bad root= '{}'\n", spec);
-    return false;
-  }
-  while (i < spec.size() && spec[i] >= '0' && spec[i] <= '9') disk = disk * 10 + static_cast<uint32_t>(spec[i++] - '0');
-  if (i >= spec.size() || spec[i] != 'p') {
-    kprint("vfs: bad root= '{}'\n", spec);
-    return false;
-  }
-  ++i;
-  while (i < spec.size() && spec[i] >= '0' && spec[i] <= '9') part = part * 10 + static_cast<uint32_t>(spec[i++] - '0');
-  if (i != spec.size() || part == 0) {
-    kprint("vfs: bad root= '{}'\n", spec);
-    return false;
-  }
+namespace {
+
+// Монтирует раздел part (с 1) диска disk как ФС номер m.
+bool mount_partition(uint32_t m, uint32_t disk, uint32_t part, const char* what) {
   if (!block::wait_online(disk, platform::now_ns() + 20'000'000'000ull)) {
     kprint("vfs: disk{} not available\n", disk);
     return false;
@@ -187,37 +199,91 @@ bool mount_root(StringView spec) {
   }
   const lib::fs::GptPartition& p = gpt.parts[part - 1];
   uint64_t bs = info.block_size;
-  g_io.init(disk, p.first_lba * 512, (p.last_lba - p.first_lba + 1) * 512);
+  Mount& mt = g_mounts[m];
+  mt.io.init(disk, p.first_lba * 512, (p.last_lba - p.first_lba + 1) * 512);
   (void)bs;
   ipc::set_fs_node_closed_hook(&node_closed);
-  if (g_ext2.mount(&g_io).is_ok()) {
-    g_fs = &g_ext2;
-  } else if (g_fat.mount(&g_io).is_ok()) {
-    g_fs = &g_fat;
+  if (mt.ext2.mount(&mt.io).is_ok()) {
+    mt.fs = &mt.ext2;
+  } else if (m == 0 && mt.fat.mount(&mt.io).is_ok()) {
+    mt.fs = &mt.fat;
   } else {
     kprint("vfs: disk{}p{}: neither ext2 nor FAT32\n", disk, part);
     return false;
   }
-  kprint("vfs: root is disk{}p{} ({}{})\n", disk, part, g_fs->type_name(),
-         g_fs->read_only() ? ", read-only" : "");
+  kprint("vfs: {} is disk{}p{} ({}{})\n", what, disk, part, mt.fs->type_name(),
+         mt.fs->read_only() ? ", read-only" : "");
   return true;
 }
 
-Status root_cap(ipc::Cap** out) {
-  if (g_fs == nullptr) return Status::NotSupported;
-  Node root = g_fs->root();
-  if (!open_ref(root.id)) return Status::NoMemory;
-  Status s = ipc::create_fs_node(root.id, true,
-                                 rights::kDuplicate | rights::kTransfer | rights::kRead | rights::kWrite,
+}  // namespace
+
+bool mount_root(StringView spec) {
+  // «disk<N>p<M>»
+  uint32_t disk = 0, part = 0;
+  size_t i = 4;
+  if (!spec.starts_with("disk") || spec.size() < 7) {
+    kprint("vfs: bad root= '{}'\n", spec);
+    return false;
+  }
+  while (i < spec.size() && spec[i] >= '0' && spec[i] <= '9') disk = disk * 10 + static_cast<uint32_t>(spec[i++] - '0');
+  if (i >= spec.size() || spec[i] != 'p') {
+    kprint("vfs: bad root= '{}'\n", spec);
+    return false;
+  }
+  ++i;
+  while (i < spec.size() && spec[i] >= '0' && spec[i] <= '9') part = part * 10 + static_cast<uint32_t>(spec[i++] - '0');
+  if (i != spec.size() || part == 0) {
+    kprint("vfs: bad root= '{}'\n", spec);
+    return false;
+  }
+  if (!mount_partition(0, disk, part, "root")) return false;
+  g_fs = g_mounts[0].fs;
+  // Закрытая область (pkg.md §1): раздел с типом CharmOS System Area на том же диске.
+  block::DiskInfo info;
+  (void)block::disk_info(disk, &info);
+  lib::fs::GptInfo gpt;
+  {
+    sync::MutexGuard guard(g_vfs);
+    DiskIo whole;
+    whole.init(disk, 0, info.block_count * info.block_size);
+    if (lib::fs::read_gpt(whole, &gpt).is_err()) return true;
+  }
+  for (uint32_t k = 0; k < gpt.count; ++k) {
+    if (gpt.parts[k].type == lib::fs::kGuidSystemArea) {
+      (void)mount_partition(1, disk, k + 1, "system area");
+      break;
+    }
+  }
+  return true;
+}
+
+namespace {
+
+Status mount_cap(uint32_t m, ipc::Cap** out) {
+  lib::fs::FileSystem* fs = g_mounts[m].fs;
+  if (fs == nullptr) return Status::NotSupported;
+  uint64_t id = global_id(m, fs->root().id);
+  if (!open_ref(id)) return Status::NoMemory;
+  Status s = ipc::create_fs_node(id, true, rights::kDuplicate | rights::kTransfer | rights::kRead | rights::kWrite,
                                  out);
-  if (s != Status::Ok) open_unref(root.id);
+  if (s != Status::Ok) open_unref(id);
   return s;
 }
 
+}  // namespace
+
+Status root_cap(ipc::Cap** out) { return mount_cap(0, out); }
+Status system_cap(ipc::Cap** out) { return mount_cap(1, out); }
+bool system_mounted() { return g_mounts[1].fs != nullptr; }
+
 Status sync_all() {
-  if (g_fs == nullptr) return Status::Ok;
   sync::MutexGuard guard(g_vfs);
-  return g_fs->sync().is_ok() ? Status::Ok : Status::IoError;
+  bool ok = true;
+  for (Mount& m : g_mounts) {
+    if (m.fs != nullptr) ok = m.fs->sync().is_ok() && ok;
+  }
+  return ok ? Status::Ok : Status::IoError;
 }
 
 Status sys_fs_open(uint32_t dir_h, uint64_t user_path, uint64_t len, uint64_t flags, uint64_t* out) {
@@ -228,9 +294,10 @@ Status sys_fs_open(uint32_t dir_h, uint64_t user_path, uint64_t len, uint64_t fl
   if ((flags & abi::fs::kOpenTruncate) != 0 && !want_write) return Status::InvalidArgs;
   if ((flags & abi::fs::kOpenExclusive) != 0 && !create) return Status::InvalidArgs;
   if (want_dir && (flags & abi::fs::kOpenTruncate) != 0) return Status::InvalidArgs;
+  lib::fs::FileSystem* fs;
   Node dir;
   uint32_t dir_rights;
-  Status s = node_from(dir_h, rights::kRead, true, &dir, &dir_rights);
+  Status s = node_from(dir_h, rights::kRead, true, &dir, &dir_rights, &fs);
   if (s != Status::Ok) return s;
   if ((want_write || create) && (dir_rights & rights::kWrite) == 0) return Status::AccessDenied;
   char* path;
@@ -242,13 +309,13 @@ Status sys_fs_open(uint32_t dir_h, uint64_t user_path, uint64_t len, uint64_t fl
     sync::MutexGuard guard(g_vfs);
     Node parent;
     StringView last;
-    s = walk_parent(dir, StringView(path, len), &parent, &last);
+    s = walk_parent(fs, dir, StringView(path, len), &parent, &last);
     if (s == Status::Ok) {
       if (last.empty()) {
         node = parent;
         if (create && (flags & abi::fs::kOpenExclusive) != 0) s = Status::AlreadyExists;
       } else {
-        auto found = g_fs->lookup(parent, last);
+        auto found = fs->lookup(parent, last);
         if (found.is_ok()) {
           if (create && (flags & abi::fs::kOpenExclusive) != 0) {
             s = Status::AlreadyExists;
@@ -256,7 +323,7 @@ Status sys_fs_open(uint32_t dir_h, uint64_t user_path, uint64_t len, uint64_t fl
             node = found.value();
           }
         } else if (found.error() == FsError::NotFound && create) {
-          auto made = g_fs->create(parent, last, want_dir ? NodeType::Directory : NodeType::File);
+          auto made = fs->create(parent, last, want_dir ? NodeType::Directory : NodeType::File);
           if (made.is_err()) {
             s = map(made.error());
           } else {
@@ -269,24 +336,26 @@ Status sys_fs_open(uint32_t dir_h, uint64_t user_path, uint64_t len, uint64_t fl
     }
     if (s == Status::Ok && (node.type == NodeType::Directory) != want_dir) s = Status::WrongType;
     if (s == Status::Ok && (flags & abi::fs::kOpenTruncate) != 0) {
-      if (auto t = g_fs->resize(node, 0); t.is_err()) s = map(t.error());
+      if (auto t = fs->resize(node, 0); t.is_err()) s = map(t.error());
     }
   }
   mm::kfree(path);
   if (s != Status::Ok) return s;
   uint32_t r = dir_rights & (rights::kDuplicate | rights::kTransfer | rights::kRead | rights::kWrite);
   if (!want_dir && !want_write) r &= ~rights::kWrite;
-  if (!open_ref(node.id)) return Status::NoMemory;
-  return ipc::install_fs_node(node.id, want_dir, r, out);  // при ошибке хук снимет счётчик
+  uint64_t gid = global_id(mount_of(fs), node.id);
+  if (!open_ref(gid)) return Status::NoMemory;
+  return ipc::install_fs_node(gid, want_dir, r, out);  // при ошибке хук снимет счётчик
 }
 
 namespace {
 
 Status transfer(uint32_t h, uint64_t user, uint64_t len, uint64_t offset, bool write, uint64_t* out) {
   if (len > abi::fs::kMaxTransfer) return Status::InvalidArgs;
+  lib::fs::FileSystem* fs;
   Node file;
   uint32_t r;
-  Status s = node_from(h, write ? rights::kWrite : rights::kRead, false, &file, &r);
+  Status s = node_from(h, write ? rights::kWrite : rights::kRead, false, &file, &r, &fs);
   if (s != Status::Ok) return s;
   auto mem = mm::kmalloc(4096);
   if (mem.is_err()) return Status::NoMemory;
@@ -301,7 +370,7 @@ Status transfer(uint32_t h, uint64_t user, uint64_t len, uint64_t offset, bool w
         break;
       }
       sync::MutexGuard guard(g_vfs);
-      auto w = g_fs->write(file, offset + done, buf, chunk);
+      auto w = fs->write(file, offset + done, buf, chunk);
       if (w.is_err()) {
         s = map(w.error());
         break;
@@ -310,7 +379,7 @@ Status transfer(uint32_t h, uint64_t user, uint64_t len, uint64_t offset, bool w
       size_t got;
       {
         sync::MutexGuard guard(g_vfs);
-        auto rd = g_fs->read(file, offset + done, buf, chunk);
+        auto rd = fs->read(file, offset + done, buf, chunk);
         if (rd.is_err()) {
           s = map(rd.error());
           break;
@@ -343,22 +412,24 @@ Status sys_file_write(uint32_t h, uint64_t buf, uint64_t len, uint64_t offset, u
 }
 
 Status sys_file_sync(uint32_t h) {
+  lib::fs::FileSystem* fs;
   Node file;
   uint32_t r;
-  Status s = node_from(h, rights::kRead, false, &file, &r);
+  Status s = node_from(h, rights::kRead, false, &file, &r, &fs);
   if (s != Status::Ok) return s;
   return sync_all();
 }
 
 Status read_file(uint32_t h, uint64_t max, void** data, uint64_t* size) {
+  lib::fs::FileSystem* fs;
   Node file;
   uint32_t r;
-  Status s = node_from(h, rights::kRead, false, &file, &r);
+  Status s = node_from(h, rights::kRead, false, &file, &r, &fs);
   if (s != Status::Ok) return s;
   uint64_t len;
   {
     sync::MutexGuard guard(g_vfs);
-    auto st = g_fs->stat(file);
+    auto st = fs->stat(file);
     if (st.is_err()) return map(st.error());
     len = st.value().size;
   }
@@ -368,7 +439,7 @@ Status read_file(uint32_t h, uint64_t max, void** data, uint64_t* size) {
   for (uint64_t done = 0; done < len;) {
     sync::MutexGuard guard(g_vfs);
     size_t chunk = len - done < 65536 ? static_cast<size_t>(len - done) : 65536;
-    auto rd = g_fs->read(file, done, static_cast<uint8_t*>(mem.value()) + done, chunk);
+    auto rd = fs->read(file, done, static_cast<uint8_t*>(mem.value()) + done, chunk);
     if (rd.is_err() || rd.value() == 0) {
       mm::kfree(mem.value());
       return rd.is_err() ? map(rd.error()) : Status::IoError;
@@ -381,16 +452,18 @@ Status read_file(uint32_t h, uint64_t max, void** data, uint64_t* size) {
 }
 
 Status sys_fs_stat(uint32_t h, uint64_t user_out) {
-  if (g_fs == nullptr) return Status::NotSupported;
   uint64_t id;
   bool dir;
   uint32_t r;
   Status s = ipc::get_fs_node(h, 0, &id, &dir, &r);
   if (s != Status::Ok) return s;
+  uint64_t local;
+  lib::fs::FileSystem* fs = fs_of(id, &local);
+  if (fs == nullptr) return Status::NotSupported;
   abi::fs::Stat st = {};
   {
     sync::MutexGuard guard(g_vfs);
-    auto res = g_fs->stat(Node{id, dir ? NodeType::Directory : NodeType::File});
+    auto res = fs->stat(Node{local, dir ? NodeType::Directory : NodeType::File});
     if (res.is_err()) return map(res.error());
     st.size = res.value().size;
     st.type = res.value().type == NodeType::Directory ? abi::fs::kTypeDirectory : abi::fs::kTypeFile;
@@ -400,9 +473,10 @@ Status sys_fs_stat(uint32_t h, uint64_t user_out) {
 }
 
 Status sys_dir_read(uint32_t h, uint64_t user_buf, uint64_t cap, uint64_t cookie, uint64_t* out) {
+  lib::fs::FileSystem* fs;
   Node dir;
   uint32_t r;
-  Status s = node_from(h, rights::kRead, true, &dir, &r);
+  Status s = node_from(h, rights::kRead, true, &dir, &r, &fs);
   if (s != Status::Ok) return s;
   if (cap > 65536) cap = 65536;
   auto mem = mm::kmalloc(cap + 1);
@@ -419,7 +493,7 @@ Status sys_dir_read(uint32_t h, uint64_t user_buf, uint64_t cap, uint64_t cookie
     sync::MutexGuard guard(g_vfs);
     for (;;) {
       uint64_t after;
-      auto rd = g_fs->read_dir(dir, next, e, &after);
+      auto rd = fs->read_dir(dir, next, e, &after);
       if (rd.is_err()) {
         s = map(rd.error());
         break;
@@ -456,9 +530,10 @@ Status sys_dir_read(uint32_t h, uint64_t user_buf, uint64_t cap, uint64_t cookie
 }
 
 Status sys_fs_unlink(uint32_t dir_h, uint64_t user_path, uint64_t len) {
+  lib::fs::FileSystem* fs;
   Node dir;
   uint32_t r;
-  Status s = node_from(dir_h, rights::kWrite, true, &dir, &r);
+  Status s = node_from(dir_h, rights::kWrite, true, &dir, &r, &fs);
   if (s != Status::Ok) return s;
   char* path;
   s = copy_path(user_path, len, &path);
@@ -467,15 +542,15 @@ Status sys_fs_unlink(uint32_t dir_h, uint64_t user_path, uint64_t len) {
     sync::MutexGuard guard(g_vfs);
     Node parent;
     StringView last;
-    s = walk_parent(dir, StringView(path, len), &parent, &last);
+    s = walk_parent(fs, dir, StringView(path, len), &parent, &last);
     if (s == Status::Ok && last.empty()) s = Status::InvalidArgs;
     if (s == Status::Ok) {
-      auto found = g_fs->lookup(parent, last);
+      auto found = fs->lookup(parent, last);
       if (found.is_err()) {
         s = map(found.error());
-      } else if (is_open(found.value().id)) {
+      } else if (is_open(global_id(mount_of(fs), found.value().id))) {
         s = Status::Busy;  // на узел есть хендлы
-      } else if (auto u = g_fs->unlink(parent, last); u.is_err()) {
+      } else if (auto u = fs->unlink(parent, last); u.is_err()) {
         s = map(u.error());
       }
     }
@@ -485,12 +560,13 @@ Status sys_fs_unlink(uint32_t dir_h, uint64_t user_path, uint64_t len) {
 }
 
 Status sys_file_resize(uint32_t h, uint64_t size) {
+  lib::fs::FileSystem* fs;
   Node file;
   uint32_t r;
-  Status s = node_from(h, rights::kWrite, false, &file, &r);
+  Status s = node_from(h, rights::kWrite, false, &file, &r, &fs);
   if (s != Status::Ok) return s;
   sync::MutexGuard guard(g_vfs);
-  auto rs = g_fs->resize(file, size);
+  auto rs = fs->resize(file, size);
   return rs.is_ok() ? Status::Ok : map(rs.error());
 }
 

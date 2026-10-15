@@ -1,0 +1,27 @@
+#wait charm:/$
+install http://10.0.2.2:18090/hello-store.cpk
+hello a b
+apps
+install /pkgs/hello-bad.cpk
+install /pkgs/hello-tampered.cpk
+install /pkgs/free.cpk
+#wait outside the system area?
+y
+#wait pkg: installed org.example.free
+free
+ls /apps
+cat /home/apps/org.example.free/note.txt
+corrupt /apps/org.example.free/bin/free 100
+free
+hello
+install /pkgs/free.cpk
+#wait outside the system area?
+n
+#wait cancelled by user
+uninstall free
+#wait Remove org.example.free?
+y
+#wait removed org.example.free
+ls /apps
+free
+exit
