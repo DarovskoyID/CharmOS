@@ -122,6 +122,7 @@ bool g_control = false, g_shadows = true, g_warm = true;
 bool g_files_available = false;
 char g_query[64]{};
 uint32_t g_query_len = 0;
+int g_launcher_selected = 0;
 
 extern "C" const uint8_t wm_ui_font[], wm_ui_font_end[], wm_mono_font[], wm_mono_font_end[];
 lib::font::Face g_ui_font, g_mono_font;
@@ -293,6 +294,7 @@ void launcher_toggle() {
   g_control = false;
   g_drag = -1;
   g_query_len = 0; g_query[0] = 0;
+  g_launcher_selected = 0;
   damage(g_s.all());
   printf("wm: launcher %s\n", g_launcher ? "open" : "closed");
 }
@@ -328,6 +330,55 @@ bool files_match() { return g_files_available && (g_query_len == 0 || strstr("fi
 
 bool demo_matches() {
   return g_query_len == 0 || strstr("colors", g_query) != nullptr || strstr("demo", g_query) != nullptr;
+}
+
+bool title_matches(const char* title) {
+  if (g_query_len == 0) return true;
+  for (; *title; ++title) {
+    const char* p = title; const char* q = g_query;
+    while (*p && *q) {
+      char c = *p >= 'A' && *p <= 'Z' ? static_cast<char>(*p + 32) : *p;
+      if (c != *q) break;
+      ++p; ++q;
+    }
+    if (!*q) return true;
+  }
+  return false;
+}
+int launcher_columns() {
+  int x = g_s.width >= 1000 ? 120 : 32;
+  int columns = (static_cast<int>(g_s.width) - 2 * x + 18) / 218;
+  return columns > 0 ? columns : 1;
+}
+int launcher_windows() {
+  int rows = (static_cast<int>(g_s.height) - 468) / 62;
+  return rows > 0 ? rows * launcher_columns() : 0;
+}
+// One ordered set drives keyboard selection, painting and mouse hit testing.
+// 0/1 are applications; 2+index identifies an existing window.
+int launcher_item(int ordinal) {
+  if (demo_matches() && ordinal-- == 0) return 0;
+  if (files_match() && ordinal-- == 0) return 1;
+  int visible = 0;
+  for (int i = 0; i < g_zn && visible < launcher_windows(); ++i) {
+    if (!title_matches(g_win[g_z[i]].title)) continue;
+    ++visible;
+    if (ordinal-- == 0) return 2 + g_z[i];
+  }
+  return -1;
+}
+int launcher_count() { int n = 0; while (launcher_item(n) >= 0) ++n; return n; }
+Rect launcher_rect(int ordinal) {
+  int item = launcher_item(ordinal), x = g_s.width >= 1000 ? 120 : 32;
+  if (item < 0) return {};
+  if (item < 2) return {x + item * 212, 240, 192, 156};
+  int row = ordinal - (demo_matches() ? 1 : 0) - (files_match() ? 1 : 0);
+  return {x + (row % launcher_columns()) * 218, 468 + (row / launcher_columns()) * 62, 200, 48};
+}
+int launcher_hit() {
+  for (int i = 0; launcher_item(i) >= 0; ++i)
+    if (launcher_rect(i).contains(g_cursor.x, g_cursor.y)) return i;
+  return -1;
 }
 
 void desktop(Rect d) {
@@ -385,6 +436,8 @@ void control_draw(Rect d) {
 }
 
 void launcher_draw(Rect d) {
+  if (g_launcher_selected >= launcher_count()) g_launcher_selected = 0;
+  int selected_item = launcher_item(g_launcher_selected);
   int32_t x = g_s.width >= 1000 ? 120 : 32, y = 96;
   int32_t width = static_cast<int32_t>(g_s.width) - x * 2;
   g_s.fill({0, kPanel, static_cast<int32_t>(g_s.width), static_cast<int32_t>(g_s.height) - kPanel}, kInk, d);
@@ -397,25 +450,28 @@ void launcher_draw(Rect d) {
   text("Приложения и открытые окна", x + 88, y + 107, 0x8e887d, d, false, 13);
   if (files_match()) {
     int32_t tx = x + 212;
-    rounded({tx, y + 144, 192, 156}, 16, 0x332e25, d);
+    rounded({tx, y + 144, 192, 156}, 16, selected_item == 1 ? kAmber : 0x332e25, d);
     rounded({tx + 1, y + 145, 190, 154}, 15, kRaised, d);
     tile_icon(tx + 20, y + 166, 1, d);
     text("Файлы", tx + 20, y + 248, 0xf3efe7, d, false, 15);
     text("Просмотр файлов", tx + 20, y + 274, 0x8e887d, d, false, 12);
+    if (selected_item == 1) text("ENTER", tx + 122, y + 190, kAmber, d, true, 11);
   }
   if (demo_matches()) {
-    rounded({x, y + 144, 192, 156}, 16, 0x332e25, d);
+    rounded({x, y + 144, 192, 156}, 16, selected_item == 0 ? kAmber : 0x332e25, d);
     rounded({x + 1, y + 145, 190, 154}, 15, kRaised, d);
     tile_icon(x + 20, y + 166, 0, d);
     text("Colors", x + 20, y + 248, 0xf3efe7, d, false, 15);
     text("Демонстрация окон", x + 20, y + 274, 0x8e887d, d, false, 12);
-    text("ENTER", x + 122, y + 190, kAmber, d, true, 11);
-  } else if (!files_match()) text("Ничего не найдено", x + 20, y + 184, 0x8e887d, d);
+    if (selected_item == 0) text("ENTER", x + 122, y + 190, kAmber, d, true, 11);
+  } else if (launcher_count() == 0) text("Ничего не найдено", x + 20, y + 184, 0x8e887d, d);
   text("ОТКРЫТЫЕ ОКНА", x, y + 352, 0x8e887d, d, false, 11, 1);
-  for (int i = 0; i < g_zn && i < 8; ++i) {
-    Window& w = g_win[g_z[i]];
-    int32_t tx = x + (i % 4) * 218, ty = y + 372 + (i / 4) * 62;
-    rounded({tx, ty, 200, 48}, 10, 0x2a2a2e, d);
+  for (int i = 0; launcher_item(i) >= 0; ++i) {
+    int item = launcher_item(i);
+    if (item < 2) continue;
+    Window& w = g_win[item - 2];
+    Rect r = launcher_rect(i); int32_t tx = r.x, ty = r.y;
+    rounded(r, 10, i == g_launcher_selected ? kAmber : 0x2a2a2e, d);
     rounded({tx + 1, ty + 1, 198, 46}, 9, 0x141416, d);
     text(w.title, tx + 16, ty + 29, 0xf3efe7, intersect({tx + 8, ty, 184, 48}, d), false, 14);
   }
@@ -650,6 +706,13 @@ void door_message(Handle door) {
   }
 }
 
+void launcher_activate() {
+  int item = launcher_item(g_launcher_selected);
+  if (item == 0) launch_demo();
+  else if (item == 1) launch_files();
+  else if (item >= 2) { raise(item - 2); set_focus(item - 2); launcher_toggle(); }
+}
+
 // Ввод из ядра: курсор, перетаскивание, фокус; остальное — окну.
 void input_event(const sc::InputEvent& e) {
   if (e.type == sc::kInputKey) {
@@ -669,12 +732,18 @@ void input_event(const sc::InputEvent& e) {
     if (g_launcher) {
       if (e.value == 0) return;
       if (e.code == 0x29) { launcher_toggle(); return; }
-      if (e.code == 0x28 && demo_matches()) { launch_demo(); return; }
-      if (e.code == 0x28 && files_match()) { launch_files(); return; }
+      if (e.code == 0x28) { launcher_activate(); return; }
+      if (e.code == 0x2b || (e.code >= 0x4f && e.code <= 0x52)) {
+        int n = launcher_count();
+        int step = e.code == 0x50 || e.code == 0x52 ? -1 : 1;
+        if (n > 0) g_launcher_selected = (g_launcher_selected + n + step) % n;
+        damage(g_s.all()); return;
+      }
       if (e.code == 0x2a && g_query_len != 0) g_query[--g_query_len] = 0;
       else if (e.code >= 4 && e.code <= 29 && g_query_len + 1 < sizeof g_query) {
         g_query[g_query_len++] = static_cast<char>('a' + e.code - 4); g_query[g_query_len] = 0;
       }
+      g_launcher_selected = 0;
       damage(g_s.all()); return;
     }
     if (g_control) return;
@@ -689,6 +758,10 @@ void input_event(const sc::InputEvent& e) {
     if (g_cursor.x > static_cast<int32_t>(g_s.width) - kCursor) g_cursor.x = static_cast<int32_t>(g_s.width) - kCursor;
     if (g_cursor.y > static_cast<int32_t>(g_s.height) - kCursor) g_cursor.y = static_cast<int32_t>(g_s.height) - kCursor;
     damage(unite(old, g_cursor));
+    if (g_launcher) {
+      int item = launcher_hit();
+      if (item >= 0 && item != g_launcher_selected) { g_launcher_selected = item; damage(g_s.all()); }
+    }
     if (g_drag >= 0) {
       Window& w = g_win[g_drag];
       damage(w.frame);
@@ -725,14 +798,8 @@ void input_event(const sc::InputEvent& e) {
   }
   if (g_launcher) {
     if (e.type == sc::kInputButton && e.code == 1 && e.value == 1) {
-      int32_t x = g_s.width >= 1000 ? 120 : 32;
-      if (Rect{x, 240, 192, 156}.contains(g_cursor.x, g_cursor.y) && demo_matches()) launch_demo();
-      else if (Rect{x + 212, 240, 192, 156}.contains(g_cursor.x, g_cursor.y) && files_match()) launch_files();
-      else for (int i = 0; i < g_zn && i < 8; ++i) {
-        if (Rect{x + (i % 4) * 218, 468 + (i / 4) * 62, 200, 48}.contains(g_cursor.x, g_cursor.y)) {
-          int wi = g_z[i]; raise(wi); set_focus(wi); launcher_toggle(); break;
-        }
-      }
+      int item = launcher_hit();
+      if (item >= 0) { g_launcher_selected = item; launcher_activate(); }
     }
     return;
   }

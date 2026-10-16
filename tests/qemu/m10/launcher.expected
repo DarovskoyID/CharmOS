@@ -2,13 +2,23 @@
 [wm] wm: TrueType fonts ready (Space Grotesk, JetBrains Mono)
 [wm] wm: ready (input yes, door yes)
 [wm] wm: launcher open
+[wm] wm: launch files ok
+[wm] wm: launcher closed
+[wm] wm: window 3 "Файлы"
+[wm] wm: window 3 destroyed
+[wm] wm: launcher open
 [wm] wm: launch demo ok
 [wm] wm: launcher closed
-[wm] wm: window 3 "Colors"
-[wm] wm: window 3 destroyed
+[wm] wm: window 4 "Colors"
+[wm] wm: window 4 destroyed
+[wm] wm: launcher open
+[wm] wm: launcher closed
+[wm] wm: key 0x4 -> window 1
 init: poweroff: stopping services
 acpi: entering S5
 screen: pixel 1150,110 = 121214
 screen: pixel 140,260 = 1b1a18
 screen: pixel 10,38 = f5c518
+screen: pixel 400,240 = f5c518
+screen: pixel 200,240 = f5c518
 screen: pixel 1150,110 = 0b0b0c

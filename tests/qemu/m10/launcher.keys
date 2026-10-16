@@ -4,10 +4,32 @@
 #sleep 1
 #pixel 1150 110 140 260 10 38
 #monitor screendump /mnt/a/CharmOS/build/launcher-open.ppm
+#monitor sendkey right
+#sleep 1
+#pixel 400 240
+#monitor sendkey left
+#sleep 1
+#pixel 200 240
+#monitor sendkey tab
+#monitor screendump /mnt/a/CharmOS/build/launcher-selected.ppm
 #monitor sendkey ret
-#wait wm: window 3 "Colors"
+#wait wm: window 3 "Файлы"
 #sleep 1
 #monitor sendkey alt-f4
 #wait wm: window 3 destroyed
 #pixel 1150 110
+#monitor sendkey alt-spc
+#monitor sendkey ret
+#wait wm: window 4 "Colors"
+#monitor sendkey alt-f4
+#wait wm: window 4 destroyed
+#monitor sendkey alt-spc
+#monitor sendkey a
+#monitor sendkey m
+#monitor sendkey b
+#monitor sendkey e
+#monitor sendkey r
+#monitor sendkey ret
+#monitor sendkey a
+#sleep 1
 svc poweroff
