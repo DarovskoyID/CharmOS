@@ -1,0 +1,135 @@
+#wait wm: ready (input yes, door yes)
+#monitor screendump /mnt/a/CharmOS/build/universal-desktop.ppm
+#monitor sendkey alt-spc
+#monitor sendkey equal
+#monitor sendkey 5
+#monitor sendkey shift-8
+#monitor sendkey 3
+#monitor sendkey minus
+#monitor sendkey 2
+#monitor sendkey ret
+#wait wm: calculate 13.000000
+#monitor screendump /mnt/a/CharmOS/build/universal-expression.ppm
+#monitor sendkey esc
+#monitor sendkey alt-spc
+#monitor sendkey shift-5
+#monitor sendkey shift-5
+#monitor sendkey 1
+#monitor sendkey 0
+#monitor sendkey spc
+#monitor sendkey m
+#monitor sendkey spc
+#monitor sendkey c
+#monitor sendkey m
+#monitor sendkey ret
+#wait wm: convert 1000.000000
+#monitor screendump /mnt/a/CharmOS/build/universal-units.ppm
+#monitor sendkey esc
+#monitor sendkey alt-spc
+#monitor sendkey shift-3
+#monitor sendkey a
+#monitor sendkey b
+#monitor sendkey c
+#monitor sendkey ret
+#wait wm: SHA-512 ddaf35a193617aba
+#monitor screendump /mnt/a/CharmOS/build/universal-hash.ppm
+#monitor sendkey esc
+#monitor sendkey alt-spc
+#monitor sendkey slash
+#monitor sendkey s
+#monitor sendkey e
+#monitor sendkey t
+#monitor sendkey t
+#monitor sendkey i
+#monitor sendkey n
+#monitor sendkey g
+#monitor sendkey s
+#monitor sendkey ret
+#wait wm: control open
+#monitor sendkey esc
+#monitor sendkey alt-spc
+#monitor sendkey c
+#monitor sendkey a
+#monitor sendkey l
+#monitor sendkey c
+#monitor sendkey ret
+#wait calc: ready
+#monitor sendkey 5
+#monitor sendkey shift-8
+#monitor sendkey 3
+#monitor sendkey minus
+#monitor sendkey 2
+#monitor sendkey ret
+#wait calc: result 13.000000
+#monitor screendump /mnt/a/CharmOS/build/universal-calculator.ppm
+#monitor sendkey f2
+#monitor sendkey up
+#wait calc: parameter 1.50
+#sleep 1
+#monitor screendump /mnt/a/CharmOS/build/universal-graph.ppm
+#monitor sendkey alt-f4
+#wait wm: window 1 destroyed
+#monitor sendkey alt-spc
+#monitor sendkey f
+#monitor sendkey i
+#monitor sendkey l
+#monitor sendkey e
+#monitor sendkey s
+#monitor sendkey ret
+#wait files: directory / (
+#monitor sendkey f4
+#monitor sendkey f8
+#monitor sendkey shift-l
+#monitor sendkey f
+#monitor sendkey y
+#monitor sendkey y
+#monitor sendkey s
+#monitor sendkey t
+#monitor sendkey ret
+#wait files: directory /Данные (
+#monitor sendkey ret
+#wait files: preview /Данные/заметка.txt
+#monitor sendkey slash
+#monitor sendkey p
+#monitor sendkey f
+#monitor sendkey v
+#monitor sendkey t
+#monitor sendkey n
+#monitor sendkey r
+#monitor sendkey f
+#monitor sendkey ret
+#monitor sendkey ret
+#sleep 1
+#monitor screendump /mnt/a/CharmOS/build/universal-russian.ppm
+#monitor sendkey alt-f4
+#wait wm: window 2 destroyed
+#monitor sendkey alt-spc
+#monitor sendkey slash
+#monitor sendkey s
+#monitor sendkey h
+#monitor sendkey a
+#monitor sendkey d
+#monitor sendkey o
+#monitor sendkey w
+#monitor sendkey s
+#monitor sendkey ret
+#wait wm: preferences saved 1 flags 2
+#monitor sendkey esc
+#monitor sendkey alt-spc
+#monitor sendkey slash
+#monitor sendkey w
+#monitor sendkey a
+#monitor sendkey r
+#monitor sendkey m
+#monitor sendkey ret
+#wait wm: preferences saved 2 flags 0
+svc kill wm
+#wait wm: preferences loaded 2 flags 0
+#monitor mouse_move 210 -190
+#monitor mouse_move 210 -190
+#sleep 1
+#monitor mouse_button 1
+#monitor mouse_button 0
+#sleep 1
+#monitor screendump /mnt/a/CharmOS/build/universal-settings.ppm
+svc poweroff

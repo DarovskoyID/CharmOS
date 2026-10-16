@@ -11,6 +11,12 @@
 #include <charm/sys.hpp>
 #include <lib/font/truetype.hpp>
 #include <lib/input/ring.hpp>
+#include <charm/expression.hpp>
+#include <charm/text_input.hpp>
+#include <charm/units.hpp>
+#include <charm/preferences.hpp>
+#include <lib/crypto/sha512.hpp>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -116,17 +122,52 @@ uint32_t g_next_id = 1;
 int g_focus = -1;
 Rect g_cursor;
 Rect g_damage{};
+Rect g_regions[16]{};
+unsigned g_region_count = 0;
 Rect g_hot{};
 bool hot(Rect r) { return r.x == g_hot.x && r.y == g_hot.y && r.w == g_hot.w && r.h == g_hot.h; }
 Handle g_port;
 int g_drag = -1;  // окно, которое тащат за заголовок
 bool g_alt = false, g_launcher = false;
+bool g_quick = false, g_russian = false;
+char g_quick_notice[128]{};
 unsigned g_shift = 0;
 bool g_control = false, g_shadows = true, g_warm = true;
 bool g_files_available = false;
+bool g_calc_available = false;
+bool g_edit_available = false;
 char g_query[64]{};
 uint32_t g_query_len = 0;
 int g_launcher_selected = 0;
+uint32_t g_preference_generation = 0;
+bool g_preferences_saved = true;
+
+void load_preferences() {
+  charm::ui::Preferences chosen{};
+  for (int slot=0;slot<2;++slot) {
+    char path[32]; snprintf(path,sizeof path,"/etc/charm-desktop.%d",slot);
+    int fd=open(path,O_RDONLY); if(fd<0) continue;
+    charm::ui::Preferences p{}; char extra;
+    bool ok=read(fd,&p,sizeof p)==static_cast<ssize_t>(sizeof p) && read(fd,&extra,1)==0;
+    close(fd);
+    if(ok && charm::ui::valid(p) && p.generation>chosen.generation) chosen=p;
+  }
+  if(chosen.generation) {
+    g_preference_generation=chosen.generation;
+    g_shadows=(chosen.flags&1)!=0; g_warm=(chosen.flags&2)!=0; g_russian=(chosen.flags&4)!=0;
+    printf("wm: preferences loaded %u flags %u\n",chosen.generation,chosen.flags);
+  }
+}
+void save_preferences() {
+  g_preferences_saved=false;
+  if(g_preference_generation==0xffffffffu) return;
+  uint32_t generation=g_preference_generation+1;
+  auto p=charm::ui::preferences(generation,(g_shadows?1u:0u)|(g_warm?2u:0u)|(g_russian?4u:0u));
+  char path[32]; snprintf(path,sizeof path,"/etc/charm-desktop.%u",generation&1u);
+  int fd=open(path,O_WRONLY|O_CREAT|O_TRUNC,0600); if(fd<0) return;
+  bool ok=write(fd,&p,sizeof p)==static_cast<ssize_t>(sizeof p) && fsync(fd)==0; close(fd);
+  if(ok) { g_preferences_saved=true; g_preference_generation=generation; printf("wm: preferences saved %u flags %u\n",generation,p.flags); }
+}
 
 extern "C" const uint8_t wm_ui_font[], wm_ui_font_end[], wm_mono_font[], wm_mono_font_end[];
 lib::font::Face g_ui_font, g_mono_font;
@@ -321,8 +362,10 @@ void wallpaper_build() {
 
 void damage(Rect r);
 
-void launcher_toggle() {
+void launcher_toggle(bool quick = false) {
   g_launcher = !g_launcher;
+  g_quick = quick;
+  g_quick_notice[0] = 0;
   g_control = false;
   g_drag = -1;
   g_query_len = 0; g_query[0] = 0;
@@ -358,7 +401,26 @@ void launch_files() {
   if (child >= 0 && g_launcher) launcher_toggle();
 }
 
-bool files_match() { return g_files_available && (g_query_len == 0 || strstr("files", g_query) != nullptr); }
+void launch_calc() {
+  char path[] = "/bin/calc"; char* args[] = {path, nullptr};
+  charm_spawn_opts options{};
+  options.give = CHARM_GIVE_ROOT | CHARM_GIVE_CWD | CHARM_GIVE_WM | CHARM_GIVE_LOG;
+  int64_t child = charm_spawn(path, args, nullptr, &options);
+  if (child >= 0) (void)charm::handle_close(static_cast<Handle>(child));
+  printf("wm: launch calc %s\n", child >= 0 ? "ok" : "failed");
+  if (child >= 0 && g_launcher) launcher_toggle();
+}
+bool files_match() { return g_files_available && (g_query_len == 0 || strstr("files", g_query) != nullptr || strstr("файлы", g_query) != nullptr); }
+bool calc_match() { return g_calc_available && (g_query_len == 0 || strstr("calc", g_query) != nullptr || strstr("калькулятор", g_query) != nullptr); }
+bool edit_match() { return g_edit_available && (g_query_len==0 || strstr("editor",g_query)!=nullptr || strstr("редактор",g_query)!=nullptr); }
+void launch_edit() {
+  char path[]="/bin/edit"; char* args[]={path,nullptr}; charm_spawn_opts options{};
+  options.give=CHARM_GIVE_ROOT|CHARM_GIVE_CWD|CHARM_GIVE_WM|CHARM_GIVE_LOG;
+  int64_t child=charm_spawn(path,args,nullptr,&options);
+  if(child>=0) charm::handle_close(static_cast<Handle>(child));
+  printf("wm: launch edit %s\n",child>=0?"ok":"failed");
+  if(child>=0 && g_launcher) launcher_toggle();
+}
 
 bool demo_matches() {
   return g_query_len == 0 || strstr("colors", g_query) != nullptr || strstr("demo", g_query) != nullptr;
@@ -382,8 +444,21 @@ int launcher_columns() {
   int columns = (static_cast<int>(g_s.width) - 2 * x + 18) / 218;
   return columns > 0 ? columns : 1;
 }
+int app_columns() {
+  int x=g_s.width>=1000?120:32;
+  int count=(static_cast<int>(g_s.width)-2*x+20)/212;
+  return count>0?count:1;
+}
+Rect app_rect(int slot) {
+  int x=g_s.width>=1000?120:32;
+  return {x+(slot%app_columns())*212,240+(slot/app_columns())*176,192,156};
+}
+int window_cards_y() {
+  int slots=g_edit_available?4:g_calc_available?3:g_files_available?2:1;
+  return 292+((slots+app_columns()-1)/app_columns())*176;
+}
 int launcher_windows() {
-  int rows = (static_cast<int>(g_s.height) - 468) / 62;
+  int rows = (static_cast<int>(g_s.height) - window_cards_y()) / 62;
   return rows > 0 ? rows * launcher_columns() : 0;
 }
 // One ordered set drives keyboard selection, painting and mouse hit testing.
@@ -391,6 +466,8 @@ int launcher_windows() {
 int launcher_item(int ordinal) {
   if (demo_matches() && ordinal-- == 0) return 0;
   if (files_match() && ordinal-- == 0) return 1;
+  if (calc_match() && ordinal-- == 0) return 100;
+  if (edit_match() && ordinal-- == 0) return 101;
   int visible = 0;
   for (int i = 0; i < g_zn && visible < launcher_windows(); ++i) {
     if (!title_matches(g_win[g_z[i]].title)) continue;
@@ -401,11 +478,17 @@ int launcher_item(int ordinal) {
 }
 int launcher_count() { int n = 0; while (launcher_item(n) >= 0) ++n; return n; }
 Rect launcher_rect(int ordinal) {
+  if (g_quick) {
+    int first = g_launcher_selected > 2 ? g_launcher_selected - 2 : 0;
+    if (ordinal < first || ordinal >= first + 3) return {};
+    return {static_cast<int32_t>(g_s.width) - 408, static_cast<int32_t>(g_s.height) - 204 + (ordinal - first) * 40, 360, 36};
+  }
   int item = launcher_item(ordinal), x = g_s.width >= 1000 ? 120 : 32;
   if (item < 0) return {};
-  if (item < 2) return {x + item * 212, 240, 192, 156};
-  int row = ordinal - (demo_matches() ? 1 : 0) - (files_match() ? 1 : 0);
-  return {x + (row % launcher_columns()) * 218, 468 + (row / launcher_columns()) * 62, 200, 48};
+  if (item < 2) return app_rect(item);
+  if (item == 100 || item==101) return app_rect(item-98);
+  int row = ordinal - (demo_matches() ? 1 : 0) - (files_match() ? 1 : 0) - (calc_match() ? 1 : 0) - (edit_match()?1:0);
+  return {x + (row % launcher_columns()) * 218, window_cards_y() + (row / launcher_columns()) * 62, 200, 48};
 }
 int launcher_hit() {
   for (int i = 0; launcher_item(i) >= 0; ++i)
@@ -439,6 +522,68 @@ void desktop(Rect d) {
     tile_icon(x + 14, y + 55, i == 0 ? (g_files_available ? 1 : 0) : i + 1, d);
     text(labels[i], x + 13, y + 123, 0xf3efe7, intersect({x + 4, y, 106, 160}, d), false, 13);
   }
+  int32_t qx = static_cast<int32_t>(g_s.width) - 424;
+  int32_t qy = static_cast<int32_t>(g_s.height) - 192;
+  rounded({qx, qy, 392, 160}, 16, 0x2a2a2e, d);
+  rounded({qx + 1, qy + 1, 390, 158}, 15, 0x121214, d);
+  text("УНИВЕРСАЛЬНЫЙ ДОСТУП", qx + 16, qy + 26, 0x8e887d, d, false, 10);
+  text("ALT+SPACE", qx + 288, qy + 26, 0x8e887d, d, true, 10);
+  rounded({qx + 14, qy + 42, 364, 44}, 9, 0x332e25, d);
+  rounded({qx + 15, qy + 43, 362, 42}, 8, kInk, d);
+  text("Поиск, =выражение, /команда", qx + 26, qy + 70, 0xb7b1a6, d, false, 13);
+  text("= Вычислить    / Команды", qx + 18, qy + 113, 0xf3efe7, d, false, 12);
+  text("Программы, файлы и открытые окна", qx + 18, qy + 139, 0x8e887d, d, false, 11);
+}
+
+void quick_draw(Rect d) {
+  if(g_launcher_selected>=launcher_count()) g_launcher_selected=0;
+  int32_t x = static_cast<int32_t>(g_s.width) - 424, y = static_cast<int32_t>(g_s.height) - 312;
+  Rect clip = intersect({x, y, 392, 280}, d);
+  rounded({x, y, 392, 280}, 16, 0x5b5140, d);
+  rounded({x + 1, y + 1, 390, 278}, 15, 0x121214, d);
+  text("УНИВЕРСАЛЬНЫЙ ДОСТУП", x + 16, y + 26, 0x8e887d, clip, false, 10);
+  text(g_russian ? "RU" : "EN", x + 344, y + 26, kAmber, clip, true, 11);
+  rounded({x + 14, y + 42, 364, 48}, 9, 0x332e25, clip);
+  text(g_query_len ? g_query : "Введите запрос…", x + 26, y + 73, kWhite, intersect({x + 20, y + 42, 350, 48}, clip), false, 15);
+  if (g_query[0] == '=') {
+    auto result = charm::math::evaluate(g_query + 1);
+    char value[96];
+    if (result.error != charm::math::Error::None) snprintf(value, sizeof value, "%s", charm::math::error_text(result.error));
+    else if (result.value > 1e12 || result.value < -1e12) snprintf(value, sizeof value, "Результат вне диапазона отображения");
+    else snprintf(value, sizeof value, "= %.6f", result.value);
+    text(value, x + 20, y + 137, result.error == charm::math::Error::None ? kAmber : 0xffb5ac, clip, false, 16);
+    text("+ − * / ^   sqrt() abs() sin() cos()", x + 20, y + 174, 0xb7b1a6, clip, true, 11);
+  } else if (g_query[0] == '#') {
+    uint8_t digest[64]; lib::crypto::sha512(g_query + 1, strlen(g_query + 1), digest);
+    char hex[129]; constexpr char digits[] = "0123456789abcdef";
+    for (unsigned i=0; i<64; ++i) { hex[2*i]=digits[digest[i]>>4]; hex[2*i+1]=digits[digest[i]&15]; } hex[128]=0;
+    text("SHA-512 · UTF-8", x+20,y+116,kAmber,clip,false,12);
+    for (unsigned i=0; i<4; ++i) { char line[33]; memcpy(line,hex+i*32,32); line[32]=0; text(line,x+20,y+144+static_cast<int32_t>(i)*22,kWhite,clip,true,11); }
+  } else if (g_query[0] == '%' && g_query[1] == '%') {
+    auto converted=charm::math::convert_query(g_query+2); char value[96];
+    if (converted.valid && converted.value>=-1e12 && converted.value<=1e12) snprintf(value,sizeof value,"= %.6f",converted.value);
+    else snprintf(value,sizeof value,"Формат: %%%% 10 m -> cm");
+    text(value,x+20,y+137,converted.valid?kAmber:0xb7b1a6,clip,false,16);
+    text("Длина · масса · время · температура",x+20,y+174,0x8e887d,clip,false,11);
+  } else if (g_query[0] == '/') {
+    text("/settings   Открыть настройки", x + 20, y + 133, kWhite, clip, false, 12);
+    text("/shadows    Переключить тени", x + 20, y + 167, 0xb7b1a6, clip, false, 12);
+    text("/warm       Переключить фон", x + 20, y + 201, 0xb7b1a6, clip, false, 12);
+  } else {
+    int n = launcher_count();
+    int first = g_launcher_selected > 2 ? g_launcher_selected - 2 : 0;
+    for (int i = first; i < n && i < first + 3; ++i) {
+      int item = launcher_item(i); Rect r = launcher_rect(i);
+      if (i == g_launcher_selected) rounded(r, 8, 0x29251b, clip);
+      const char* title = item == 0 ? "Colors — демонстрация" : item == 1 ? "Файлы — Диск A" : item == 100 ? "Калькулятор" : item==101 ? "Редактор" : g_win[item - 2].title;
+      text(title, r.x + 12, r.y + 25, i == g_launcher_selected ? kAmber : kWhite, intersect(r, clip), false, 13);
+    }
+    if (n == 0) {
+      text("Нет установленного приложения", x + 20, y + 134, 0xb7b1a6, clip, false, 13);
+      text("Поиск Яндекс: требуется браузер", x + 20, y + 168, 0x8e887d, clip, false, 12);
+    }
+  }
+  text(g_quick_notice[0] ? g_quick_notice : "Enter: выполнить   Esc: закрыть   F2: все", x + 18, y + 258, 0x8e887d, clip, false, 10);
 }
 
 void control_draw(Rect d) {
@@ -455,24 +600,25 @@ void control_draw(Rect d) {
   text(display, x + 36, y + 144, 0xf3efe7, d, true, 17);
   char windows[64]; snprintf(windows, sizeof windows, "Открыто окон: %d", g_zn);
   text(windows, x + 222, y + 144, 0xb7b1a6, d, false, 12);
-  for (int row = 0; row < 2; ++row) {
+  for (int row = 0; row < 3; ++row) {
     int32_t ty = y + 192 + row * 72;
-    bool enabled = row == 0 ? g_shadows : g_warm;
+    bool enabled = row == 0 ? g_shadows : row == 1 ? g_warm : g_russian;
     if (hot({x + 328, 248 + row * 72, 44, 24})) rounded({x + 320, ty - 3, 60, 40}, 16, 0x332e25, d);
-    text(row == 0 ? "Тени окон" : "Тёплый фон", x + 24, ty + 22, 0xf3efe7, d, false, 15);
-    text(row == 0 ? "Мягкая тень под окнами" : "Свечение за логотипом", x + 24, ty + 44, 0x8e887d, d, false, 12);
+    text(row == 0 ? "Тени окон" : row == 1 ? "Тёплый фон" : "Русский ввод поиска", x + 24, ty + 22, 0xf3efe7, d, false, 15);
+    text(row == 0 ? "Мягкая тень под окнами" : row == 1 ? "Свечение за логотипом" : "F8 в панели поиска и в Файлах", x + 24, ty + 44, 0x8e887d, d, false, 12);
     rounded({x + 328, ty + 5, 44, 24}, 12, enabled ? kAmber : 0x3a3a3f, d);
     rounded({x + 331 + (enabled ? 20 : 0), ty + 8, 18, 18}, 9, enabled ? kInk : 0xd8d2c7, d);
   }
-  text("Space Grotesk / JetBrains Mono", x + 24, y + 390, 0x8e887d, d, false, 12);
-  text("Alt + Space   Приложения", x + 24, y + 432, 0xd8d2c7, d, true, 12);
-  text("Alt + Tab     Переключить окно", x + 24, y + 458, 0xd8d2c7, d, true, 12);
-  text("Alt + F4      Закрыть окно", x + 24, y + 484, 0xd8d2c7, d, true, 12);
-  text("Alt + F9      Свернуть окно", x + 24, y + 510, 0xd8d2c7, d, true, 12);
-  text("Esc           Закрыть панель", x + 24, y + 536, 0xd8d2c7, d, true, 12);
+  text(g_preferences_saved ? "Настройки сохраняются на диске" : "Не удалось сохранить настройки", x + 24, y + 418, 0x8e887d, d, false, 12);
+  text("Alt + Space   Универсальный доступ", x + 24, y + 456, 0xd8d2c7, d, true, 12);
+  text("Alt + Tab     Переключить окно", x + 24, y + 482, 0xd8d2c7, d, true, 12);
+  text("Alt + F4      Закрыть окно", x + 24, y + 508, 0xd8d2c7, d, true, 12);
+  text("Alt + F9      Свернуть окно", x + 24, y + 534, 0xd8d2c7, d, true, 12);
+  text("Esc           Закрыть панель", x + 24, y + 560, 0xd8d2c7, d, true, 12);
 }
 
 void launcher_draw(Rect d) {
+  if (g_quick) { quick_draw(d); return; }
   if (g_launcher_selected >= launcher_count()) g_launcher_selected = 0;
   int selected_item = launcher_item(g_launcher_selected);
   int32_t x = g_s.width >= 1000 ? 120 : 32, y = 96;
@@ -485,27 +631,24 @@ void launcher_draw(Rect d) {
   rounded({x, y + 86, 68, 32}, 16, kAmber, d);
   text("Все", x + 18, y + 107, kInk, d, false, 13);
   text("Приложения и открытые окна", x + 88, y + 107, 0x8e887d, d, false, 13);
-  if (files_match()) {
-    int32_t tx = x + 212;
-    rounded({tx, y + 144, 192, 156}, 16, selected_item == 1 ? kAmber : 0x332e25, d);
-    rounded({tx + 1, y + 145, 190, 154}, 15, kRaised, d);
-    tile_icon(tx + 20, y + 166, 1, d);
-    text("Файлы", tx + 20, y + 248, 0xf3efe7, d, false, 15);
-    text("Просмотр файлов", tx + 20, y + 274, 0x8e887d, d, false, 12);
-    if (selected_item == 1) text("ENTER", tx + 122, y + 190, kAmber, d, true, 11);
+  const int ids[]={0,1,100,101};
+  const bool available[]={demo_matches(),files_match(),calc_match(),edit_match()};
+  const char* names[]={"Colors","Файлы","Калькулятор","Редактор"};
+  const char* descriptions[]={"Демонстрация окон","Просмотр файлов","Функции и графики","UTF-8 и исходный код"};
+  for(int slot=0;slot<4;++slot) if(available[slot]) {
+    Rect r=app_rect(slot); rounded(r,16,selected_item==ids[slot]?kAmber:0x332e25,d);
+    rounded({r.x+1,r.y+1,r.w-2,r.h-2},15,kRaised,d);
+    if(slot<2) tile_icon(r.x+20,r.y+22,slot,d);
+    else text(slot==2?"=":"{}",r.x+20,r.y+56,kAmber,d,true,24);
+    text(names[slot],r.x+20,r.y+104,0xf3efe7,d,false,15);
+    text(descriptions[slot],r.x+20,r.y+130,0x8e887d,d,false,12);
+    if(selected_item==ids[slot]) text("ENTER",r.x+122,r.y+46,kAmber,d,true,11);
   }
-  if (demo_matches()) {
-    rounded({x, y + 144, 192, 156}, 16, selected_item == 0 ? kAmber : 0x332e25, d);
-    rounded({x + 1, y + 145, 190, 154}, 15, kRaised, d);
-    tile_icon(x + 20, y + 166, 0, d);
-    text("Colors", x + 20, y + 248, 0xf3efe7, d, false, 15);
-    text("Демонстрация окон", x + 20, y + 274, 0x8e887d, d, false, 12);
-    if (selected_item == 0) text("ENTER", x + 122, y + 190, kAmber, d, true, 11);
-  } else if (launcher_count() == 0) text("Ничего не найдено", x + 20, y + 184, 0x8e887d, d);
-  text("ОТКРЫТЫЕ ОКНА", x, y + 352, 0x8e887d, d, false, 11, 1);
+  if(launcher_count()==0) text("Ничего не найдено",x+20,y+184,0x8e887d,d);
+  text("ОТКРЫТЫЕ ОКНА",x,window_cards_y()-20,0x8e887d,d,false,11,1);
   for (int i = 0; launcher_item(i) >= 0; ++i) {
     int item = launcher_item(i);
-    if (item < 2) continue;
+    if (item < 2 || item == 100 || item==101) continue;
     Window& w = g_win[item - 2];
     Rect r = launcher_rect(i); int32_t tx = r.x, ty = r.y;
     rounded(r, 10, i == g_launcher_selected ? kAmber : 0x2a2a2e, d);
@@ -517,7 +660,20 @@ void launcher_draw(Rect d) {
 
 Rect content(const Window& w) { return {w.frame.x, w.frame.y + kTitle, w.w, w.h}; }
 
-void damage(Rect r) { if (!r.empty()) g_damage = unite(g_damage, {r.x - 16, r.y - 16, r.w + 32, r.h + 40}); }
+void damage(Rect r) {
+  if (r.empty()) return;
+  Rect expanded{r.x - 16, r.y - 16, r.w + 32, r.h + 40};
+  g_damage = unite(g_damage, expanded);
+  Rect clipped = intersect(expanded, g_s.all());
+  if (clipped.empty()) return;
+  for (unsigned i = 0; i < g_region_count; ++i) {
+    Rect merged = unite(g_regions[i], clipped);
+    int64_t cost = int64_t{g_regions[i].w} * g_regions[i].h + int64_t{clipped.w} * clipped.h;
+    if (int64_t{merged.w} * merged.h <= cost) { g_regions[i] = merged; return; }
+  }
+  if (g_region_count < 16) g_regions[g_region_count++] = clipped;
+  else { g_regions[0] = intersect(g_damage, g_s.all()); g_region_count = 1; }
+}
 
 void send_event(int client, uint32_t type, uint32_t window, uint32_t value) {
   if (client < 0 || !g_cl[client].used) return;
@@ -567,7 +723,7 @@ Rect hover_rect() {
     {static_cast<int32_t>(g_s.width) - 150, 9, 132, 23}};
   for (Rect r : header) if (r.contains(x, y)) return r;
   if (g_control) {
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 0; i < 3; ++i) {
       Rect r{static_cast<int32_t>(g_s.width) - 104, 248 + i * 72, 44, 24};
       if (r.contains(x, y)) return r;
     }
@@ -800,6 +956,8 @@ void launcher_activate() {
   int item = launcher_item(g_launcher_selected);
   if (item == 0) launch_demo();
   else if (item == 1) launch_files();
+  else if (item == 100) launch_calc();
+  else if (item == 101) launch_edit();
   else if (item >= 2) { raise(item - 2); set_focus(item - 2); launcher_toggle(); }
 }
 
@@ -813,7 +971,7 @@ void input_event(const sc::InputEvent& e) {
     }
     if (g_control && e.value != 0 && e.code == 0x29) { control_toggle(); return; }
     if (e.code == 0xe2 || e.code == 0xe6) { g_alt = e.value != 0; return; }
-    if (g_alt && e.value == 1 && e.code == 0x2c) { launcher_toggle(); return; }
+    if (g_alt && e.value == 1 && e.code == 0x2c) { launcher_toggle(true); return; }
     if (g_launcher && g_alt && e.value == 1 && e.code == 0x3d) { launcher_toggle(); return; }
     if (g_control) {
       if (g_alt && e.value == 1 && e.code == 0x3d) control_toggle();
@@ -827,6 +985,35 @@ void input_event(const sc::InputEvent& e) {
     }
     if (g_launcher) {
       if (e.value == 0) return;
+      if (e.code == 0x41) { g_russian = !g_russian; save_preferences(); damage(g_s.all()); return; }
+      if (e.code == 0x3b) { g_quick = false; damage(g_s.all()); return; }
+      if (e.code == 0x28 && g_query[0] == '=') {
+        auto result = charm::math::evaluate(g_query + 1);
+        if (result.error == charm::math::Error::None && result.value >= -1e12 && result.value <= 1e12) {
+          snprintf(g_quick_notice, sizeof g_quick_notice, "Результат: %.6f", result.value);
+          printf("wm: calculate %.6f\n", result.value);
+        }
+        damage(g_s.all()); return;
+      }
+      if (e.code == 0x28 && g_query[0] == '%' && g_query[1] == '%') {
+        auto converted=charm::math::convert_query(g_query+2);
+        if (converted.valid && converted.value>=-1e12 && converted.value<=1e12) printf("wm: convert %.6f\n",converted.value);
+        return;
+      }
+      if (e.code == 0x28 && g_query[0] == '#') {
+        uint8_t digest[64]; lib::crypto::sha512(g_query+1,strlen(g_query+1),digest);
+        char prefix[17]; constexpr char digits[]="0123456789abcdef";
+        for(unsigned i=0;i<8;++i) { prefix[2*i]=digits[digest[i]>>4]; prefix[2*i+1]=digits[digest[i]&15]; } prefix[16]=0;
+        printf("wm: SHA-512 %s\n",prefix); return;
+      }
+      if (e.code == 0x28 && g_query[0] == '/') {
+        if (strcmp(g_query, "/settings") == 0) { control_toggle(); return; }
+        if (strcmp(g_query, "/shadows") == 0) { g_shadows = !g_shadows; }
+        else if (strcmp(g_query, "/warm") == 0) { g_warm = !g_warm; wallpaper_build(); }
+        else { snprintf(g_quick_notice, sizeof g_quick_notice, "Неизвестная команда"); damage(g_s.all()); return; }
+        save_preferences();
+        damage(g_s.all()); return;
+      }
       if (e.code == 0x29) { launcher_toggle(); return; }
       if (e.code == 0x28) { launcher_activate(); return; }
       if (e.code == 0x2b || (e.code >= 0x4f && e.code <= 0x52)) {
@@ -835,14 +1022,8 @@ void input_event(const sc::InputEvent& e) {
         if (n > 0) g_launcher_selected = (g_launcher_selected + n + step) % n;
         damage(g_s.all()); return;
       }
-      if (e.code == 0x2a && g_query_len != 0) g_query[--g_query_len] = 0;
-      else if (e.code >= 4 && e.code <= 29 && g_query_len + 1 < sizeof g_query) {
-        g_query[g_query_len++] = static_cast<char>('a' + e.code - 4); g_query[g_query_len] = 0;
-      } else if (e.code >= 0x1e && e.code <= 0x27 && g_query_len + 1 < sizeof g_query) {
-        g_query[g_query_len++] = "1234567890"[e.code - 0x1e]; g_query[g_query_len] = 0;
-      } else if (e.code == 0x2c && g_query_len + 1 < sizeof g_query) {
-        g_query[g_query_len++] = ' '; g_query[g_query_len] = 0;
-      } else return;
+      if (e.code == 0x2a) charm::ui::backspace(g_query, g_query_len);
+      else if (!charm::ui::append(g_query, sizeof g_query, g_query_len, charm::ui::key(e.code, g_shift != 0, g_russian))) return;
       g_launcher_selected = 0;
       damage(g_s.all()); return;
     }
@@ -896,9 +1077,11 @@ void input_event(const sc::InputEvent& e) {
     if (e.type == sc::kInputButton && e.code == 1 && e.value == 1) {
       int32_t x = static_cast<int32_t>(g_s.width) - 432;
       if (Rect{x + 328, 248, 44, 24}.contains(g_cursor.x, g_cursor.y)) {
-        g_shadows = !g_shadows; damage(g_s.all()); printf("wm: shadows %s\n", g_shadows ? "on" : "off");
+        g_shadows = !g_shadows; save_preferences(); damage(g_s.all()); printf("wm: shadows %s\n", g_shadows ? "on" : "off");
       } else if (Rect{x + 328, 320, 44, 24}.contains(g_cursor.x, g_cursor.y)) {
-        g_warm = !g_warm; wallpaper_build(); damage(g_s.all()); printf("wm: warm %s\n", g_warm ? "on" : "off");
+        g_warm = !g_warm; save_preferences(); wallpaper_build(); damage(g_s.all()); printf("wm: warm %s\n", g_warm ? "on" : "off");
+      } else if (Rect{x + 328, 392, 44, 24}.contains(g_cursor.x, g_cursor.y)) {
+        g_russian=!g_russian; save_preferences(); damage(g_s.all());
       } else if (!Rect{x, 56, 400, static_cast<int32_t>(g_s.height) - 80}.contains(g_cursor.x, g_cursor.y)) control_toggle();
     }
     return;
@@ -909,6 +1092,10 @@ void input_event(const sc::InputEvent& e) {
       if (item >= 0) { g_launcher_selected = item; launcher_activate(); }
     }
     return;
+  }
+  if (e.type == sc::kInputButton && e.code == 1 && e.value == 1 &&
+      Rect{static_cast<int32_t>(g_s.width) - 424, static_cast<int32_t>(g_s.height) - 192, 392, 160}.contains(g_cursor.x, g_cursor.y) && window_at(g_cursor.x, g_cursor.y) < 0) {
+    launcher_toggle(true); return;
   }
   if (e.type == sc::kInputButton && e.value == 1 && e.code == 1 &&
       Rect{32, static_cast<int32_t>(g_s.height) - 192, 392, 160}.contains(g_cursor.x, g_cursor.y) &&
@@ -956,10 +1143,7 @@ void input_event(const sc::InputEvent& e) {
 }
 
 // Кадр: повреждённое заново в заднем буфере (фон, окна снизу вверх, курсор), на экран.
-void compose() {
-  g_hot = hover_rect();
-  Rect d = intersect(g_damage, g_s.all());
-  g_damage = {};
+void compose_region(Rect d) {
   if (d.empty()) return;
   if (g_wallpaper != nullptr) {
     for (int32_t y = d.y; y < d.y + d.h; ++y)
@@ -1016,6 +1200,24 @@ void compose() {
   g_s.present(d);
 }
 
+void compose() {
+  uint64_t started = charm::now_ns();
+  g_hot = hover_rect();
+  Rect regions[16]; unsigned n = g_region_count;
+  for (unsigned i = 0; i < n; ++i) regions[i] = g_regions[i];
+  g_region_count = 0; g_damage = {};
+  static uint64_t frames = 0, time = 0, pixels = 0;
+  for (unsigned i = 0; i < n; ++i) {
+    compose_region(regions[i]);
+    pixels += static_cast<uint64_t>(regions[i].w) * static_cast<uint64_t>(regions[i].h);
+  }
+  time += charm::now_ns() - started;
+  if (++frames == 120) {
+    printf("wm: compose avg %llu us, %llu pixels\n", static_cast<unsigned long long>(time / frames / 1000), static_cast<unsigned long long>(pixels / frames));
+    frames = 0; time = 0; pixels = 0;
+  }
+}
+
 }  // namespace
 
 extern "C" int main(int, char**) {
@@ -1047,6 +1249,9 @@ extern "C" int main(int, char**) {
   if (!fonts_ok) { printf("wm: invalid embedded font\n"); return 1; }
   struct stat files_stat{};
   g_files_available = stat("/bin/files", &files_stat) == 0 && S_ISREG(files_stat.st_mode);
+  g_calc_available = stat("/bin/calc", &files_stat) == 0 && S_ISREG(files_stat.st_mode);
+  g_edit_available = stat("/bin/edit", &files_stat) == 0 && S_ISREG(files_stat.st_mode);
+  load_preferences();
   wallpaper_build();
   printf("wm: TrueType fonts ready (Space Grotesk, JetBrains Mono)\n");
   printf("wm: display %ux%u, pitch %u, %s\n", info.width, info.height, info.pitch, g_s.bgrx ? "BGRX" : "RGBX");

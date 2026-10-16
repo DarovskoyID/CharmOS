@@ -1,5 +1,7 @@
 #include <charm/canvas.hpp>
 #include <charm/window.hpp>
+#include <charm/text_input.hpp>
+#include <charm/libc.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -18,6 +20,9 @@ struct Entry { char name[256]; bool directory; long long size; } entries[128]{};
 char path[512] = "/", query[64]{}, preview[4097]{}, notice[128]{};
 int count = 0, selected = 0, first = 0, query_len = 0;
 bool viewing = false, search = false, truncated = false;
+bool address = false, russian = false;
+char address_text[512]{};
+unsigned address_length = 0;
 unsigned shift_keys = 0;
 int pointer_x = 0, pointer_y = 0;
 uint16_t preview_lines[512]{};
@@ -56,11 +61,14 @@ void scroll_preview(int step) {
 
 bool matches(int index) {
   if (query_len == 0) return true;
-  auto lower = [](unsigned char c) { return c >= 'A' && c <= 'Z' ? static_cast<unsigned char>(c + 32) : c; };
-  for (const char* start = entries[index].name; *start != 0; ++start) {
+  auto lower = [](uint32_t c) { return c >= 'A' && c <= 'Z' ? c + 32 : c >= 0x410 && c <= 0x42f ? c + 32 : c == 0x401 ? 0x451u : c; };
+  for (const char* start = entries[index].name; *start != 0;) {
     const char* a = start; const char* b = query;
-    while (*a != 0 && *b != 0 && lower(static_cast<unsigned char>(*a)) == lower(static_cast<unsigned char>(*b))) { ++a; ++b; }
-    if (*b == 0) return true;
+    while (*a != 0 && *b != 0) {
+      if (lower(lib::font::utf8_next(&a)) != lower(lib::font::utf8_next(&b))) break;
+      if (*b == 0) return true;
+    }
+    lib::font::utf8_next(&start);
   }
   return false;
 }
@@ -102,7 +110,7 @@ void reload() {
 }
 void navigate(const char* next) {
   snprintf(path, sizeof path, "%s", next);
-  query_len = 0; query[0] = 0; search = false;
+  query_len = 0; query[0] = 0; search = false; address = false;
   if (strcmp(path, history[history_at]) != 0) {
     history_count = history_at + 1;
     if (history_count == 16) {
@@ -159,21 +167,23 @@ void draw(uint32_t* pixels, bool bgrx) {
   canvas.text("→", 58, 34, history_at + 1 < history_count ? 0xf5c518 : 0x56534e, 80, 16);
   canvas.text("Вверх", 98, 34, 0xf5c518, 156);
   canvas.text("Обновить", 174, 34, 0xf3efe7, 270);
-  canvas.text(path, 284, 34, 0xb7b1a6, 610, 13, true);
+  char display_path[520]; snprintf(display_path, sizeof display_path, "A:%s", path);
+  if (address) canvas.rounded(280, 10, 334, 36, 8, 0x332e25);
+  canvas.text(address ? address_text : display_path, 284, 34, address ? 0xf3efe7 : 0xb7b1a6, 610, 13, true);
   canvas.rounded(630, 10, 214, 36, 9, search ? 0x332e25 : 0x0b0b0c);
   canvas.text(query_len == 0 ? "Поиск ( / )" : query, 642, 34, 0xb7b1a6, 834, 13);
   canvas.fill(0, 56, 174, kHeight - 56, 0x101012);
   canvas.fill(173, 56, 1, kHeight - 56, 0x1e1e21);
   canvas.text("МЕСТА", 20, 88, 0x8e887d, 160, 11);
   const char* places[] = {"/", "/bin", "/etc"};
-  const char* labels[] = {"Корень /", "Программы", "Настройки"};
+  const char* labels[] = {"Диск A", "Программы", "Настройки"};
   for (int i = 0; i < 3; ++i) {
     bool active = strcmp(path, places[i]) == 0;
     if (active) canvas.rounded(10, 102 + i * 38, 154, 32, 8, 0x29251b);
     else if (hover == 1010 + i) canvas.rounded(10, 102 + i * 38, 154, 32, 8, 0x202022);
     canvas.text(labels[i], 20, 126 + i * 38, active ? 0xf5c518 : 0xd8d2c7, 160);
   }
-  canvas.text("ПРОСМОТР", 20, 425, 0x8e887d, 160, 11);
+  canvas.text(russian ? "RU · F8: EN" : "EN · F8: RU", 20, 425, 0x8e887d, 160, 11);
   if (viewing) {
     canvas.text(entries[selected].name, 194, 88, 0xf5c518, 840, 16);
     char line[320];
@@ -235,12 +245,16 @@ bool input(const sc::InputEvent& e) {
   if (e.type == sc::kInputButton && e.code == 1 && e.value == 1) {
     pointer_x = e.x; pointer_y = e.y;
     search = pointer_y >= 10 && pointer_y < 46 && pointer_x >= 630 && pointer_x < 844;
+    address = false;
     if (pointer_y < 56) {
       int button = hit(pointer_x, pointer_y);
       if (button == 1002) history_go(-1);
       else if (button == 1003) history_go(1);
       else if (button == 1000) parent();
       else if (button == 1001) reload();
+      else if (pointer_x >= 280 && pointer_x < 614) {
+        address = true; snprintf(address_text, sizeof address_text, "A:%s", path); address_length = static_cast<unsigned>(strlen(address_text));
+      }
       else if (pointer_x >= 630) { search = true; viewing = false; }
     } else if (pointer_x < 174) {
       if (pointer_y >= 102 && pointer_y < 220) {
@@ -265,24 +279,45 @@ bool input(const sc::InputEvent& e) {
     return false;
   }
   if (e.type != sc::kInputKey || e.value == 0) return false;
+  if (e.code == 0x41) { russian = !russian; return true; }
+  if (e.code == 0x3d) {  // F4 edits the displayed drive path.
+    address = true; search = false; snprintf(address_text, sizeof address_text, "A:%s", path); address_length = static_cast<unsigned>(strlen(address_text)); return true;
+  }
+  if (address) {
+    if (e.code == 0x29) address = false;
+    else if (e.code == 0x28) {
+      const char* next = strncmp(address_text, "A:", 2) == 0 || strncmp(address_text, "a:", 2) == 0 ? address_text + 2 : address_text;
+      struct stat st{};
+      if (*next == '/' && stat(next, &st) == 0 && S_ISDIR(st.st_mode)) navigate(next);
+      else snprintf(notice, sizeof notice, "Каталог не найден");
+    } else if (e.code == 0x2a) charm::ui::backspace(address_text, address_length);
+    else charm::ui::append(address_text, sizeof address_text, address_length, charm::ui::key(e.code, shift_keys != 0, russian));
+    return true;
+  }
   if (e.code == 0x38 && !search) { search = true; viewing = false; return true; }
   if (search) {
     if (e.code == 0x29) { search = false; query_len = 0; query[0] = 0; }
     else if (e.code == 0x28) search = false;
-    else if (e.code == 0x2a && query_len > 0) query[--query_len] = 0;
-    else if (query_len < 63) {
-      char character = 0;
-      if (e.code >= 4 && e.code <= 29) character = static_cast<char>((shift_keys != 0 ? 'A' : 'a') + e.code - 4);
-      else if (e.code >= 0x1e && e.code <= 0x27) character = (shift_keys != 0 ? "!@#$%^&*()" : "1234567890")[e.code - 0x1e];
-      else if (e.code == 0x2c) character = ' ';
-      else if (e.code >= 0x2d && e.code <= 0x38) character = (shift_keys != 0 ? "_+{}|~:\"~<>?" : "-=[]\\#;'`,./")[e.code - 0x2d];
-      if (character != 0) { query[query_len++] = character; query[query_len] = 0; }
+    else {
+      unsigned length = static_cast<unsigned>(query_len);
+      if (e.code == 0x2a) charm::ui::backspace(query, length);
+      else charm::ui::append(query, sizeof query, length, charm::ui::key(e.code, shift_keys != 0, russian));
+      query_len = static_cast<int>(length);
     }
     first = 0;
     selected = index_at(0);
     return true;
   }
   if (e.code == 0x3e) { reload(); return true; }  // F5: reread the real directory.
+  if (e.code == 0x3f && selected>=0 && selected<count && !entries[selected].directory) {
+    char absolute[1024]; fullpath(entries[selected].name,absolute,sizeof absolute);
+    char program[]="/bin/edit"; char* args[]={program,absolute,nullptr};
+    charm_spawn_opts options{}; options.give=CHARM_GIVE_ROOT|CHARM_GIVE_CWD|CHARM_GIVE_WM|CHARM_GIVE_LOG;
+    int64_t process=charm_spawn(program,args,nullptr,&options);
+    if(process>=0) charm::handle_close(static_cast<charm::Handle>(process));
+    else snprintf(notice,sizeof notice,"Редактор не установлен или не запущен");
+    return true;
+  }
   // A preview keeps its original entry; list navigation must not change the
   // heading while leaving bytes from a different file on screen.
   if (viewing) {

@@ -14,19 +14,27 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 build="${CHARMOS_BUILD:-$root/build}"
 esp="$build/esp"
 
-gdb=0; trace=0; headless=0; testmode=0; config=""; cmdline=""; has_cmdline=0
+gdb=0; trace=0; headless=0; testmode=0; config=""; cmdline=""; has_cmdline=0; accelerator=auto
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --gdb) gdb=1 ;;
     --trace) trace=1 ;;
     --headless) headless=1 ;;
     --test) testmode=1; headless=1 ;;
+    --accel) accelerator="$2"; shift; case "$accelerator" in auto|tcg|kvm) ;; *) echo 'run.sh: --accel must be auto, tcg or kvm' >&2; exit 2;; esac ;;
     --config) config="$2"; shift ;;
     --cmdline) cmdline="$2"; has_cmdline=1; shift ;;
     *) echo "run.sh: unknown option $1" >&2; exit 2 ;;
   esac
   shift
 done
+
+if [[ "$accelerator" == auto ]]; then
+  if [[ $testmode -eq 0 && -r /dev/kvm && -w /dev/kvm ]]; then accelerator=kvm; else accelerator=tcg; fi
+fi
+if [[ "$accelerator" == kvm && ( ! -r /dev/kvm || ! -w /dev/kvm ) ]]; then
+  echo 'run.sh: KVM requested but /dev/kvm is not accessible' >&2; exit 2
+fi
 
 find_fw() {
   for f in "$@"; do [[ -f "$f" ]] && { echo "$f"; return; }; done
@@ -66,6 +74,8 @@ args=(
   -no-reboot
   -D "$build/qemu.log"
 )
+if [[ "$accelerator" == kvm ]]; then args+=(-accel kvm); else args+=(-accel tcg,thread=multi); fi
+echo "run.sh: accelerator=$accelerator" >&2
 if [[ $trace -eq 1 ]]; then args+=(-d int,guest_errors,cpu_reset); else args+=(-d guest_errors,cpu_reset); fi
 [[ $testmode -eq 0 ]] && args+=(-no-shutdown)
 [[ $gdb -eq 1 ]] && args+=(-s -S)

@@ -10,10 +10,27 @@
 #monitor sendkey ret
 #wait files: directory /bin (
 #monitor sendkey pgdn
+#sleep 1
+#pixel 420 548
+#monitor sendkey pgup
+#sleep 1
+#pixel 420 260
+#monitor sendkey slash
+#monitor sendkey w
+#monitor sendkey d
+#monitor sendkey e
+#monitor sendkey m
+#monitor sendkey o
+#monitor sendkey ret
 #monitor sendkey ret
 #wait files: preview /bin/wdemo
 #monitor sendkey esc
-#monitor sendkey pgup
+#monitor sendkey esc
+#monitor sendkey slash
+#monitor sendkey c
+#monitor sendkey a
+#monitor sendkey t
+#monitor sendkey ret
 #monitor sendkey ret
 #wait files: preview /bin/cat
 #monitor sendkey esc

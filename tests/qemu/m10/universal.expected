@@ -1,0 +1,19 @@
+[wm] wm: calculate 13.000000
+[wm] wm: convert 1000.000000
+[wm] wm: SHA-512 ddaf35a193617aba
+[wm] wm: control open
+[wm] wm: control closed
+[wm] wm: launch calc ok
+[calc] calc: ready
+[calc] calc: result 13.000000
+[calc] calc: parameter 1.50
+[wm] wm: window 1 destroyed
+[files] files: directory / (
+[files] files: directory /Данные (
+[files] files: preview /Данные/заметка.txt
+[files] files: preview /Данные/заметка.txt
+[wm] wm: window 2 destroyed
+[wm] wm: preferences saved 1 flags 2
+[wm] wm: preferences saved 2 flags 0
+[wm] wm: preferences loaded 2 flags 0
+acpi: entering S5

@@ -1,6 +1,7 @@
 #wait wdemo ember: 60 frames
 #monitor sendkey alt-spc
 #wait wm: launcher open
+#monitor sendkey f2
 #sleep 1
 #pixel 1150 110 140 260 10 38
 #monitor screendump /mnt/a/CharmOS/build/launcher-open.ppm

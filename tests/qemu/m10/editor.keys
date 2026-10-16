@@ -1,0 +1,69 @@
+#wait wm: ready (input yes, door yes)
+#monitor sendkey alt-spc
+#monitor sendkey e
+#monitor sendkey d
+#monitor sendkey i
+#monitor sendkey t
+#monitor sendkey ret
+#wait edit: ready
+#monitor sendkey shift-3
+#monitor sendkey spc
+#monitor sendkey shift-h
+#monitor sendkey e
+#monitor sendkey l
+#monitor sendkey l
+#monitor sendkey o
+#monitor sendkey ret
+#monitor sendkey f8
+#monitor sendkey shift-g
+#monitor sendkey h
+#monitor sendkey b
+#monitor sendkey d
+#monitor sendkey t
+#monitor sendkey n
+#monitor sendkey f8
+#monitor sendkey f2
+#wait edit: saved /заметка.md (20 bytes)
+#monitor screendump /mnt/a/CharmOS/build/editor-source.ppm
+#monitor sendkey f5
+#sleep 1
+#monitor screendump /mnt/a/CharmOS/build/editor-markdown.ppm
+#monitor sendkey f5
+#monitor sendkey ctrl-end
+#monitor sendkey shift-1
+#wait edit: saved /заметка.md (21 bytes)
+#monitor sendkey ctrl-z
+#sleep 2
+#monitor sendkey ctrl-y
+#sleep 2
+#monitor sendkey alt-f4
+#wait wm: window 1 destroyed
+#monitor sendkey alt-spc
+#monitor sendkey f
+#monitor sendkey i
+#monitor sendkey l
+#monitor sendkey e
+#monitor sendkey s
+#monitor sendkey ret
+#wait files: directory / (
+#monitor sendkey slash
+#monitor sendkey f8
+#monitor sendkey p
+#monitor sendkey f
+#monitor sendkey v
+#monitor sendkey t
+#monitor sendkey n
+#monitor sendkey r
+#monitor sendkey f
+#monitor sendkey ret
+#monitor sendkey ret
+#wait files: preview /заметка.md
+#monitor sendkey f6
+#wait edit: loaded /заметка.md (21 bytes)
+#monitor screendump /mnt/a/CharmOS/build/editor-reopened.ppm
+#monitor sendkey alt-f4
+#wait wm: window 3 destroyed
+#monitor sendkey alt-f4
+#wait wm: window 2 destroyed
+cat /заметка.md
+svc poweroff
