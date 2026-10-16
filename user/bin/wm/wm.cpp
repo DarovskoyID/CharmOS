@@ -116,6 +116,8 @@ uint32_t g_next_id = 1;
 int g_focus = -1;
 Rect g_cursor;
 Rect g_damage{};
+Rect g_hot{};
+bool hot(Rect r) { return r.x == g_hot.x && r.y == g_hot.y && r.w == g_hot.w && r.h == g_hot.h; }
 Handle g_port;
 int g_drag = -1;  // окно, которое тащат за заголовок
 bool g_alt = false, g_launcher = false;
@@ -387,11 +389,13 @@ void desktop(Rect d) {
   g_s.fill({0, kPanel - 2, static_cast<int32_t>(g_s.width), 2}, kAmber, d);
   logo(16, 8, 22, 30, d);
   text("CHARM", 46, 25, 0xf3efe7, d, false, 13, 1);
+  if (hot({100, 4, 150, 30})) rounded({100, 4, 150, 30}, 7, 0x29251b, d);
+  if (hot({250, 4, 70, 30})) rounded({250, 4, 70, 30}, 7, 0x29251b, d);
   text("Приложения", 126, 25, 0xb7b1a6, d, false, 13);
   text("Окна", 258, 25, 0xb7b1a6, d, false, 13);
-  rounded({static_cast<int32_t>(g_s.width) - 262, 9, 100, 23}, 6, g_control ? 0x332e25 : kRaised, d);
+  rounded({static_cast<int32_t>(g_s.width) - 262, 9, 100, 23}, 6, g_control || hot({static_cast<int32_t>(g_s.width) - 262, 9, 100, 23}) ? 0x332e25 : kRaised, d);
   text("Система", static_cast<int32_t>(g_s.width) - 249, 25, 0xd8d2c7, d, false, 12);
-  rounded({static_cast<int32_t>(g_s.width) - 150, 9, 132, 23}, 6, kRaised, d);
+  rounded({static_cast<int32_t>(g_s.width) - 150, 9, 132, 23}, 6, hot({static_cast<int32_t>(g_s.width) - 150, 9, 132, 23}) ? 0x332e25 : kRaised, d);
   text("Alt + Space", static_cast<int32_t>(g_s.width) - 139, 25, 0xd8d2c7, d, true, 12);
   int32_t y = static_cast<int32_t>(g_s.height) - 192;
   rounded({32, y, 392, 160}, 16, 0x2a2a2e, d);
@@ -400,8 +404,9 @@ void desktop(Rect d) {
   const char* labels[] = {g_files_available ? "Файлы" : "Colors", "Приложения", "Система"};
   for (int i = 0; i < 3; ++i) {
     int32_t x = 47 + i * 122;
-    rounded({x, y + 40, 114, 104}, 12, 0x332e25, d);
-    rounded({x + 1, y + 41, 112, 102}, 11, kRaised, d);
+    bool over = hot({x, y + 40, 114, 104});
+    rounded({x, y + 40, 114, 104}, 12, over ? kAmber : 0x332e25, d);
+    rounded({x + 1, y + 41, 112, 102}, 11, over ? 0x29251b : kRaised, d);
     tile_icon(x + 14, y + 55, i == 0 ? 0 : 1, d);
     text(labels[i], x + 13, y + 123, 0xf3efe7, intersect({x + 4, y, 106, 160}, d), false, 13);
   }
@@ -424,6 +429,7 @@ void control_draw(Rect d) {
   for (int row = 0; row < 2; ++row) {
     int32_t ty = y + 192 + row * 72;
     bool enabled = row == 0 ? g_shadows : g_warm;
+    if (hot({x + 328, 248 + row * 72, 44, 24})) rounded({x + 320, ty - 3, 60, 40}, 16, 0x332e25, d);
     text(row == 0 ? "Тени окон" : "Тёплый фон", x + 24, ty + 22, 0xf3efe7, d, false, 15);
     text(row == 0 ? "Мягкая тень под окнами" : "Свечение за логотипом", x + 24, ty + 44, 0x8e887d, d, false, 12);
     rounded({x + 328, ty + 5, 44, 24}, 12, enabled ? kAmber : 0x3a3a3f, d);
@@ -523,6 +529,34 @@ int window_at(int32_t x, int32_t y) {
     if (!g_win[g_z[i]].minimized && g_win[g_z[i]].frame.contains(x, y)) return g_z[i];
   }
   return -1;
+}
+
+Rect hover_rect() {
+  int x = g_cursor.x, y = g_cursor.y;
+  Rect header[] = {{100, 4, 150, 30}, {250, 4, 70, 30},
+    {static_cast<int32_t>(g_s.width) - 262, 9, 100, 23},
+    {static_cast<int32_t>(g_s.width) - 150, 9, 132, 23}};
+  for (Rect r : header) if (r.contains(x, y)) return r;
+  if (g_control) {
+    for (int i = 0; i < 2; ++i) {
+      Rect r{static_cast<int32_t>(g_s.width) - 104, 248 + i * 72, 44, 24};
+      if (r.contains(x, y)) return r;
+    }
+    return {};
+  }
+  if (g_launcher || g_drag >= 0) return {};
+  int wi = window_at(x, y);
+  if (wi >= 0) {
+    Rect frame = g_win[wi].frame;
+    Rect buttons[] = {{frame.x + 16, frame.y + 16, 20, 20}, {frame.x + frame.w - 36, frame.y + 16, 20, 20}};
+    for (Rect r : buttons) if (r.contains(x, y)) return r;
+  } else {
+    for (int i = 0; i < 3; ++i) {
+      Rect r{47 + i * 122, static_cast<int32_t>(g_s.height) - 152, 114, 104};
+      if (r.contains(x, y)) return r;
+    }
+  }
+  return {};
 }
 
 void focus_top_visible() {
@@ -778,6 +812,7 @@ void input_event(const sc::InputEvent& e) {
   }
   if (e.type == sc::kInputMotion) {
     Rect old = g_cursor;
+    Rect old_hot = hover_rect();
     int32_t dx = e.x, dy = e.y;
     g_cursor.x += dx;
     g_cursor.y += dy;
@@ -798,6 +833,10 @@ void input_event(const sc::InputEvent& e) {
       if (w.frame.y < kPanel) w.frame.y = kPanel;
       damage(w.frame);
     }
+    Rect next_hot = hover_rect();
+    if (old_hot.x != next_hot.x || old_hot.y != next_hot.y || old_hot.w != next_hot.w || old_hot.h != next_hot.h) {
+      damage(old_hot); damage(next_hot);
+    }
     if (g_drag < 0 && !g_launcher && !g_control) {
       int wi = window_at(g_cursor.x, g_cursor.y);
       if (wi >= 0 && content(g_win[wi]).contains(g_cursor.x, g_cursor.y)) {
@@ -809,6 +848,7 @@ void input_event(const sc::InputEvent& e) {
   }
   if (e.type == sc::kInputButton && e.value == 1 && e.code == 1 && g_cursor.y < kPanel) {
     if (g_cursor.x >= static_cast<int32_t>(g_s.width) - 262 && g_cursor.x < static_cast<int32_t>(g_s.width) - 162) control_toggle();
+    else if (g_cursor.x >= static_cast<int32_t>(g_s.width) - 150 && g_cursor.x < static_cast<int32_t>(g_s.width) - 18) launcher_toggle();
     else if (g_cursor.x >= 100 && g_cursor.x < 250) launcher_toggle();
     else if (g_cursor.x >= 250 && g_cursor.x < 320 && g_zn > 0) { int wi = g_z[0]; raise(wi); set_focus(wi); }
     return;
@@ -878,6 +918,7 @@ void input_event(const sc::InputEvent& e) {
 
 // Кадр: повреждённое заново в заднем буфере (фон, окна снизу вверх, курсор), на экран.
 void compose() {
+  g_hot = hover_rect();
   Rect d = intersect(g_damage, g_s.all());
   g_damage = {};
   if (d.empty()) return;
@@ -898,8 +939,9 @@ void compose() {
     rounded({bar.x - 1, bar.y - 1, w.frame.w + 2, w.frame.h + 2}, 18, g_z[i] == g_focus ? 0x5b5140 : 0x2a2a2e, d);
     rounded(w.frame, 17, 0x17171a, d);
     g_s.fill({bar.x, bar.y + kTitle - 1, bar.w, 1}, 0x2a2a2e, d);
-    rounded({bar.x + 16, bar.y + 20, 12, 12}, 3, 0xe0352b, d);
-    rounded({bar.x + bar.w - 36, bar.y + 16, 20, 20}, 5, 0x29251b, d);
+    if (hot({bar.x + 16, bar.y + 16, 20, 20})) rounded({bar.x + 12, bar.y + 12, 28, 28}, 7, 0x542522, d);
+    rounded({bar.x + 16, bar.y + 20, 12, 12}, 3, hot({bar.x + 16, bar.y + 16, 20, 20}) ? 0xff6559 : 0xe0352b, d);
+    rounded({bar.x + bar.w - 36, bar.y + 16, 20, 20}, 5, hot({bar.x + bar.w - 36, bar.y + 16, 20, 20}) ? 0x51452a : 0x29251b, d);
     g_s.fill({bar.x + bar.w - 31, bar.y + 26, 10, 2}, kAmber, d);
     text(w.title, bar.x + 44, bar.y + 31, g_z[i] == g_focus ? 0xf3efe7 : 0x8e887d,
          intersect({bar.x + 40, bar.y, bar.w - 84, bar.h}, d), false, 14);

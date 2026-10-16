@@ -1,0 +1,12 @@
+[wm] wm: launcher open
+[wm] wm: launch files ok
+[files] files: directory / (
+[wm] wm: control open
+[wm] wm: control closed
+[wm] wm: window 1 minimized
+[wm] wm: window 1 restored
+[wm] wm: window 1 destroyed
+acpi: entering S5
+screen: pixel 60,700 = 29251b
+screen: pixel 60,700 = 1b1a18
+screen: pixel 1038,120 = 51452a

@@ -1,0 +1,45 @@
+#wait wm: ready (input yes, door yes)
+#sleep 1
+#monitor mouse_move -180 100
+#monitor mouse_move -180 100
+#monitor mouse_move -180 100
+#sleep 1
+#pixel 60 700
+#monitor screendump /mnt/a/CharmOS/build/ui-dock-hover.ppm
+#monitor mouse_move 180 -100
+#monitor mouse_move 180 -100
+#monitor mouse_move 180 -100
+#sleep 1
+#pixel 60 700
+#monitor screendump /mnt/a/CharmOS/build/ui-desktop-clean.ppm
+#monitor mouse_move 280 -190
+#monitor mouse_move 280 -190
+#sleep 1
+#monitor mouse_button 1
+#monitor mouse_button 0
+#wait wm: launcher open
+#monitor screendump /mnt/a/CharmOS/build/ui-launcher-clean.ppm
+#monitor sendkey right
+#monitor sendkey ret
+#wait files: directory / (
+#sleep 1
+#monitor screendump /mnt/a/CharmOS/build/ui-files-clean.ppm
+#monitor mouse_move -140 0
+#sleep 1
+#monitor mouse_button 1
+#monitor mouse_button 0
+#wait wm: control open
+#monitor screendump /mnt/a/CharmOS/build/ui-control-clean.ppm
+#monitor sendkey esc
+#monitor mouse_move -16 102
+#sleep 1
+#pixel 1038 120
+#monitor screendump /mnt/a/CharmOS/build/ui-window-hover.ppm
+#monitor mouse_button 1
+#monitor mouse_button 0
+#wait wm: window 1 minimized
+#monitor sendkey alt-tab
+#wait wm: window 1 restored
+#monitor sendkey alt-f4
+#wait wm: window 1 destroyed
+svc poweroff
