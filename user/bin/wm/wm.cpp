@@ -121,6 +121,7 @@ bool hot(Rect r) { return r.x == g_hot.x && r.y == g_hot.y && r.w == g_hot.w && 
 Handle g_port;
 int g_drag = -1;  // окно, которое тащат за заголовок
 bool g_alt = false, g_launcher = false;
+unsigned g_shift = 0;
 bool g_control = false, g_shadows = true, g_warm = true;
 bool g_files_available = false;
 char g_query[64]{};
@@ -227,7 +228,13 @@ void logo(int32_t ox, int32_t oy, int32_t size, int32_t stroke, Rect clip) {
       int32_t dy = ((y - oy) * 8 + sy) * 260 / size - 1040;
       int32_t radius = stroke * 4;
       int64_t r2 = int64_t{dx} * dx + int64_t{dy} * dy;
-      bool arc = r2 >= (624 - radius) * (624 - radius) && r2 <= (624 + radius) * (624 + radius) && !(dx > 0 && dy > -304 && dy < 304);
+      // Main.dc.html: M196 92 a78 78 0 1 0 0 76. The circle centre is
+      // (196 - sqrt(78^2 - 38^2), 130), not (130,130). Clip the opening
+      // by rays through its endpoints, then add round caps like the SVG.
+      int32_t arc_x = dx + 17;
+      int64_t arc_r2 = int64_t{arc_x} * arc_x + int64_t{dy} * dy;
+      bool opening = arc_x > 0 && int64_t{dy < 0 ? -dy : dy} * 545 < int64_t{arc_x} * 304;
+      bool arc = arc_r2 >= (624 - radius) * (624 - radius) && arc_r2 <= (624 + radius) * (624 + radius) && !opening;
       bool caps = (dx - 528) * (dx - 528) + (dy - 304) * (dy - 304) <= radius * radius ||
                   (dx - 528) * (dx - 528) + (dy + 304) * (dy + 304) <= radius * radius;
       int64_t dot = int64_t{dx} * 528 - int64_t{dy} * 304;
@@ -243,6 +250,28 @@ void logo(int32_t ox, int32_t oy, int32_t size, int32_t stroke, Rect clip) {
 }
 
 void tile_icon(int32_t x, int32_t y, int kind, Rect clip) {
+  if (kind == 1) {  // Folder, matching the file action rather than Colors.
+    rounded({x, y + 2, 12, 7}, 2, kAmber, clip);
+    rounded({x, y + 6, 28, 18}, 3, kAmber, clip);
+    rounded({x + 2, y + 8, 24, 14}, 2, kRaised, clip);
+    return;
+  }
+  if (kind == 2) {
+    for (int row = 0; row < 2; ++row) for (int column = 0; column < 2; ++column) {
+      rounded({x + column * 15, y + row * 13, 11, 10}, 2, kAmber, clip);
+      rounded({x + column * 15 + 2, y + row * 13 + 2, 7, 6}, 1, kRaised, clip);
+    }
+    return;
+  }
+  if (kind == 3) {
+    for (int row = 0; row < 3; ++row) {
+      int cy = y + 4 + row * 8, cx = x + (row == 1 ? 19 : 8);
+      g_s.fill({x, cy, 28, 2}, kAmber, clip);
+      rounded({cx - 4, cy - 3, 8, 8}, 3, kAmber, clip);
+      rounded({cx - 2, cy - 1, 4, 4}, 1, kRaised, clip);
+    }
+    return;
+  }
   rounded({x, y, 28, 23}, 4, kAmber, clip);
   rounded({x + 2, y + 2, 24, 19}, 2, kRaised, clip);
   if (kind == 0) {
@@ -407,7 +436,7 @@ void desktop(Rect d) {
     bool over = hot({x, y + 40, 114, 104});
     rounded({x, y + 40, 114, 104}, 12, over ? kAmber : 0x332e25, d);
     rounded({x + 1, y + 41, 112, 102}, 11, over ? 0x29251b : kRaised, d);
-    tile_icon(x + 14, y + 55, i == 0 ? 0 : 1, d);
+    tile_icon(x + 14, y + 55, i == 0 ? (g_files_available ? 1 : 0) : i + 1, d);
     text(labels[i], x + 13, y + 123, 0xf3efe7, intersect({x + 4, y, 106, 160}, d), false, 13);
   }
 }
@@ -777,9 +806,15 @@ void launcher_activate() {
 // Ввод из ядра: курсор, перетаскивание, фокус; остальное — окну.
 void input_event(const sc::InputEvent& e) {
   if (e.type == sc::kInputKey) {
+    if (e.code == 0xe1 || e.code == 0xe5) {
+      unsigned bit = e.code == 0xe1 ? 1u : 2u;
+      if (e.value != 0) g_shift |= bit; else g_shift &= ~bit;
+      if (g_launcher) return;
+    }
     if (g_control && e.value != 0 && e.code == 0x29) { control_toggle(); return; }
     if (e.code == 0xe2 || e.code == 0xe6) { g_alt = e.value != 0; return; }
     if (g_alt && e.value == 1 && e.code == 0x2c) { launcher_toggle(); return; }
+    if (g_launcher && g_alt && e.value == 1 && e.code == 0x3d) { launcher_toggle(); return; }
     if (g_control) {
       if (g_alt && e.value == 1 && e.code == 0x3d) control_toggle();
       return;
@@ -796,14 +831,18 @@ void input_event(const sc::InputEvent& e) {
       if (e.code == 0x28) { launcher_activate(); return; }
       if (e.code == 0x2b || (e.code >= 0x4f && e.code <= 0x52)) {
         int n = launcher_count();
-        int step = e.code == 0x50 || e.code == 0x52 ? -1 : 1;
+        int step = e.code == 0x50 || e.code == 0x52 || (e.code == 0x2b && g_shift != 0) ? -1 : 1;
         if (n > 0) g_launcher_selected = (g_launcher_selected + n + step) % n;
         damage(g_s.all()); return;
       }
       if (e.code == 0x2a && g_query_len != 0) g_query[--g_query_len] = 0;
       else if (e.code >= 4 && e.code <= 29 && g_query_len + 1 < sizeof g_query) {
         g_query[g_query_len++] = static_cast<char>('a' + e.code - 4); g_query[g_query_len] = 0;
-      }
+      } else if (e.code >= 0x1e && e.code <= 0x27 && g_query_len + 1 < sizeof g_query) {
+        g_query[g_query_len++] = "1234567890"[e.code - 0x1e]; g_query[g_query_len] = 0;
+      } else if (e.code == 0x2c && g_query_len + 1 < sizeof g_query) {
+        g_query[g_query_len++] = ' '; g_query[g_query_len] = 0;
+      } else return;
       g_launcher_selected = 0;
       damage(g_s.all()); return;
     }

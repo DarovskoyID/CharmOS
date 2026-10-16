@@ -23,11 +23,15 @@ int pointer_x = 0, pointer_y = 0;
 uint16_t preview_lines[512]{};
 int preview_count = 0, preview_first = 0;
 int hover = -1;
+char history[16][512]{};
+int history_count = 1, history_at = 0;
 
 int hit(int x, int y) {
   if (y >= 10 && y < 46) {
-    if (x >= 10 && x < 88) return 1000;
-    if (x >= 92 && x < 206) return 1001;
+    if (x >= 10 && x < 42) return 1002;
+    if (x >= 50 && x < 82) return 1003;
+    if (x >= 90 && x < 158) return 1000;
+    if (x >= 166 && x < 272) return 1001;
   }
   if (x >= 10 && x < 164 && y >= 102 && y < 216 && (y - 102) % 38 < 32) return 1010 + (y - 102) / 38;
   if (!viewing && x >= 186 && x < 846 && y >= 100 && y < 420) return (y - 100) / 32;
@@ -61,6 +65,12 @@ bool matches(int index) {
   return false;
 }
 int matching_count() { int n = 0; for (int i = 0; i < count; ++i) if (matches(i)) ++n; return n; }
+const char* entry_label(int n) {
+  if (n % 100 >= 11 && n % 100 <= 14) return "элементов";
+  if (n % 10 == 1) return "элемент";
+  if (n % 10 >= 2 && n % 10 <= 4) return "элемента";
+  return "элементов";
+}
 int index_at(int row) {
   if (row < 0) return -1;
   for (int i = 0; i < count; ++i) if (matches(i) && row-- == 0) return i;
@@ -90,18 +100,41 @@ void reload() {
   selected = index_at(0);
   printf("files: directory %s (%d entries)\n", path, count);
 }
+void navigate(const char* next) {
+  snprintf(path, sizeof path, "%s", next);
+  query_len = 0; query[0] = 0; search = false;
+  if (strcmp(path, history[history_at]) != 0) {
+    history_count = history_at + 1;
+    if (history_count == 16) {
+      memmove(history, history + 1, sizeof history - sizeof history[0]);
+      --history_count;
+    }
+    snprintf(history[history_count], sizeof history[0], "%s", path);
+    history_at = history_count++;
+  }
+  reload();
+}
+void history_go(int step) {
+  if (viewing && step < 0) { viewing = false; return; }
+  int next = history_at + step;
+  if (next < 0 || next >= history_count) return;
+  history_at = next;
+  snprintf(path, sizeof path, "%s", history[history_at]);
+  query_len = 0; query[0] = 0; search = false; reload();
+}
 void parent() {
   if (viewing) { viewing = false; return; }
-  char* slash = strrchr(path, '/');
-  if (slash == path) path[1] = 0; else if (slash != nullptr) *slash = 0;
-  query_len = 0; query[0] = 0; reload();
+  char next[512]; snprintf(next, sizeof next, "%s", path);
+  char* slash = strrchr(next, '/');
+  if (slash == next) next[1] = 0; else if (slash != nullptr) *slash = 0;
+  navigate(next);
 }
 void open_selected() {
   if (selected < 0 || selected >= count || !matches(selected)) return;
   char absolute[1024]; fullpath(entries[selected].name, absolute, sizeof absolute);
   if (entries[selected].directory) {
     if (strlen(absolute) >= sizeof path) { snprintf(notice, sizeof notice, "Слишком длинный путь"); return; }
-    snprintf(path, sizeof path, "%s", absolute); query_len = 0; query[0] = 0; reload(); return;
+    navigate(absolute); return;
   }
   int fd = open(absolute, O_RDONLY);
   if (fd < 0) { snprintf(notice, sizeof notice, "Ошибка чтения: %d", errno); return; }
@@ -118,11 +151,15 @@ void draw(uint32_t* pixels, bool bgrx) {
   canvas.fill(0, 0, kWidth, kHeight, 0x121214);
   canvas.fill(0, 0, kWidth, 56, 0x141416);
   canvas.fill(0, 55, kWidth, 1, 0x2a2a2e);
-  if (hover == 1000) canvas.rounded(10, 10, 78, 36, 8, 0x29251b);
-  if (hover == 1001) canvas.rounded(92, 10, 114, 36, 8, 0x242426);
-  canvas.text("Назад", 18, 34, 0xf5c518, 84);
-  canvas.text("Обновить", 100, 34, 0xf3efe7, 206);
-  canvas.text(path, 218, 34, 0xb7b1a6, 610, 13, true);
+  if (hover == 1002 && (history_at > 0 || viewing)) canvas.rounded(10, 10, 32, 36, 8, 0x29251b);
+  if (hover == 1003 && history_at + 1 < history_count) canvas.rounded(50, 10, 32, 36, 8, 0x29251b);
+  if (hover == 1000) canvas.rounded(90, 10, 68, 36, 8, 0x29251b);
+  if (hover == 1001) canvas.rounded(166, 10, 106, 36, 8, 0x242426);
+  canvas.text("←", 18, 34, history_at > 0 || viewing ? 0xf5c518 : 0x56534e, 40, 16);
+  canvas.text("→", 58, 34, history_at + 1 < history_count ? 0xf5c518 : 0x56534e, 80, 16);
+  canvas.text("Вверх", 98, 34, 0xf5c518, 156);
+  canvas.text("Обновить", 174, 34, 0xf3efe7, 270);
+  canvas.text(path, 284, 34, 0xb7b1a6, 610, 13, true);
   canvas.rounded(630, 10, 214, 36, 9, search ? 0x332e25 : 0x0b0b0c);
   canvas.text(query_len == 0 ? "Поиск ( / )" : query, 642, 34, 0xb7b1a6, 834, 13);
   canvas.fill(0, 56, 174, kHeight - 56, 0x101012);
@@ -182,7 +219,7 @@ void draw(uint32_t* pixels, bool bgrx) {
   char status[128];
   if (viewing) snprintf(status, sizeof status, "Строки %d–%d / %d  ·  до 4 КиБ  ·  ↑↓ PgUp/PgDn", preview_count ? preview_first + 1 : 0, preview_first + 16 < preview_count ? preview_first + 16 : preview_count, preview_count);
   else if (query_len) snprintf(status, sizeof status, "Найдено %d из %d%s  ·  Enter: открыть", matching_count(), count, truncated ? "+" : "");
-  else snprintf(status, sizeof status, "%d%s элементов  ·  Enter: открыть  ·  Backspace: назад", count, truncated ? "+" : "");
+  else snprintf(status, sizeof status, "%d%s %s  ·  Enter: открыть  ·  F5: обновить  ·  Backspace: вверх", count, truncated ? "+" : "", entry_label(count));
   canvas.text(notice[0] == 0 ? status : notice, 194, 470, notice[0] == 0 ? 0x8e887d : 0xffb5ac, 844, 11);
 }
 bool input(const sc::InputEvent& e) {
@@ -199,14 +236,17 @@ bool input(const sc::InputEvent& e) {
     pointer_x = e.x; pointer_y = e.y;
     search = pointer_y >= 10 && pointer_y < 46 && pointer_x >= 630 && pointer_x < 844;
     if (pointer_y < 56) {
-      if (pointer_x < 88) parent();
-      else if (pointer_x < 206) reload();
+      int button = hit(pointer_x, pointer_y);
+      if (button == 1002) history_go(-1);
+      else if (button == 1003) history_go(1);
+      else if (button == 1000) parent();
+      else if (button == 1001) reload();
       else if (pointer_x >= 630) { search = true; viewing = false; }
     } else if (pointer_x < 174) {
       if (pointer_y >= 102 && pointer_y < 220) {
         const char* places[] = {"/", "/bin", "/etc"};
         int index = (pointer_y - 102) / 38;
-        if (index < 3) { snprintf(path, sizeof path, "%s", places[index]); query_len = 0; query[0] = 0; reload(); }
+        if (index < 3) navigate(places[index]);
       }
     } else if (!viewing && pointer_y >= 100 && pointer_y < 420) {
       if (pointer_x >= 848 && matching_count() > 10) {
@@ -227,7 +267,8 @@ bool input(const sc::InputEvent& e) {
   if (e.type != sc::kInputKey || e.value == 0) return false;
   if (e.code == 0x38 && !search) { search = true; viewing = false; return true; }
   if (search) {
-    if (e.code == 0x29 || e.code == 0x28) search = false;
+    if (e.code == 0x29) { search = false; query_len = 0; query[0] = 0; }
+    else if (e.code == 0x28) search = false;
     else if (e.code == 0x2a && query_len > 0) query[--query_len] = 0;
     else if (query_len < 63) {
       char character = 0;
@@ -241,6 +282,7 @@ bool input(const sc::InputEvent& e) {
     selected = index_at(0);
     return true;
   }
+  if (e.code == 0x3e) { reload(); return true; }  // F5: reread the real directory.
   // A preview keeps its original entry; list navigation must not change the
   // heading while leaving bytes from a different file on screen.
   if (viewing) {
@@ -251,13 +293,22 @@ bool input(const sc::InputEvent& e) {
     }
     return false;
   }
+  if (e.code == 0x29 && query_len != 0) {
+    query_len = 0; query[0] = 0; first = 0; selected = index_at(0); return true;
+  }
   if (e.code == 0x28) open_selected();
   else if (e.code == 0x2a || e.code == 0x29) parent();
-  else if (e.code == 0x51 || e.code == 0x52) {
-    int step = e.code == 0x51 ? 1 : -1;
-    for (int i = selected + step; i >= 0 && i < count; i += step) if (matches(i)) { selected = i; break; }
+  else if (e.code == 0x51 || e.code == 0x52 || e.code == 0x4a || e.code == 0x4d || e.code == 0x4b || e.code == 0x4e) {
     int ordinal = 0;
     for (int i = 0; i < selected; ++i) if (matches(i)) ++ordinal;
+    int found = matching_count();
+    if (found == 0) return false;
+    if (e.code == 0x4a) ordinal = 0;
+    else if (e.code == 0x4d) ordinal = found - 1;
+    else ordinal += e.code == 0x51 ? 1 : e.code == 0x52 ? -1 : e.code == 0x4e ? 10 : -10;
+    if (ordinal < 0) ordinal = 0;
+    if (ordinal >= found) ordinal = found - 1;
+    selected = index_at(ordinal);
     if (ordinal < first) first = ordinal;
     if (ordinal >= first + 10) first = ordinal - 9;
   } else return false;
@@ -267,6 +318,7 @@ bool input(const sc::InputEvent& e) {
 
 extern "C" int main(int argc, char** argv) {
   if (argc > 1 && strlen(argv[1]) < sizeof path) snprintf(path, sizeof path, "%s", argv[1]);
+  snprintf(history[0], sizeof history[0], "%s", path);
   if (!canvas.fonts({wm_ui_font, static_cast<size_t>(wm_ui_font_end - wm_ui_font)},
                     {wm_mono_font, static_cast<size_t>(wm_mono_font_end - wm_mono_font)})) return 1;
   charm::gui::Window window;

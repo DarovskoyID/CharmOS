@@ -14,11 +14,15 @@
 [wm] wm: launcher open
 [wm] wm: launcher closed
 [wm] wm: key 0x4 -> window 1
+[wm] wm: launcher open
+[wm] wm: launcher closed
+[wdemo] wdemo amber: key 0x5
 init: poweroff: stopping services
 acpi: entering S5
 screen: pixel 1150,110 = 121214
 screen: pixel 140,260 = 1b1a18
 screen: pixel 10,38 = f5c518
 screen: pixel 400,240 = f5c518
+screen: pixel 200,240 = f5c518
 screen: pixel 200,240 = f5c518
 screen: pixel 1150,110 = 0b0b0c

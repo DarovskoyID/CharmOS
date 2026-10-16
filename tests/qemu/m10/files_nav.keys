@@ -1,0 +1,66 @@
+#wait wm: ready (input yes, door yes)
+#monitor sendkey alt-spc
+#monitor sendkey right
+#monitor sendkey ret
+#wait files: directory / (
+#monitor sendkey end
+#sleep 1
+#pixel 420 356
+#monitor sendkey home
+#monitor sendkey ret
+#wait files: directory /bin (
+#monitor sendkey pgdn
+#monitor sendkey ret
+#wait files: preview /bin/wdemo
+#monitor sendkey esc
+#monitor sendkey pgup
+#monitor sendkey ret
+#wait files: preview /bin/cat
+#monitor sendkey esc
+#monitor sendkey f5
+#monitor sendkey backspace
+#monitor sendkey slash
+#monitor sendkey z
+#monitor sendkey z
+#monitor sendkey esc
+#monitor sendkey ret
+#sleep 1
+#monitor sendkey backspace
+#monitor sendkey slash
+#monitor sendkey e
+#monitor sendkey t
+#monitor sendkey c
+#monitor sendkey ret
+#monitor sendkey esc
+#monitor sendkey ret
+#sleep 1
+#monitor mouse_move -205 -115
+#monitor mouse_move -205 -115
+#sleep 1
+#monitor mouse_button 1
+#monitor mouse_button 0
+#monitor mouse_move 40 0
+#sleep 1
+#monitor mouse_button 1
+#monitor mouse_button 0
+#monitor mouse_move 40 0
+#sleep 1
+#monitor mouse_button 1
+#monitor mouse_button 0
+#monitor mouse_move -80 0
+#sleep 1
+#monitor mouse_button 1
+#monitor mouse_button 0
+#monitor mouse_move 10 174
+#sleep 1
+#monitor mouse_button 1
+#monitor mouse_button 0
+#monitor mouse_move 30 -174
+#sleep 1
+#monitor mouse_button 1
+#monitor mouse_button 0
+#sleep 1
+#monitor screendump /mnt/a/CharmOS/build/files-history.ppm
+#monitor sendkey alt-f4
+#wait wm: window 1 destroyed
+svc poweroff

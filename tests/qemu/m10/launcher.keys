@@ -11,6 +11,10 @@
 #sleep 1
 #pixel 200 240
 #monitor sendkey tab
+#monitor sendkey shift-tab
+#sleep 1
+#pixel 200 240
+#monitor sendkey tab
 #monitor screendump /mnt/a/CharmOS/build/launcher-selected.ppm
 #monitor sendkey ret
 #wait wm: window 3 "Файлы"
@@ -32,4 +36,8 @@
 #monitor sendkey ret
 #monitor sendkey a
 #sleep 1
+#monitor sendkey alt-spc
+#monitor sendkey alt-f4
+#monitor sendkey b
+#wait wdemo amber: key 0x5
 svc poweroff

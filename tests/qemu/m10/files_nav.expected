@@ -1,0 +1,17 @@
+[files] files: directory / (
+[files] files: directory /bin (
+[files] files: preview /bin/wdemo
+[files] files: preview /bin/cat
+[files] files: directory /bin (
+[files] files: directory / (
+[files] files: directory /bin (
+[files] files: directory / (
+[files] files: directory /bin (
+[files] files: directory / (
+[files] files: directory /bin (
+[files] files: directory / (
+[files] files: directory /bin (
+[files] files: directory /etc (
+[wm] wm: window 1 destroyed
+acpi: entering S5
+screen: pixel 420,356 = 29251b
