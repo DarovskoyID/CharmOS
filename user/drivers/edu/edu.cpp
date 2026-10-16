@@ -41,6 +41,7 @@ extern "C" int64_t charm_main(Handle kernel_channel) {
   abi::syscall::DeviceInfo info;
   EXPECT(syscall2(Number::DeviceInfo, dev, reinterpret_cast<uint64_t>(&info)).ok());
   EXPECT(info.vendor == 0x1234 && info.device_id == 0x11e8);
+  EXPECT(syscall2(Number::DeviceInput, dev, 0).status == Status::AccessDenied);
   EXPECT(info.bar_kind[0] == abi::syscall::kBarMem32 && info.bar_size[0] == (1u << 20));
   EXPECT(info.irq_count == 1);
   // Хендл устройства нельзя отдать или размножить.

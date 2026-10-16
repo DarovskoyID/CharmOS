@@ -177,6 +177,7 @@ Status sys_display_map(uint32_t h, uint64_t* out);
 Status create_input(uint32_t rights, Cap** out);
 Status sys_input_attach(uint32_t h, uint32_t vmo);
 void input_push(const abi::syscall::InputEvent& e);
+Status sys_device_input(uint32_t device, uint64_t event);
 void set_console_input_probe(bool (*probe)());
 // Из прерывания консоли: пришёл ввод — пакеты подписчикам.
 void console_readable();

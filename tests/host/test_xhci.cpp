@@ -1,6 +1,38 @@
 #include <lib/usb/xhci.hpp>
+#include <lib/usb/hid.hpp>
+#include <vector>
 #include "test.hpp"
 using namespace lib::usb::xhci;
+namespace {
+void collect(void* ctx, const lib::usb::HidEvent& e) {
+  static_cast<std::vector<lib::usb::HidEvent>*>(ctx)->push_back(e);
+}
+}
+TEST(usb_boot_reports) {
+  lib::usb::BootKeyboard keyboard; std::vector<lib::usb::HidEvent> result;
+  uint8_t report[8] = {2, 0, 4, 4, 0, 0, 0, 0};
+  CHECK(keyboard.decode(report, 8, collect, &result));
+  CHECK(result.size() == 2 && result[0].code == 0xe1 && result[1].code == 4);
+  result.clear(); CHECK(keyboard.decode(report, 8, collect, &result) && result.empty());
+  report[0] = 0; report[2] = report[3] = 1;
+  CHECK(keyboard.decode(report, 8, collect, &result));
+  CHECK(result.size() == 1 && result[0].code == 0xe1 && keyboard.keys[4]);
+  for (auto& b : report) b = 0;
+  result.clear(); CHECK(keyboard.decode(report, 8, collect, &result));
+  CHECK(result.size() == 1 && result[0].code == 4 && result[0].value == 0);
+  CHECK(!keyboard.decode(report, 7, collect, &result));
+  lib::usb::BootMouse mouse; result.clear(); uint8_t packet[] = {1, 0xfd, 9};
+  CHECK(mouse.decode(packet, 3, collect, &result));
+  CHECK(result.size() == 2 && result[0].x == -3 && result[0].y == 9 && result[1].code == 1 && result[1].value == 1);
+}
+TEST(usb_configuration_bounds) {
+  uint8_t config[] = {9,2,25,0,1,1,0,0x80,50, 9,4,0,0,1,3,1,1,0, 7,5,0x81,3,8,0,10};
+  lib::usb::BootInterface out[8]{}; uint32_t count = 0; uint8_t value = 0;
+  CHECK(lib::usb::boot_interfaces(config, sizeof config, out, 8, &count, &value));
+  CHECK(count == 1 && value == 1 && out[0].endpoint == 0x81 && out[0].max_packet == 8);
+  for (size_t n = 0; n < sizeof config; ++n) CHECK(!lib::usb::boot_interfaces(config, n, out, 8, &count, &value));
+  config[18] = 0; CHECK(!lib::usb::boot_interfaces(config, sizeof config, out, 8, &count, &value));
+}
 TEST(xhci_command_ring_cycle_wrap) {
   Trb ring[256]{};
   Producer p{ring, 0x10000, 0, 1};

@@ -1,0 +1,11 @@
+# USB HID boot keyboard + relative mouse via user-space xHCI and device_input.
+[xhci] xhci: HID keyboard ready
+[xhci] xhci: HID mouse ready
+[wdemo] wdemo ember: window
+[xhci] xhci: HID key 4
+[wm] wm: key 0x4 -> window 2
+[wdemo] wdemo ember: key 0x4
+[wdemo] wdemo ember: input->pixel
+init: poweroff: stopping services
+acpi: entering S5
+screen: pixel 682,432 = ffffff

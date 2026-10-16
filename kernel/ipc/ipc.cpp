@@ -1482,6 +1482,27 @@ bool dma_available(const Device* d) {
 
 }  // namespace
 
+Status sys_device_input(uint32_t h, uint64_t user_event) {
+  {
+    sync::SpinGuard guard(g_lock);
+    Status s;
+    Device* d = device_from(h, rights::kWrite, &s);
+    if (d == nullptr) return s;
+    if (pci::function(d->pci_index).class_code != 0x0c0330) return Status::AccessDenied;
+  }
+  abi::syscall::InputEvent e{};
+  if (!proc::copy_from_user(&e, user_event, sizeof e)) return Status::BadAddress;
+  bool valid = false;
+  if (e.type == abi::syscall::kInputKey) valid = e.code >= 4 && e.code <= 0xe7 && e.value >= 0 && e.value <= 2 && e.x == 0 && e.y == 0;
+  if (e.type == abi::syscall::kInputMotion) valid = e.code == 0 && e.value == 0 && e.x >= -32768 && e.x <= 32767 && e.y >= -32768 && e.y <= 32767;
+  if (e.type == abi::syscall::kInputButton) valid = e.code >= 1 && e.code <= 3 && (e.value == 0 || e.value == 1) && e.x == 0 && e.y == 0;
+  if (e.type == abi::syscall::kInputWheel) valid = e.code == 0 && e.value >= -127 && e.value <= 127 && e.x == 0 && e.y == 0;
+  if (!valid) return Status::InvalidArgs;
+  e.time_ns = platform::now_ns();
+  input_push(e);
+  return Status::Ok;
+}
+
 Status sys_device_info(uint32_t h, uint64_t user_out) {
   abi::syscall::DeviceInfo info = {};
   {

@@ -1,0 +1,10 @@
+#wait xhci: HID keyboard ready
+#wait xhci: HID mouse ready
+#wait wdemo ember: 60 frames
+#monitor sendkey a
+#wait wdemo ember: input->pixel
+#monitor mouse_move 40 30
+#sleep 1
+#pixel 682 432
+#monitor screendump /mnt/a/CharmOS/build/usb-hid.ppm
+svc poweroff

@@ -49,6 +49,8 @@ extern "C" int main(int argc, char** argv) {
     printf("wdemo %s: window refused (%u)\n", title, static_cast<unsigned>(status));
     return 1;
   }
+  // A normal window client cannot inject global input via its compositor door.
+  if (charm::syscall2(sc::Number::DeviceInput, charm_wm(), 0).status != Status::WrongType) return 1;
   g_bgrx = window.format() == sc::kDisplayBgrx;
   printf("wdemo %s: window %u at %d,%d\n", title, window.id(), window.x(), window.y());
 
