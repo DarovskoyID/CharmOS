@@ -1,0 +1,5 @@
+# xHCI initialization + command/event rings under VT-d, no USB enumeration yet.
+-> xhci
+[xhci] xhci: controller running, command ring ok
+init: poweroff: stopping services
+acpi: entering S5

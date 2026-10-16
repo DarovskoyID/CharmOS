@@ -53,3 +53,5 @@ target_compile_definitions(test_font PRIVATE CHARMOS_FONT_DATA="${CMAKE_SOURCE_D
 charmos_host_test(test_wait_list test_wait_list.cpp ${CMAKE_SOURCE_DIR}/kernel/sync/wait_list.cpp)
 target_link_libraries(test_wait_list PRIVATE abi)
 target_include_directories(test_wait_list PRIVATE ${CMAKE_SOURCE_DIR}/arch/x86_64/include)
+charmos_host_test(test_xhci test_xhci.cpp)
+target_link_libraries(test_xhci PRIVATE usb)

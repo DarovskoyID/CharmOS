@@ -1,0 +1,5 @@
+name = "xhci"
+
+[[match]]
+class_code = 0x0c0330
+score = 100

@@ -22,6 +22,7 @@ CharmOS/
 ├── lib/                   общий freestanding-код без зависимости от ядра:
 │   ├── core/              Result, Span, intrusive-списки, битмапы, форматирование, memcpy/memset
 │   ├── font/              свой TrueType-парсер и растеризатор (M10, юзерспейс/хост)
+│   ├── usb/               структуры/кольца xHCI и USB-парсеры (M10)
 │   └── <name>/            парсеры (ELF, TOML, FAT, ext2-структуры) — тестируются на хосте
 ├── boot/uefi/             загрузчик (M1)
 ├── arch/x86_64/           ВСЁ платформенно-зависимое: GDT/IDT, paging, APIC, SMP, syscall entry, asm

@@ -1,0 +1,3 @@
+#wait xhci: controller running, command ring ok
+#wait wm: ready
+svc poweroff

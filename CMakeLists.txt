@@ -52,6 +52,7 @@ add_subdirectory(lib/sysarea)
 add_subdirectory(lib/input)
 if(CHARMOS_TARGET STREQUAL "host" OR CHARMOS_TARGET STREQUAL "user")
   add_subdirectory(lib/font)
+  add_subdirectory(lib/usb)
 endif()
 
 if(CHARMOS_TARGET STREQUAL "uefi")
