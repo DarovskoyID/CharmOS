@@ -1,4 +1,4 @@
-#wait wm: frame ready
+#wait wm: ready
 #sleep 1
-#pixel 10 10 300 160 100 100
+#pixel 10 10 642 402
 svc poweroff

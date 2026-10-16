@@ -125,6 +125,8 @@ int64_t charm_spawn(const char* path, char* const argv[], char* const envp[], co
   if ((give & CHARM_GIVE_NET) != 0) add(si.net, ap::kRoleNet, net, 3);
   if ((give & CHARM_GIVE_LOG) != 0) add(si.log, ap::kRoleLog, logc, 2);
   if ((give & CHARM_GIVE_JOB) != 0) add(si.job, ap::kRoleJob, job, 2);
+  const uint32_t door[] = {kBase | r::kWrite};  // wm.md §1: только писать (и передавать дальше)
+  if ((give & CHARM_GIVE_WM) != 0) add(si.wm, ap::kRoleWm, door, 1);
   for (uint32_t i = 0; o != nullptr && i < o->extra_count && n < ap::kMaxStartHandles; ++i) {
     handles[n] = o->extra[i];
     roles[n++] = o->extra_roles != nullptr ? o->extra_roles[i] : 0;

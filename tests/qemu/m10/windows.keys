@@ -1,0 +1,19 @@
+#wait wdemo ember: 60 frames
+#wait wdemo amber: 60 frames
+#pixel 90 150 400 330
+#monitor mouse_move -440 -310
+#sleep 1
+#monitor mouse_button 1
+#sleep 1
+#monitor mouse_move 200 300
+#sleep 1
+#monitor mouse_button 0
+#wait wm: window 1 moved
+#sleep 1
+#pixel 90 150 290 450
+#monitor sendkey a
+#wait input->pixel
+#monitor sendkey b
+#wait wdemo amber: key 0x5
+#sleep 1
+svc poweroff

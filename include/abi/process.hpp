@@ -41,6 +41,7 @@ inline constexpr uint32_t kRoleSystem = 7;  // v1.6: закрытая облас
 inline constexpr uint32_t kRolePower = 8;   // v1.7: питание машины (docs/abi/power.md §1)
 inline constexpr uint32_t kRoleDisplay = 9;  // v1.8: экран (docs/abi/display.md)
 inline constexpr uint32_t kRoleInput = 10;   // v1.8: ввод (docs/abi/input.md)
+inline constexpr uint32_t kRoleWm = 11;      // v1.9: дверь компоновщика (docs/abi/wm.md)
 
 // §3.1
 struct SpawnArgs {

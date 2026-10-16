@@ -43,6 +43,7 @@ Handle g_logd_ctl = 0;   // наш конец канала управления 
 Handle g_control = 0;    // наш конец канала управления init (для шелла)
 Handle g_control_peer = 0;
 Handle g_pkgd_peer = 0;  // конец канала запросов pkgd — сеансу на консоли
+Handle g_wm_door = 0;    // наш конец двери компоновщика (wm.md §1), дубликаты — всем
 
 bool parse_conf() {
   FILE* f = fopen("/etc/init.conf", "r");
@@ -98,7 +99,7 @@ Handle log_channel(const char* name) {
 
 bool start(int i) {
   Service& s = g_svc[i];
-  uint32_t extra[6], roles[6];
+  uint32_t extra[8], roles[8];
   uint32_t n = 0;
   charm_spawn_opts o{};
   o.give = CHARM_GIVE_ROOT | CHARM_GIVE_CWD;
@@ -114,7 +115,16 @@ bool start(int i) {
     roles[n++] = ap::kRoleLog;
   }
   Handle job = 0;
-  if (strcmp(s.name, "wm") == 0) {
+  bool is_wm = strcmp(s.name, "wm") == 0;
+  if (is_wm) {
+    // wm.md §1: дверь — канал, конец компоновщику (без роли), наш — дубликатами всем.
+    Handle door[2];
+    if (charm::channel_create(door) == Status::Ok) {
+      if (g_wm_door != 0) (void)charm::handle_close(g_wm_door);
+      g_wm_door = door[0];
+      extra[n] = door[1];
+      roles[n++] = ap::kRoleNone;
+    }
     // display.md §1, input.md §1: экран и ввод — только компоновщику.
     if (charm_display() != 0) {
       auto d = charm::handle_duplicate(charm_display(), charm::rights::kDuplicate | charm::rights::kTransfer |
@@ -131,6 +141,14 @@ bool start(int i) {
         extra[n] = static_cast<Handle>(d.value);
         roles[n++] = ap::kRoleInput;
       }
+    }
+  }
+  if (!is_wm && g_wm_door != 0) {
+    auto d = charm::handle_duplicate(g_wm_door, charm::rights::kDuplicate | charm::rights::kTransfer |
+                                                    charm::rights::kWrite);
+    if (d.ok()) {
+      extra[n] = static_cast<Handle>(d.value);
+      roles[n++] = ap::kRoleWm;
     }
   }
   bool pkgd = strcmp(s.name, "pkgd") == 0;

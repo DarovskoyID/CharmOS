@@ -60,7 +60,7 @@ void set_cwd(const char* abs_no_slash);
 
 // --- запуск --------------------------------------------------------------------------------
 struct StartInfo {
-  Handle root, cwd, console, net, log, job, system, power, display, input;
+  Handle root, cwd, console, net, log, job, system, power, display, input, wm;
   Handle extra[8];  // хендлы без роли, по порядку
   uint32_t extra_count;
 };

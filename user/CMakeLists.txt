@@ -35,7 +35,7 @@ endfunction()
 
 charmos_c_program(libc_test tests/libc_test.cpp)
 charmos_c_program(init init/init.cpp)
-foreach(prog logd sh echo cat ls mkdir rm sleep httpd corrupt wm)
+foreach(prog logd sh echo cat ls mkdir rm sleep httpd corrupt wm wdemo)
   charmos_c_program(${prog} bin/${prog}/${prog}.cpp)
 endforeach()
 # Служба пакетов (M8.5) и тестовые программы для пакетов.

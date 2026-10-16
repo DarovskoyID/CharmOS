@@ -10,7 +10,7 @@
 namespace abi::syscall {
 
 inline constexpr uint16_t kVersionMajor = 1;
-inline constexpr uint16_t kVersionMinor = 8;
+inline constexpr uint16_t kVersionMinor = 9;
 
 // §5
 enum class Number : uint64_t {

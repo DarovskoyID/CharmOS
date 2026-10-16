@@ -62,7 +62,7 @@ def monitor(cmd):
     s.close()
     # Ответ — в вывод (test.sh пишет его в <лог>.screen): для отладки, в .expected не нужен.
     for line in out.decode(errors="replace").splitlines():
-        if line.strip() and not line.startswith(cmd[:4]) and "(qemu)" not in line:
+        if line.strip() and "\x1b" not in line and "(qemu)" not in line:
             print("monitor: " + line.strip())
 
 

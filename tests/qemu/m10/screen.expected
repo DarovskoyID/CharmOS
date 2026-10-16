@@ -1,10 +1,10 @@
 # M10 (фаза 4): компоновщик получает экран (display.md), рисует в задний буфер
-# и копирует на экран только повреждённое. Снимок экрана — tools/qemu-screen.py.
+# и копирует на экран повреждённое. Снимок экрана — tools/qemu-screen.py.
 init: started wm
 [wm] wm: display
-[wm] wm: frame ready, box at 220,100
+[wm] wm: full frame
+[wm] wm: ready
 init: poweroff: stopping services
-# Фон — Ink, прямоугольник (220..420 × 100..220) — Amber, старое место — снова фон.
+# Фон — Ink, в центре 1280×800 — курсор (белый квадрат 8×8 с 640,400).
 screen: pixel 10,10 = 0b0b0c
-screen: pixel 300,160 = f5c518
-screen: pixel 100,100 = 0b0b0c
+screen: pixel 642,402 = ffffff

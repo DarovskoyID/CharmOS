@@ -1,9 +1,5 @@
-#wait wm: input ready
-#monitor sendkey a
-#wait wm: key 0x4 up
-#monitor sendkey ret
+#wait wm: ready
 #monitor mouse_move 40 30
-#wait wm: cursor
-#sleep 1
-#pixel 682 432
+#sleep 2
+#pixel 682 432 642 402
 svc poweroff
