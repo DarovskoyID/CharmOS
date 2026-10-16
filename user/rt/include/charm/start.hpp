@@ -5,8 +5,8 @@
 namespace charm {
 
 struct Start {
-  abi::process::StartHeader header;
-  Handle handles[abi::process::kMaxStartHandles];
+  abi::process::StartHeaderV2 header;
+  Handle handles[abi::process::kMaxStartHandlesV2];
   const char* args;  // argc строк с \0 подряд
   const char* env;   // envc строк ИМЯ=значение
   // Хендл с ролью role (первый), 0 — нет.
@@ -18,21 +18,20 @@ struct Start {
   }
 };
 
-// buf — не меньше sizeof(StartHeader) + 4096 + 8192 байт.
+// buf — не меньше sizeof(StartHeaderV2) + 4096 + 8192 байт.
 inline Status read_start(Handle boot, char* buf, uint64_t cap, Start* out) {
   uint32_t nh = 0;
-  auto r = channel_read(boot, buf, cap, out->handles, abi::process::kMaxStartHandles, kForever);
+  auto r = channel_read(boot, buf, cap, out->handles, abi::process::kMaxStartHandlesV2, kForever);
   if (!r.ok()) return r.status;
   uint32_t bytes = static_cast<uint32_t>(r.value >> 32);
   nh = static_cast<uint32_t>(r.value);
-  if (bytes < sizeof(abi::process::StartHeader)) return Status::InvalidArgs;
-  __builtin_memcpy(&out->header, buf, sizeof out->header);
+  uint32_t header_bytes;
+  if (!abi::process::unpack_start_header(buf, bytes, &out->header, &header_bytes)) return Status::InvalidArgs;
   const auto& h = out->header;
-  if (__builtin_memcmp(h.magic, abi::process::kStartMagic, 4) != 0 || h.handle_count != nh ||
-      sizeof h + uint64_t{h.args_bytes} + h.env_bytes != bytes) {
+  if (h.handle_count != nh) {
     return Status::InvalidArgs;
   }
-  out->args = buf + sizeof h;
+  out->args = buf + header_bytes;
   out->env = out->args + h.args_bytes;
   return Status::Ok;
 }

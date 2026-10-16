@@ -104,12 +104,12 @@ int64_t charm_spawn(const char* path, char* const argv[], char* const envp[], co
   a.name = name;
   a.name_len = static_cast<uint32_t>(strnlen(name, ap::kMaxName));
 
-  uint32_t handles[ap::kMaxStartHandles];
-  uint32_t roles[ap::kMaxStartHandles];
+  uint32_t handles[ap::kMaxStartHandlesV2];
+  uint32_t roles[ap::kMaxStartHandlesV2];
   uint32_t n = 0;
   StartInfo& si = start_info();
   auto add = [&](Handle src, uint32_t role, const uint32_t* cand, int nc) {
-    if (src == 0 || n == ap::kMaxStartHandles) return;
+    if (src == 0 || n == ap::kMaxStartHandlesV2) return;
     Handle d = dup_any(src, cand, nc);
     if (d == 0) return;
     handles[n] = d;
@@ -127,11 +127,13 @@ int64_t charm_spawn(const char* path, char* const argv[], char* const envp[], co
   if ((give & CHARM_GIVE_JOB) != 0) add(si.job, ap::kRoleJob, job, 2);
   const uint32_t door[] = {kBase | r::kWrite};  // wm.md §1: только писать (и передавать дальше)
   if ((give & CHARM_GIVE_WM) != 0) add(si.wm, ap::kRoleWm, door, 1);
-  for (uint32_t i = 0; o != nullptr && i < o->extra_count && n < ap::kMaxStartHandles; ++i) {
+  if ((give & CHARM_GIVE_AUDIO) != 0) add(si.audio, ap::kRoleAudio, door, 1);
+  for (uint32_t i = 0; o != nullptr && i < o->extra_count && n < ap::kMaxStartHandlesV2; ++i) {
     handles[n] = o->extra[i];
     roles[n++] = o->extra_roles != nullptr ? o->extra_roles[i] : 0;
   }
   a.handle_count = n;
+  a.flags = ap::kSpawnStartV2;
   a.handles = handles;
   a.roles = roles;
   a.job = o != nullptr ? o->job : 0;

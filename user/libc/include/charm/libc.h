@@ -13,7 +13,8 @@
 #define CHARM_GIVE_JOB 16u     /* Job для запуска своих детей */
 #define CHARM_GIVE_CWD 32u     /* текущий каталог (как строку окружения PWD) */
 #define CHARM_GIVE_WM 64u      /* дверь компоновщика (wm.md §1) */
-#define CHARM_GIVE_ALL 127u
+#define CHARM_GIVE_AUDIO 128u /* вывод PCM (audio.md) */
+#define CHARM_GIVE_ALL 255u
 struct charm_spawn_opts {
   uint32_t give;       /* CHARM_GIVE_* */
   uint32_t job;        /* хендл Job; 0 — свой */
@@ -42,6 +43,7 @@ uint32_t charm_power(void);  /* питание машины (только init, 
 uint32_t charm_display(void);  /* экран (init и компоновщик, display.md) */
 uint32_t charm_input(void);    /* ввод (init и компоновщик, input.md) */
 uint32_t charm_wm(void);       /* дверь компоновщика (wm.md §1) */
+uint32_t charm_audio(void);    /* доступ к PCM (audio.md) */
 /* i-й хендл стартового сообщения без роли (0 — нет). */
 uint32_t charm_extra_handle(int i);
 /* Хендл ядра за файловым дескриптором (0 — нет). */

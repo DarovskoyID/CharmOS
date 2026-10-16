@@ -121,6 +121,20 @@ void net_serve(void* arg) {
   s->done.up();
 }
 
+void audio_serve(void* arg) {
+  auto* s = static_cast<BlockServe*>(arg);
+  char message[32]; uint32_t n = 0, count = 0; ipc::Cap* door = nullptr;
+  if (pci::function(s->pci_index).class_code == 0x040300 &&
+      ipc::kernel_recv_caps(s->kernel_end, message, sizeof message, &n, &door, 1, &count, ~uint64_t{0}) == ipc::Status::Ok &&
+      n == 4 && count == 1 && __builtin_memcmp(message, "aud1", 4) == 0 && ipc::register_audio(door) == ipc::Status::Ok) {
+    kprint("audio: {} ready\n", s->name);
+    while (ipc::kernel_recv(s->kernel_end, message, sizeof message, &n, ~uint64_t{0}) != ipc::Status::PeerClosed) {}
+    ipc::unregister_audio(door);
+  }
+  if (door != nullptr) ipc::close_detached(door);
+  s->done.up();
+}
+
 void forget_process(void* arg) {
   sync::SpinGuard guard(g_lock);
   static_cast<Binding*>(arg)->running = nullptr;
@@ -170,7 +184,8 @@ void supervise(void* arg) {
       b->block.pci_index = b->pci_index;
       b->block.kernel_end = kernel_end;
       b->block.name = name;
-      auto fn = cls == lib::manifest::DriverClass::Net ? &net_serve : &block_serve;
+      auto fn = cls == lib::manifest::DriverClass::Net ? &net_serve :
+                (cls == lib::manifest::DriverClass::Audio ? &audio_serve : &block_serve);
       if (sched::spawn(cls == lib::manifest::DriverClass::Net ? "net" : "block", fn, &b->block).is_err()) {
         kprint("devmgr: {}: cannot start block service\n", name);
         block = false;

@@ -18,7 +18,7 @@ const char kArgsSleep[] = "spawn_child\0sleep";
 const char kEnv[] = "A=1\0B=two";
 
 SysResult spawn(Handle exe, const char* args, uint32_t args_bytes, uint32_t argc, const Handle* hs,
-                const uint32_t* roles, uint32_t n, Handle job) {
+                const uint32_t* roles, uint32_t n, Handle job, bool v2 = false) {
   ap::SpawnArgs a{};
   a.executable = exe;
   a.handle_count = n;
@@ -33,6 +33,7 @@ SysResult spawn(Handle exe, const char* args, uint32_t args_bytes, uint32_t argc
   a.env_bytes = sizeof kEnv;
   a.envc = 2;
   a.job = job;
+  a.flags = v2 ? ap::kSpawnStartV2 : 0;
   return process_spawn(&a);
 }
 
@@ -129,6 +130,24 @@ extern "C" int64_t charm_main(Handle boot) {
   EXPECT(data.ok());
   EXPECT(spawn(static_cast<Handle>(data.value), kArgsSleep, sizeof kArgsSleep, 2, nullptr, nullptr, 0, 0).status ==
          Status::InvalidArgs);  // не ELF
+  // Both wire formats are exercised: the legacy two-handle echo above and
+  // all sixteen v2 slots here. Rejecting the legacy oversized request must
+  // leave every handle available for the following v2 transfer.
+  EXPECT(channel_create(ch) == Status::Ok);
+  Handle many[16]{}; uint32_t many_roles[16]{}; many[0] = ch[1];
+  for (uint32_t i = 1; i < 16; ++i) {
+    auto copy = handle_duplicate(root, rights::kDuplicate | rights::kTransfer | rights::kRead);
+    EXPECT(copy.ok()); many[i] = static_cast<Handle>(copy.value); many_roles[i] = ap::kRoleRoot;
+  }
+  EXPECT(spawn(exe_h, kArgsEcho, sizeof kArgsEcho, 3, many, many_roles, 16, 0).status == Status::InvalidArgs);
+  auto wide = spawn(exe_h, kArgsEcho, sizeof kArgsEcho, 3, many, many_roles, 16, 0, true);
+  EXPECT(wide.ok());
+  EXPECT(read_msg(ch[0], reply, sizeof reply - 1, none, 1, &n, &nh) == Status::Ok);
+  reply[n] = 0;
+  EXPECT(same(reply, n, "argv0=spawn_child envc=2 env0=A=1 env1=B=two handles=16 file=hello"));
+  EXPECT(object_bind(port_h, static_cast<Handle>(wide.value), 10) == Status::Ok);
+  EXPECT(wait_packet(port_h, 10, abi::syscall::kPacketProcessExited, &code) && code == 42);
+  print("spawn: v1 and v2 (16 handles) verified\n");
   print("spawn: ok\n");
   return 0;
 }

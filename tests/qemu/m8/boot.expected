@@ -10,7 +10,6 @@ hello.txt
 init.conf
 hello from mkdisk
 httpd    running
-ok
 init: httpd exited with -1000
 init: restarting httpd
 init: started httpd

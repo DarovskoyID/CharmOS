@@ -178,6 +178,10 @@ Status create_input(uint32_t rights, Cap** out);
 Status sys_input_attach(uint32_t h, uint32_t vmo);
 void input_push(const abi::syscall::InputEvent& e);
 Status sys_device_input(uint32_t device, uint64_t event);
+Status create_audio(uint32_t rights, Cap** out);
+Status register_audio(Cap* door);
+void unregister_audio(Cap* door);
+Status sys_audio_open(uint32_t audio, uint64_t* out);
 void set_console_input_probe(bool (*probe)());
 // Из прерывания консоли: пришёл ввод — пакеты подписчикам.
 void console_readable();

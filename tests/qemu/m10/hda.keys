@@ -1,0 +1,2 @@
+#wait audio_test: PCM playback and access checks verified
+svc poweroff

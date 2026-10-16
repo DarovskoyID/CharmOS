@@ -11,7 +11,7 @@ using namespace charm;
 
 namespace {
 
-char g_buf[sizeof(abi::process::StartHeader) + 4096 + 8192];
+char g_buf[sizeof(abi::process::StartHeaderV2) + 4096 + 8192];
 
 int64_t to_int(const char* s) {
   int64_t v = 0;

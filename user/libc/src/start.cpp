@@ -29,7 +29,7 @@ namespace {
 
 namespace ap = abi::process;
 
-char g_msg[sizeof(ap::StartHeader) + ap::kMaxArgsBytes + ap::kMaxEnvBytes];
+char g_msg[sizeof(ap::StartHeaderV2) + ap::kMaxArgsBytes + ap::kMaxEnvBytes];
 char* g_argv[ap::kMaxArgs + 1];
 StartInfo g_start = {};
 ThreadBlock g_main_thread = {};
@@ -53,22 +53,21 @@ extern "C" [[noreturn]] void __libc_start(uint64_t boot) {
   int argc = 0;
   uint32_t envc = 0;
   const char* env = nullptr;
-  Handle hs[ap::kMaxStartHandles] = {};
-  auto r = boot != 0 ? charm::channel_read(static_cast<Handle>(boot), g_msg, sizeof g_msg, hs, ap::kMaxStartHandles,
+  Handle hs[ap::kMaxStartHandlesV2] = {};
+  auto r = boot != 0 ? charm::channel_read(static_cast<Handle>(boot), g_msg, sizeof g_msg, hs, ap::kMaxStartHandlesV2,
                                            charm::kForever)
                      : charm::SysResult{Status::BadHandle, 0};
   uint32_t bytes = static_cast<uint32_t>(r.value >> 32);
   uint32_t nh = static_cast<uint32_t>(r.value);
-  if (r.ok() && bytes >= sizeof(ap::StartHeader) && memcmp(g_msg, ap::kStartMagic, 4) == 0) {
-    ap::StartHeader h;
-    memcpy(&h, g_msg, sizeof h);
-    if (sizeof h + uint64_t{h.args_bytes} + h.env_bytes == bytes && h.handle_count == nh) {
-      char* p = g_msg + sizeof h;
+  ap::StartHeaderV2 h{}; uint32_t header_bytes = 0;
+  if (r.ok() && ap::unpack_start_header(g_msg, bytes, &h, &header_bytes)) {
+    if (h.handle_count == nh) {
+      char* p = g_msg + header_bytes;
       for (uint32_t i = 0; i < h.argc && i < ap::kMaxArgs; ++i) {
         g_argv[argc++] = p;
         p += strlen(p) + 1;
       }
-      env = g_msg + sizeof h + h.args_bytes;
+      env = g_msg + header_bytes + h.args_bytes;
       envc = h.envc;
       for (uint32_t i = 0; i < nh; ++i) {
         switch (h.roles[i]) {
@@ -83,6 +82,7 @@ extern "C" [[noreturn]] void __libc_start(uint64_t boot) {
           case ap::kRoleDisplay: g_start.display = hs[i]; break;
           case ap::kRoleInput: g_start.input = hs[i]; break;
           case ap::kRoleWm: g_start.wm = hs[i]; break;
+          case ap::kRoleAudio: g_start.audio = hs[i]; break;
           default: g_start.extra[g_start.extra_count++] = hs[i]; break;  // без роли: программа знает сама
         }
       }
@@ -128,6 +128,7 @@ uint32_t charm_power(void) { return g_start.power; }
 uint32_t charm_display(void) { return g_start.display; }
 uint32_t charm_input(void) { return g_start.input; }
 uint32_t charm_wm(void) { return g_start.wm; }
+uint32_t charm_audio(void) { return g_start.audio; }
 uint32_t charm_extra_handle(int i) {
   return i >= 0 && static_cast<uint32_t>(i) < g_start.extra_count ? g_start.extra[i] : 0;
 }

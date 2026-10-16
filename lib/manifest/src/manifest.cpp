@@ -125,6 +125,8 @@ R Parser::run() {
         m.driver_class = DriverClass::Block;
       } else if (value == StringView("net")) {
         m.driver_class = DriverClass::Net;  // docs/abi/net.md §1, v1.4
+      } else if (value == StringView("audio")) {
+        m.driver_class = DriverClass::Audio;  // docs/abi/audio.md, v1.11
       } else {
         return fail("unknown class");
       }

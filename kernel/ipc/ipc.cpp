@@ -30,7 +30,7 @@ using arch::x86_64::kPageSize;
 
 // --- объекты ------------------------------------------------------------------------
 
-enum class Type : uint8_t { Endpoint, Vmo, Port, Device, Interrupt, FsNode, Net, Socket, Console, Thread, Process, Job, Power, Display, Input };
+enum class Type : uint8_t { Endpoint, Vmo, Port, Device, Interrupt, FsNode, Net, Socket, Console, Thread, Process, Job, Power, Display, Input, Audio };
 
 struct Object {
   Type type;
@@ -222,6 +222,7 @@ namespace {
 constinit sync::Spinlock g_lock{sync::LockRank::Ipc, "ipc"};
 // Последний созданный объект Device для функции PCI (под g_lock).
 constinit Device* g_current_device[pci::kMaxFunctions] = {};
+constinit Cap* g_audio_door = nullptr;
 
 // Снятые отображения, чьи страницы ещё могут быть в TLB других CPU. Объекты
 // освобождаются после smp::flush_tlb для всех CPU из cpus.
@@ -561,7 +562,7 @@ void release_object(Object* obj) {
     mm::kfree(obj);
     return;
   }
-  if (obj->type == Type::Power || obj->type == Type::Display || obj->type == Type::Input) {
+  if (obj->type == Type::Power || obj->type == Type::Display || obj->type == Type::Input || obj->type == Type::Audio) {
     mm::kfree(obj);
     return;
   }
@@ -1481,6 +1482,42 @@ bool dma_available(const Device* d) {
 }
 
 }  // namespace
+
+Status create_audio(uint32_t r, Cap** out) {
+  auto* object = alloc_zeroed<Object>(sizeof(Object));
+  if (object == nullptr) return Status::NoMemory;
+  object->type = Type::Audio;
+  sync::SpinGuard guard(g_lock);
+  Cap* c = new_cap(object, r, nullptr);
+  if (c == nullptr) { mm::kfree(object); return Status::NoMemory; }
+  *out = c; return Status::Ok;
+}
+Status register_audio(Cap* door) {
+  sync::SpinGuard guard(g_lock);
+  if (door == nullptr || door->obj->type != Type::Endpoint) return Status::WrongType;
+  constexpr uint32_t need = rights::kWrite | rights::kDuplicate | rights::kTransfer;
+  if ((door->rights & need) != need) return Status::AccessDenied;
+  if (g_audio_door != nullptr) return Status::Busy;
+  g_audio_door = door; return Status::Ok;
+}
+void unregister_audio(Cap* door) {
+  sync::SpinGuard guard(g_lock);
+  if (g_audio_door == door) g_audio_door = nullptr;
+}
+Status sys_audio_open(uint32_t h, uint64_t* out) {
+  sync::SpinGuard guard(g_lock);
+  proc::Process* p = me(); Cap* token = lookup(p, h);
+  if (token == nullptr) return Status::BadHandle;
+  if (token->obj->type != Type::Audio) return Status::WrongType;
+  if ((token->rights & rights::kWrite) == 0) return Status::AccessDenied;
+  if (g_audio_door == nullptr) return Status::NotFound;
+  Cap* c = new_cap(g_audio_door->obj, rights::kWrite | rights::kDuplicate | rights::kTransfer, g_audio_door);
+  if (c == nullptr) return Status::NoMemory;
+  auto handle = p->ipc.table.insert(c);
+  if (handle.is_err()) { release_detached(c); return Status::NoMemory; }
+  c->where = Where::Table; c->owner = p; c->handle = handle.value(); *out = handle.value();
+  return Status::Ok;
+}
 
 Status sys_device_input(uint32_t h, uint64_t user_event) {
   {

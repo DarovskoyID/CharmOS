@@ -1,0 +1,5 @@
+name = "hda"
+class = "audio"
+[[match]]
+class_code = 0x040300
+score = 100

@@ -433,13 +433,14 @@ Status sys_process_spawn(uint64_t uargs, uint64_t* out) {
   *out = 0;
   ap::SpawnArgs a;
   if (!copy_from_user(&a, uargs, sizeof a)) return Status::BadAddress;
-  if (a.handle_count > ap::kMaxStartHandles || a.argc > ap::kMaxArgs || a.args_bytes > ap::kMaxArgsBytes ||
-      a.envc > ap::kMaxEnv || a.env_bytes > ap::kMaxEnvBytes || a.name_len > ap::kMaxName || a.flags != 0 ||
+  bool v2 = (a.flags & ap::kSpawnStartV2) != 0;
+  if (a.handle_count > (v2 ? ap::kMaxStartHandlesV2 : ap::kMaxStartHandles) || a.argc > ap::kMaxArgs || a.args_bytes > ap::kMaxArgsBytes ||
+      a.envc > ap::kMaxEnv || a.env_bytes > ap::kMaxEnvBytes || a.name_len > ap::kMaxName || (a.flags & ~ap::kSpawnStartV2) != 0 ||
       a.reserved[0] != 0 || a.reserved[1] != 0 || a.priority > ap::kPriorityMax) {
     return Status::InvalidArgs;
   }
-  uint32_t handles[ap::kMaxStartHandles];
-  ap::StartHeader hdr{};
+  uint32_t handles[ap::kMaxStartHandlesV2];
+  ap::StartHeaderV2 hdr{};
   char name[ap::kMaxName + 1] = {};
   if (!copy_from_user(handles, reinterpret_cast<uint64_t>(a.handles), a.handle_count * sizeof(uint32_t)) ||
       !copy_from_user(hdr.roles, reinterpret_cast<uint64_t>(a.roles), a.handle_count * sizeof(uint32_t)) ||
@@ -449,7 +450,8 @@ Status sys_process_spawn(uint64_t uargs, uint64_t* out) {
   if (a.name_len == 0) __builtin_memcpy(name, "proc", 5);
 
   // Стартовое сообщение: заголовок, аргументы, окружение (§2).
-  uint64_t len = sizeof hdr + a.args_bytes + a.env_bytes;
+  uint32_t header_bytes = v2 ? sizeof hdr : sizeof(ap::StartHeader);
+  uint64_t len = header_bytes + a.args_bytes + a.env_bytes;
   auto mem = mm::kmalloc(static_cast<size_t>(len));
   if (mem.is_err()) return Status::NoMemory;
   auto* msg = static_cast<char*>(mem.value());
@@ -459,8 +461,8 @@ Status sys_process_spawn(uint64_t uargs, uint64_t* out) {
   hdr.handle_count = a.handle_count;
   hdr.envc = a.envc;
   hdr.env_bytes = a.env_bytes;
-  __builtin_memcpy(msg, &hdr, sizeof hdr);
-  char* args = msg + sizeof hdr;
+  (void)ap::pack_start_header(hdr, v2, msg);
+  char* args = msg + header_bytes;
   char* env = args + a.args_bytes;
   Status s = Status::Ok;
   if (!copy_from_user(args, reinterpret_cast<uint64_t>(a.args), a.args_bytes) ||

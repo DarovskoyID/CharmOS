@@ -13,6 +13,8 @@ inline constexpr uint32_t kMaxArgsBytes = 4096;
 inline constexpr uint32_t kMaxEnv = 256;
 inline constexpr uint32_t kMaxEnvBytes = 8192;
 inline constexpr uint32_t kMaxStartHandles = 8;
+inline constexpr uint32_t kMaxStartHandlesV2 = 16;
+inline constexpr uint32_t kSpawnStartV2 = 1;
 inline constexpr uint32_t kMaxName = 31;
 
 struct StartHeader {
@@ -29,6 +31,50 @@ static_assert(__builtin_offsetof(StartHeader, roles) == 16);
 static_assert(__builtin_offsetof(StartHeader, envc) == 48);
 static_assert(__builtin_offsetof(StartHeader, env_bytes) == 52);
 
+// ABI 1.11: the v1 layout above remains byte-for-byte unchanged.
+struct StartHeaderV2 {
+  char magic[4];
+  uint32_t argc, args_bytes, handle_count;
+  uint32_t roles[kMaxStartHandlesV2];
+  uint32_t envc, env_bytes;
+};
+static_assert(sizeof(StartHeaderV2) == 88);
+static_assert(__builtin_offsetof(StartHeaderV2, roles) == 16);
+static_assert(__builtin_offsetof(StartHeaderV2, envc) == 80);
+static_assert(__builtin_offsetof(StartHeaderV2, env_bytes) == 84);
+inline uint32_t pack_start_header(const StartHeaderV2& h, bool v2, void* out) {
+  if (v2) {
+    __builtin_memcpy(out, &h, sizeof h);
+    __builtin_memcpy(out, "str2", 4);
+    return sizeof h;
+  }
+  StartHeader old{};
+  __builtin_memcpy(&old, &h, 16);
+  __builtin_memcpy(old.magic, kStartMagic, 4);
+  __builtin_memcpy(old.roles, h.roles, sizeof old.roles);
+  old.envc = h.envc; old.env_bytes = h.env_bytes;
+  __builtin_memcpy(out, &old, sizeof old);
+  return sizeof old;
+}
+inline bool unpack_start_header(const void* data, uint32_t bytes, StartHeaderV2* out, uint32_t* offset) {
+  if (bytes < sizeof(StartHeader)) return false;
+  *out = {};
+  uint32_t limit;
+  if (__builtin_memcmp(data, "str2", 4) == 0) {
+    if (bytes < sizeof *out) return false;
+    __builtin_memcpy(out, data, sizeof *out); *offset = sizeof *out; limit = kMaxStartHandlesV2;
+  } else if (__builtin_memcmp(data, kStartMagic, 4) == 0) {
+    StartHeader old; __builtin_memcpy(&old, data, sizeof old);
+    __builtin_memcpy(out, &old, 16);
+    __builtin_memcpy(out->roles, old.roles, sizeof old.roles);
+    out->envc = old.envc; out->env_bytes = old.env_bytes;
+    *offset = sizeof old; limit = kMaxStartHandles;
+  } else return false;
+  return out->handle_count <= limit && out->argc <= kMaxArgs && out->envc <= kMaxEnv &&
+         out->args_bytes <= kMaxArgsBytes && out->env_bytes <= kMaxEnvBytes &&
+         uint64_t{*offset} + out->args_bytes + out->env_bytes == bytes;
+}
+
 // §2.1: роли хендлов.
 inline constexpr uint32_t kRoleNone = 0;
 inline constexpr uint32_t kRoleRoot = 1;
@@ -42,6 +88,7 @@ inline constexpr uint32_t kRolePower = 8;   // v1.7: питание машины
 inline constexpr uint32_t kRoleDisplay = 9;  // v1.8: экран (docs/abi/display.md)
 inline constexpr uint32_t kRoleInput = 10;   // v1.8: ввод (docs/abi/input.md)
 inline constexpr uint32_t kRoleWm = 11;      // v1.9: дверь компоновщика (docs/abi/wm.md)
+inline constexpr uint32_t kRoleAudio = 12;   // v1.11: вывод PCM (docs/abi/audio.md)
 
 // §3.1
 struct SpawnArgs {

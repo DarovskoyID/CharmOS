@@ -103,6 +103,7 @@ bool start(int i) {
   uint32_t n = 0;
   charm_spawn_opts o{};
   o.give = CHARM_GIVE_ROOT | CHARM_GIVE_CWD;
+  o.give |= CHARM_GIVE_AUDIO;
   bool logd = strcmp(s.name, "logd") == 0;
   if (logd) {
     Handle ch[2];

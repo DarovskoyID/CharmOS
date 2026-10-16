@@ -66,6 +66,8 @@ TEST(manifest_rejects) {
 TEST(manifest_class) {
   auto r = parse(StringView("name = \"vblk\"\nclass = \"block\"\n[[match]]\nvendor = 0x1af4\n"));
   CHECK(r.is_ok() && r.value().driver_class == lib::manifest::DriverClass::Block);
+  auto audio = parse(StringView("name = \"hda\"\nclass = \"audio\"\n[[match]]\nclass_code = 0x040300\n"));
+  CHECK(audio.is_ok() && audio.value().driver_class == lib::manifest::DriverClass::Audio);
   CHECK(parse(StringView("name = \"e\"\n[[match]]\nvendor = 1\n")).value().driver_class ==
         lib::manifest::DriverClass::None);
   CHECK(parse(StringView("name = \"n\"\nclass = \"net\"\n[[match]]\nvendor = 1\n")).value().driver_class ==

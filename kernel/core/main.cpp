@@ -140,8 +140,8 @@ constinit size_t g_init_len = 0;
     auto s = kernel::net::dhcp_configure(kernel::platform::now_ns() + 10'000'000'000ull);
     if (s != kernel::net::Status::Ok) kprint("init: no DHCP lease\n");
   }
-  Cap* caps[8];
-  uint32_t roles[8];
+  Cap* caps[ap::kMaxStartHandlesV2];
+  uint32_t roles[ap::kMaxStartHandlesV2];
   uint32_t n = 0;
   if (kernel::fs::mounted() && kernel::fs::root_cap(&caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleRoot;
   if (kernel::fs::system_mounted() && kernel::fs::system_cap(&caps[n]) == kernel::ipc::Status::Ok) {
@@ -165,26 +165,23 @@ constinit size_t g_init_len = 0;
     roles[n++] = ap::kRoleInput;
   }
   if (kernel::console::console_cap(&caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleConsole;
+  if (kernel::ipc::create_audio(abi::syscall::rights::kDuplicate | abi::syscall::rights::kTransfer |
+                              abi::syscall::rights::kWrite, &caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleAudio;
   if (kernel::net::net_cap(&caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleNet;
   if (kernel::ipc::create_job_cap(kernel::ipc::root_job(), &caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleJob;
-  struct {
-    ap::StartHeader h;
-    char data[32];
-  } msg{};
+  ap::StartHeaderV2 header{};
+  struct { char bytes[sizeof(ap::StartHeaderV2) + 32]; } msg{};
   static const char kArgs[] = "init";
   static const char kEnv[] = "PATH=/bin";
-  __builtin_memcpy(msg.h.magic, ap::kStartMagic, 4);
-  msg.h.argc = 1;
-  msg.h.args_bytes = sizeof kArgs;
-  msg.h.envc = 1;
-  msg.h.env_bytes = sizeof kEnv;
-  msg.h.handle_count = n;
-  for (uint32_t i = 0; i < n; ++i) msg.h.roles[i] = roles[i];
-  __builtin_memcpy(msg.data, kArgs, sizeof kArgs);
-  __builtin_memcpy(msg.data + sizeof kArgs, kEnv, sizeof kEnv);
+  header.argc = 1; header.args_bytes = sizeof kArgs;
+  header.envc = 1; header.env_bytes = sizeof kEnv; header.handle_count = n;
+  for (uint32_t i = 0; i < n; ++i) header.roles[i] = roles[i];
+  uint32_t header_bytes = ap::pack_start_header(header, n > ap::kMaxStartHandles, msg.bytes);
+  __builtin_memcpy(msg.bytes + header_bytes, kArgs, sizeof kArgs);
+  __builtin_memcpy(msg.bytes + header_bytes + sizeof kArgs, kEnv, sizeof kEnv);
   Cap *mine, *theirs;
   if (kernel::ipc::create_channel(&mine, &theirs) != kernel::ipc::Status::Ok ||
-      kernel::ipc::kernel_send(mine, &msg, sizeof msg.h + sizeof kArgs + sizeof kEnv, caps, n) !=
+      kernel::ipc::kernel_send(mine, &msg, header_bytes + sizeof kArgs + sizeof kEnv, caps, n) !=
           kernel::ipc::Status::Ok) {
     panic("init: cannot build the start message");
   }

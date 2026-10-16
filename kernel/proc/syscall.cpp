@@ -364,6 +364,12 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
     case Number::DeviceInput:
       set_result(f, kernel::ipc::sys_device_input(static_cast<uint32_t>(f.rdi), f.rsi));
       break;
+    case Number::AudioOpen: {
+      uint64_t value = 0;
+      Status status = kernel::ipc::sys_audio_open(static_cast<uint32_t>(f.rdi), &value);
+      set_result(f, status, value);
+      break;
+    }
     case Number::SystemPower:
       set_result(f, sys_system_power(static_cast<uint32_t>(f.rdi), f.rsi));
       break;

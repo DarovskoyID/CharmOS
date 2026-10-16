@@ -68,6 +68,14 @@ for exp in "$dir"/*.expected; do
     echo "FAIL $phase/$name: exit code $code (want $want; 124 = timeout)"
     ok=0
   fi
+  # Optional host-side artifact verification after QEMU has closed its files.
+  # Its diagnostics join the serial log and its failure fails the scenario.
+  if [[ $ok -eq 1 && -f "$root/tools/qemu/$name.check.py" ]]; then
+    if ! python3 "$root/tools/qemu/$name.check.py" "$build" >>"$log" 2>&1; then
+      echo "FAIL $phase/$name: artifact verification failed"
+      ok=0
+    fi
+  fi
   # Ожидаемые строки по порядку.
   pos=0
   tr -d '\r' <"$log" >"$log.clean"
