@@ -12,6 +12,8 @@
 #include <lib/font/truetype.hpp>
 #include <lib/input/ring.hpp>
 #include <stdio.h>
+#include <stdlib.h>
+#include <sys/stat.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -25,8 +27,8 @@ namespace sc = abi::syscall;
 
 // Токены UI-кита (os-gui-design.md, «Визуальный дизайн»), 0xRRGGBB.
 constexpr uint32_t kInk = 0x0b0b0c, kRaised = 0x1b1a18, kAmber = 0xf5c518, kWhite = 0xffffff;
-constexpr int32_t kTitle = 24;   // высота заголовка окна
-constexpr int32_t kCursor = 8;   // курсор — квадрат
+constexpr int32_t kTitle = 52;   // Window.dc.html: высота заголовка окна
+constexpr int32_t kCursor = 24;
 constexpr uint64_t kFrameNs = 16'666'667;  // не чаще 60 Гц (wm.md §3)
 constexpr int kMaxClients = 8, kMaxWindows = 16;
 constexpr uint64_t kKeyInput = 1, kKeyDoor = 2, kKeyClient = 100;
@@ -116,6 +118,8 @@ Rect g_damage{};
 Handle g_port;
 int g_drag = -1;  // окно, которое тащат за заголовок
 bool g_alt = false, g_launcher = false;
+bool g_control = false, g_shadows = true, g_warm = true;
+bool g_files_available = false;
 char g_query[64]{};
 uint32_t g_query_len = 0;
 
@@ -124,30 +128,31 @@ lib::font::Face g_ui_font, g_mono_font;
 lib::font::Workspace g_font_work;
 struct CachedGlyph {
   bool used, mono;
-  uint32_t codepoint;
+  uint32_t codepoint, size;
   lib::font::Bitmap bitmap;
   uint8_t alpha[64 * 64];
 };
-CachedGlyph g_glyphs[128];
+CachedGlyph g_glyphs[256];
 uint32_t g_next_glyph = 0;
 
-CachedGlyph* glyph(uint32_t cp, bool mono) {
-  for (auto& c : g_glyphs) if (c.used && c.codepoint == cp && c.mono == mono) return &c;
-  CachedGlyph& c = g_glyphs[g_next_glyph++ % 128];
-  c.used = false; c.mono = mono; c.codepoint = cp;
+CachedGlyph* glyph(uint32_t cp, bool mono, uint32_t size) {
+  for (auto& c : g_glyphs) if (c.used && c.codepoint == cp && c.mono == mono && c.size == size) return &c;
+  CachedGlyph& c = g_glyphs[g_next_glyph++ % 256];
+  c.used = false; c.mono = mono; c.codepoint = cp; c.size = size;
   c.bitmap = {c.alpha, 64, 64, 64, 0, 0, 0};
   const auto& face = mono || g_ui_font.glyph(cp) == 0 ? g_mono_font : g_ui_font;
-  if (!face.rasterize(face.glyph(cp), mono ? 14u : 16u, &c.bitmap, &g_font_work)) return nullptr;
+  if (!face.rasterize(face.glyph(cp), size, &c.bitmap, &g_font_work)) return nullptr;
   c.used = true;
   return &c;
 }
 
-void text(const char* str, int32_t x, int32_t baseline, uint32_t color, Rect clip, bool mono = false) {
+void text(const char* str, int32_t x, int32_t baseline, uint32_t color, Rect clip, bool mono = false, uint32_t size = 0, int32_t tracking = 0) {
+  if (size == 0) size = mono ? 14u : 16u;
   clip = intersect(clip, g_s.all());
   if (clip.empty()) return;
   uint32_t fg = g_s.pixel(color);
   while (*str != 0) {
-    CachedGlyph* c = glyph(lib::font::utf8_next(&str), mono);
+    CachedGlyph* c = glyph(lib::font::utf8_next(&str), mono, size);
     if (c == nullptr) continue;
     auto& b = c->bitmap;
     Rect r{x + b.left, baseline + b.top, static_cast<int32_t>(b.width), static_cast<int32_t>(b.height)};
@@ -163,18 +168,139 @@ void text(const char* str, int32_t x, int32_t baseline, uint32_t color, Rect cli
         dst = out;
       }
     }
-    x += b.advance;
+    x += b.advance + tracking;
     if (x >= clip.x + clip.w) break;
   }
+}
+
+uint32_t blend(uint32_t a, uint32_t b, uint32_t alpha) {
+  uint32_t out = 0;
+  for (unsigned shift = 0; shift < 24; shift += 8)
+    out |= ((((a >> shift) & 255) * alpha + ((b >> shift) & 255) * (255 - alpha) + 127) / 255) << shift;
+  return out;
+}
+
+void rounded(Rect r, int32_t radius, uint32_t color, Rect clip, uint32_t opacity = 255) {
+  if (radius <= 0) { g_s.fill(r, color, clip); return; }
+  if (radius > r.w / 2) radius = r.w / 2;
+  if (radius > r.h / 2) radius = r.h / 2;
+  Rect v = intersect(intersect(r, clip), g_s.all());
+  uint32_t fg = g_s.pixel(color);
+  for (int32_t y = v.y; y < v.y + v.h; ++y) for (int32_t x = v.x; x < v.x + v.w; ++x) {
+    auto& dst = g_s.back[static_cast<uint64_t>(y) * g_s.width + static_cast<uint32_t>(x)];
+    if ((x >= r.x + radius && x < r.x + r.w - radius) ||
+        (y >= r.y + radius && y < r.y + r.h - radius)) {
+      dst = opacity == 255 ? fg : blend(fg, dst, opacity);
+      continue;
+    }
+    int32_t cx = x < r.x + radius ? r.x + radius : (x >= r.x + r.w - radius ? r.x + r.w - radius : x);
+    int32_t cy = y < r.y + radius ? r.y + radius : (y >= r.y + r.h - radius ? r.y + r.h - radius : y);
+    unsigned coverage = 0;
+    for (int32_t sy = 1; sy < 4; sy += 2) for (int32_t sx = 1; sx < 4; sx += 2) {
+      int32_t dx = (x - cx) * 4 + sx, dy = (y - cy) * 4 + sy;
+      coverage += dx * dx + dy * dy <= radius * radius * 16 ? 1u : 0u;
+    }
+    if (coverage != 0) dst = blend(fg, dst, coverage * opacity / 4);
+  }
+}
+
+void shadow(Rect bounds, Rect frame, int32_t radius, uint32_t opacity, Rect clip) {
+  // Measurements exposed >300 ms input-to-pixel in TCG: do not blend the
+  // shadow beneath the opaque middle of a window. Keep the corner fringe.
+  Rect hole{frame.x + 17, frame.y + 17, frame.w - 34, frame.h - 34};
+  rounded(bounds, radius, 0, intersect(clip, {bounds.x, bounds.y, bounds.w, hole.y - bounds.y}), opacity);
+  rounded(bounds, radius, 0, intersect(clip, {bounds.x, hole.y + hole.h, bounds.w, bounds.y + bounds.h - hole.y - hole.h}), opacity);
+  rounded(bounds, radius, 0, intersect(clip, {bounds.x, hole.y, hole.x - bounds.x, hole.h}), opacity);
+  rounded(bounds, radius, 0, intersect(clip, {hole.x + hole.w, hole.y, bounds.x + bounds.w - hole.x - hole.w, hole.h}), opacity);
+}
+
+void logo(int32_t ox, int32_t oy, int32_t size, int32_t stroke, Rect clip) {
+  Rect v = intersect(intersect({ox, oy, size, size}, clip), g_s.all());
+  for (int32_t y = v.y; y < v.y + v.h; ++y) for (int32_t x = v.x; x < v.x + v.w; ++x) {
+    unsigned amber = 0, red = 0;
+    for (int32_t sy = 1; sy < 8; sy += 2) for (int32_t sx = 1; sx < 8; sx += 2) {
+      int32_t dx = ((x - ox) * 8 + sx) * 260 / size - 1040;
+      int32_t dy = ((y - oy) * 8 + sy) * 260 / size - 1040;
+      int32_t radius = stroke * 4;
+      int64_t r2 = int64_t{dx} * dx + int64_t{dy} * dy;
+      bool arc = r2 >= (624 - radius) * (624 - radius) && r2 <= (624 + radius) * (624 + radius) && !(dx > 0 && dy > -304 && dy < 304);
+      bool caps = (dx - 528) * (dx - 528) + (dy - 304) * (dy - 304) <= radius * radius ||
+                  (dx - 528) * (dx - 528) + (dy + 304) * (dy + 304) <= radius * radius;
+      int64_t dot = int64_t{dx} * 528 - int64_t{dy} * 304;
+      int64_t cross = int64_t{dy} * 528 + int64_t{dx} * 304;
+      bool hand = (dot >= 0 && dot <= 371200 && cross * cross <= int64_t{radius} * radius * 371200) ||
+                  r2 <= radius * radius || (dx - 528) * (dx - 528) + (dy + 304) * (dy + 304) <= radius * radius;
+      if (hand) ++red; else if (arc || caps) ++amber;
+    }
+    auto& dst = g_s.back[static_cast<uint64_t>(y) * g_s.width + static_cast<uint32_t>(x)];
+    if (amber != 0) dst = blend(g_s.pixel(kAmber), dst, amber * 255 / 16);
+    if (red != 0) dst = blend(g_s.pixel(0xe0352b), dst, red * 255 / 16);
+  }
+}
+
+void tile_icon(int32_t x, int32_t y, int kind, Rect clip) {
+  rounded({x, y, 28, 23}, 4, kAmber, clip);
+  rounded({x + 2, y + 2, 24, 19}, 2, kRaised, clip);
+  if (kind == 0) {
+    g_s.fill({x + 5, y + 7, 7, 9}, kAmber, clip);
+    g_s.fill({x + 15, y + 7, 7, 9}, 0xe0352b, clip);
+  } else {
+    g_s.fill({x + 6, y + 6, 16, 2}, kAmber, clip);
+    g_s.fill({x + 6, y + 11, 16, 2}, kAmber, clip);
+    g_s.fill({x + 6, y + 16, 10, 2}, kAmber, clip);
+  }
+}
+
+void cursor_draw(Rect clip) {
+  const int outer_x[] = {0, 0, 5, 9, 14, 10, 20}, outer_y[] = {0, 20, 15, 23, 20, 13, 13};
+  const int inner_x[] = {1, 1, 5, 10, 12, 8, 17}, inner_y[] = {1, 18, 13, 21, 20, 12, 12};
+  auto inside = [](int x, int y, const int* xs, const int* ys) {
+    bool hit = false;
+    for (int i = 0, j = 6; i < 7; j = i++)
+      if ((ys[i] * 2 > y) != (ys[j] * 2 > y) &&
+          x < xs[i] * 2 + (y - ys[i] * 2) * (xs[j] - xs[i]) / (ys[j] - ys[i])) hit = !hit;
+    return hit;
+  };
+  Rect v = intersect(intersect(g_cursor, clip), g_s.all());
+  for (int y = v.y; y < v.y + v.h; ++y) for (int x = v.x; x < v.x + v.w; ++x) {
+    int px = (x - g_cursor.x) * 2 + 1, py = (y - g_cursor.y) * 2 + 1;
+    if (inside(px, py, outer_x, outer_y)) g_s.fill({x, y, 1, 1}, inside(px, py, inner_x, inner_y) ? kWhite : 0x050505, clip);
+  }
+}
+
+uint32_t* g_wallpaper = nullptr;
+void wallpaper_build() {
+  if (g_wallpaper == nullptr) g_wallpaper = static_cast<uint32_t*>(malloc(uint64_t{g_s.width} * g_s.height * 4));
+  if (g_wallpaper == nullptr) return;
+  for (uint32_t y = 0; y < g_s.height; ++y) for (uint32_t x = 0; x < g_s.width; ++x) {
+    int64_t dx = (int64_t{x} - g_s.width / 2) * 1024 / 550;
+    int64_t dy = (int64_t{y} - g_s.height * 42 / 100) * 1024 / 350;
+    int64_t distance = dx * dx + dy * dy;
+    uint32_t glow = g_warm && distance < 1048576 ? static_cast<uint32_t>((1048576 - distance) * 255 / 1048576) : 0;
+    g_s.back[uint64_t{y} * g_s.width + x] = g_s.pixel(blend(0x1a1613, kInk, glow));
+  }
+  int32_t cx = static_cast<int32_t>(g_s.width) / 2, cy = static_cast<int32_t>(g_s.height) / 2 - 42;
+  logo(cx - 130, cy - 130, 260, 16, g_s.all());
+  text("CHARM OS", cx - 103, cy + 162, 0xf3efe7, g_s.all(), false, 26, 5);
+  text("BUILD 0.1", cx - 44, cy + 190, 0x8e887d, g_s.all(), true, 12, 2);
+  memcpy(g_wallpaper, g_s.back, uint64_t{g_s.width} * g_s.height * 4);
 }
 
 void damage(Rect r);
 
 void launcher_toggle() {
   g_launcher = !g_launcher;
+  g_control = false;
+  g_drag = -1;
   g_query_len = 0; g_query[0] = 0;
   damage(g_s.all());
   printf("wm: launcher %s\n", g_launcher ? "open" : "closed");
+}
+
+void control_toggle() {
+  g_control = !g_control; g_launcher = false;
+  g_drag = -1;
+  damage(g_s.all()); printf("wm: control %s\n", g_control ? "open" : "closed");
 }
 
 void launch_demo() {
@@ -188,6 +314,18 @@ void launch_demo() {
   if (child >= 0 && g_launcher) launcher_toggle();
 }
 
+void launch_files() {
+  char path[] = "/bin/files"; char* args[] = {path, nullptr};
+  charm_spawn_opts options{};
+  options.give = CHARM_GIVE_ROOT | CHARM_GIVE_CWD | CHARM_GIVE_WM | CHARM_GIVE_LOG;
+  int64_t child = charm_spawn(path, args, nullptr, &options);
+  if (child >= 0) (void)charm::handle_close(static_cast<Handle>(child));
+  printf("wm: launch files %s\n", child >= 0 ? "ok" : "failed");
+  if (child >= 0 && g_launcher) launcher_toggle();
+}
+
+bool files_match() { return g_files_available && (g_query_len == 0 || strstr("files", g_query) != nullptr); }
+
 bool demo_matches() {
   return g_query_len == 0 || strstr("colors", g_query) != nullptr || strstr("demo", g_query) != nullptr;
 }
@@ -195,49 +333,97 @@ bool demo_matches() {
 void desktop(Rect d) {
   g_s.fill({0, 0, static_cast<int32_t>(g_s.width), kPanel}, 0x0e0e10, d);
   g_s.fill({0, kPanel - 2, static_cast<int32_t>(g_s.width), 2}, kAmber, d);
-  text("CHARM", 18, 26, kWhite, d);
-  text("Приложения", 112, 26, 0xb7b1a6, d);
-  text("Окна", 256, 26, 0xb7b1a6, d);
-  text("Alt + Space", static_cast<int32_t>(g_s.width) - 132, 26, 0xd8d2c7, d, true);
-  int32_t cx = static_cast<int32_t>(g_s.width) / 2, cy = static_cast<int32_t>(g_s.height) / 2 - 40;
-  Rect mark = intersect({cx - 88, cy - 88, 176, 176}, d);
-  for (int32_t y = mark.y; y < mark.y + mark.h; ++y) for (int32_t x = mark.x; x < mark.x + mark.w; ++x) {
-    int32_t dx = x - cx, dy = y - cy, r2 = dx * dx + dy * dy;
-    bool ring = r2 >= 70 * 70 && r2 <= 86 * 86 && !(dx > 54 && dy > -40 && dy < 40);
-    bool hand = dx >= -3 && dx <= 70 && (dy * 66 + dx * 38 >= -400) && (dy * 66 + dx * 38 <= 400);
-    if (ring || hand) g_s.fill({x, y, 1, 1}, hand ? 0xe0352b : kAmber, d);
+  logo(16, 8, 22, 30, d);
+  text("CHARM", 46, 25, 0xf3efe7, d, false, 13, 1);
+  text("Приложения", 126, 25, 0xb7b1a6, d, false, 13);
+  text("Окна", 258, 25, 0xb7b1a6, d, false, 13);
+  rounded({static_cast<int32_t>(g_s.width) - 262, 9, 100, 23}, 6, g_control ? 0x332e25 : kRaised, d);
+  text("Система", static_cast<int32_t>(g_s.width) - 249, 25, 0xd8d2c7, d, false, 12);
+  rounded({static_cast<int32_t>(g_s.width) - 150, 9, 132, 23}, 6, kRaised, d);
+  text("Alt + Space", static_cast<int32_t>(g_s.width) - 139, 25, 0xd8d2c7, d, true, 12);
+  int32_t y = static_cast<int32_t>(g_s.height) - 192;
+  rounded({32, y, 392, 160}, 16, 0x2a2a2e, d);
+  rounded({33, y + 1, 390, 158}, 15, 0x121214, d);
+  text("ЗАКРЕПЛЁННОЕ", 48, y + 25, 0x8e887d, d, false, 11, 1);
+  const char* labels[] = {g_files_available ? "Файлы" : "Colors", "Приложения", "Система"};
+  for (int i = 0; i < 3; ++i) {
+    int32_t x = 47 + i * 122;
+    rounded({x, y + 40, 114, 104}, 12, 0x332e25, d);
+    rounded({x + 1, y + 41, 112, 102}, 11, kRaised, d);
+    tile_icon(x + 14, y + 55, i == 0 ? 0 : 1, d);
+    text(labels[i], x + 13, y + 123, 0xf3efe7, intersect({x + 4, y, 106, 160}, d), false, 13);
   }
-  text("CHARM OS", cx - 44, cy + 128, kWhite, d);
+}
+
+void control_draw(Rect d) {
+  int32_t x = static_cast<int32_t>(g_s.width) - 432, y = 56;
+  int32_t h = static_cast<int32_t>(g_s.height) - 80;
+  if (h > 680) h = 680;
+  rounded({x, y, 400, h}, 18, 0x2a2a2e, d);
+  rounded({x + 1, y + 1, 398, h - 2}, 17, 0x141416, d);
+  text("Центр управления", x + 24, y + 40, 0xf3efe7, d, false, 20);
+  text("Оформление рабочего стола", x + 24, y + 65, 0x8e887d, d, false, 12);
+  rounded({x + 20, y + 88, 360, 76}, 12, 0x1b1a18, d);
+  char display[64]; snprintf(display, sizeof display, "%u x %u", g_s.width, g_s.height);
+  text("Экран", x + 36, y + 116, 0x8e887d, d, false, 12);
+  text(display, x + 36, y + 144, 0xf3efe7, d, true, 17);
+  char windows[64]; snprintf(windows, sizeof windows, "Открыто окон: %d", g_zn);
+  text(windows, x + 222, y + 144, 0xb7b1a6, d, false, 12);
+  for (int row = 0; row < 2; ++row) {
+    int32_t ty = y + 192 + row * 72;
+    bool enabled = row == 0 ? g_shadows : g_warm;
+    text(row == 0 ? "Тени окон" : "Тёплый фон", x + 24, ty + 22, 0xf3efe7, d, false, 15);
+    text(row == 0 ? "Мягкая тень под окнами" : "Свечение за логотипом", x + 24, ty + 44, 0x8e887d, d, false, 12);
+    rounded({x + 328, ty + 5, 44, 24}, 12, enabled ? kAmber : 0x3a3a3f, d);
+    rounded({x + 331 + (enabled ? 20 : 0), ty + 8, 18, 18}, 9, enabled ? kInk : 0xd8d2c7, d);
+  }
+  text("Space Grotesk / JetBrains Mono", x + 24, y + 390, 0x8e887d, d, false, 12);
+  text("Alt + Space   Приложения", x + 24, y + 432, 0xd8d2c7, d, true, 12);
+  text("Alt + Tab     Переключить окно", x + 24, y + 458, 0xd8d2c7, d, true, 12);
+  text("Alt + F4      Закрыть окно", x + 24, y + 484, 0xd8d2c7, d, true, 12);
+  text("Esc           Закрыть панель", x + 24, y + 510, 0xd8d2c7, d, true, 12);
 }
 
 void launcher_draw(Rect d) {
-  int32_t x = static_cast<int32_t>(g_s.width) / 2 - 280, y = 96;
-  Rect box{x, y, 560, 360};
-  g_s.fill(box, 0x332e25, d);
-  g_s.fill({x + 1, y + 1, 558, 358}, 0x121214, d);
-  text("Приложения", x + 24, y + 34, kWhite, d);
-  g_s.fill({x + 20, y + 56, 520, 48}, kAmber, d);
-  g_s.fill({x + 21, y + 57, 518, 46}, kInk, d);
-  text(g_query_len == 0 ? "Поиск приложений" : g_query, x + 34, y + 86, g_query_len == 0 ? 0x8e887d : kWhite, d);
-  text("ESC", x + 493, y + 86, 0x8e887d, d, true);
+  int32_t x = g_s.width >= 1000 ? 120 : 32, y = 96;
+  int32_t width = static_cast<int32_t>(g_s.width) - x * 2;
+  g_s.fill({0, kPanel, static_cast<int32_t>(g_s.width), static_cast<int32_t>(g_s.height) - kPanel}, kInk, d);
+  rounded({x, y, width, 60}, 14, 0x332e25, d);
+  rounded({x + 1, y + 1, width - 2, 58}, 13, 0x121214, d);
+  text(g_query_len == 0 ? "Поиск приложений" : g_query, x + 24, y + 38, g_query_len == 0 ? 0x8e887d : kWhite, d, false, 17);
+  text("ESC", x + width - 54, y + 37, 0x8e887d, d, true, 12);
+  rounded({x, y + 86, 68, 32}, 16, kAmber, d);
+  text("Все", x + 18, y + 107, kInk, d, false, 13);
+  text("Приложения и открытые окна", x + 88, y + 107, 0x8e887d, d, false, 13);
+  if (files_match()) {
+    int32_t tx = x + 212;
+    rounded({tx, y + 144, 192, 156}, 16, 0x332e25, d);
+    rounded({tx + 1, y + 145, 190, 154}, 15, kRaised, d);
+    tile_icon(tx + 20, y + 166, 1, d);
+    text("Файлы", tx + 20, y + 248, 0xf3efe7, d, false, 15);
+    text("Просмотр файлов", tx + 20, y + 274, 0x8e887d, d, false, 12);
+  }
   if (demo_matches()) {
-    g_s.fill({x + 20, y + 124, 520, 76}, kRaised, d);
-    g_s.fill({x + 20, y + 124, 3, 76}, kAmber, d);
-    text("Colors", x + 42, y + 155, kWhite, d);
-    text("Демонстрация окон", x + 42, y + 180, 0x8e887d, d);
-    text("ENTER", x + 467, y + 166, kAmber, d, true);
-  } else text("Ничего не найдено", x + 34, y + 155, 0x8e887d, d);
-  text("Открытые окна", x + 24, y + 238, 0xb7b1a6, d);
-  int32_t at = 0;
-  for (int i = 0; i < g_zn && at < 3; ++i) {
+    rounded({x, y + 144, 192, 156}, 16, 0x332e25, d);
+    rounded({x + 1, y + 145, 190, 154}, 15, kRaised, d);
+    tile_icon(x + 20, y + 166, 0, d);
+    text("Colors", x + 20, y + 248, 0xf3efe7, d, false, 15);
+    text("Демонстрация окон", x + 20, y + 274, 0x8e887d, d, false, 12);
+    text("ENTER", x + 122, y + 190, kAmber, d, true, 11);
+  } else if (!files_match()) text("Ничего не найдено", x + 20, y + 184, 0x8e887d, d);
+  text("ОТКРЫТЫЕ ОКНА", x, y + 352, 0x8e887d, d, false, 11, 1);
+  for (int i = 0; i < g_zn && i < 8; ++i) {
     Window& w = g_win[g_z[i]];
-    text(w.title, x + 34, y + 270 + at * 24, kWhite, d); ++at;
+    int32_t tx = x + (i % 4) * 218, ty = y + 372 + (i / 4) * 62;
+    rounded({tx, ty, 200, 48}, 10, 0x2a2a2e, d);
+    rounded({tx + 1, ty + 1, 198, 46}, 9, 0x141416, d);
+    text(w.title, tx + 16, ty + 29, 0xf3efe7, intersect({tx + 8, ty, 184, 48}, d), false, 14);
   }
 }
 
 Rect content(const Window& w) { return {w.frame.x, w.frame.y + kTitle, w.w, w.h}; }
 
-void damage(Rect r) { g_damage = unite(g_damage, r); }
+void damage(Rect r) { if (!r.empty()) g_damage = unite(g_damage, {r.x - 16, r.y - 16, r.w + 32, r.h + 40}); }
 
 void send_event(int client, uint32_t type, uint32_t window, uint32_t value) {
   if (client < 0 || !g_cl[client].used) return;
@@ -358,6 +544,14 @@ void create_window(int ci, const wm::Create& m, const Handle* hs, uint32_t nh) {
   // Каскад по слоту: каждое следующее окно правее и ниже.
   int32_t n = static_cast<int32_t>(wi);
   w.frame = {80 + n * 300, 80 + n * 150, w.w, w.h + kTitle};
+  if (w.w > static_cast<int32_t>(g_s.width) / 2) {
+    w.frame.x = (static_cast<int32_t>(g_s.width) - w.w) / 2;
+    w.frame.y = kPanel + 56;
+  } else {
+    if (w.frame.x + w.frame.w > static_cast<int32_t>(g_s.width)) w.frame.x = static_cast<int32_t>(g_s.width) - w.frame.w;
+    if (w.frame.y + w.frame.h > static_cast<int32_t>(g_s.height)) w.frame.y = static_cast<int32_t>(g_s.height) - w.frame.h;
+    if (w.frame.y < kPanel) w.frame.y = kPanel;
+  }
   w.buf[0] = reinterpret_cast<const uint32_t*>(map0);
   w.buf[1] = reinterpret_cast<const uint32_t*>(map1);
   w.shown = w.pending = -1;
@@ -459,8 +653,13 @@ void door_message(Handle door) {
 // Ввод из ядра: курсор, перетаскивание, фокус; остальное — окну.
 void input_event(const sc::InputEvent& e) {
   if (e.type == sc::kInputKey) {
+    if (g_control && e.value != 0 && e.code == 0x29) { control_toggle(); return; }
     if (e.code == 0xe2 || e.code == 0xe6) { g_alt = e.value != 0; return; }
     if (g_alt && e.value == 1 && e.code == 0x2c) { launcher_toggle(); return; }
+    if (g_control) {
+      if (g_alt && e.value == 1 && e.code == 0x3d) control_toggle();
+      return;
+    }
     if (g_alt && e.value == 1 && e.code == 0x2b && g_zn > 0) {
       int wi = g_z[0]; raise(wi); set_focus(wi); return;
     }
@@ -471,12 +670,14 @@ void input_event(const sc::InputEvent& e) {
       if (e.value == 0) return;
       if (e.code == 0x29) { launcher_toggle(); return; }
       if (e.code == 0x28 && demo_matches()) { launch_demo(); return; }
+      if (e.code == 0x28 && files_match()) { launch_files(); return; }
       if (e.code == 0x2a && g_query_len != 0) g_query[--g_query_len] = 0;
       else if (e.code >= 4 && e.code <= 29 && g_query_len + 1 < sizeof g_query) {
         g_query[g_query_len++] = static_cast<char>('a' + e.code - 4); g_query[g_query_len] = 0;
       }
       damage(g_s.all()); return;
     }
+    if (g_control) return;
   }
   if (e.type == sc::kInputMotion) {
     Rect old = g_cursor;
@@ -496,7 +697,7 @@ void input_event(const sc::InputEvent& e) {
       if (w.frame.y < kPanel) w.frame.y = kPanel;
       damage(w.frame);
     }
-    if (g_drag < 0 && !g_launcher) {
+    if (g_drag < 0 && !g_launcher && !g_control) {
       int wi = window_at(g_cursor.x, g_cursor.y);
       if (wi >= 0 && content(g_win[wi]).contains(g_cursor.x, g_cursor.y)) {
         auto fe = e; Rect c = content(g_win[wi]);
@@ -506,14 +707,42 @@ void input_event(const sc::InputEvent& e) {
     return;
   }
   if (e.type == sc::kInputButton && e.value == 1 && e.code == 1 && g_cursor.y < kPanel) {
-    if (g_cursor.x >= 100 && g_cursor.x < 250) launcher_toggle();
+    if (g_cursor.x >= static_cast<int32_t>(g_s.width) - 262 && g_cursor.x < static_cast<int32_t>(g_s.width) - 162) control_toggle();
+    else if (g_cursor.x >= 100 && g_cursor.x < 250) launcher_toggle();
+    else if (g_cursor.x >= 250 && g_cursor.x < 320 && g_zn > 0) { int wi = g_z[0]; raise(wi); set_focus(wi); }
+    return;
+  }
+  if (g_control) {
+    if (e.type == sc::kInputButton && e.code == 1 && e.value == 1) {
+      int32_t x = static_cast<int32_t>(g_s.width) - 432;
+      if (Rect{x + 328, 248, 44, 24}.contains(g_cursor.x, g_cursor.y)) {
+        g_shadows = !g_shadows; damage(g_s.all()); printf("wm: shadows %s\n", g_shadows ? "on" : "off");
+      } else if (Rect{x + 328, 320, 44, 24}.contains(g_cursor.x, g_cursor.y)) {
+        g_warm = !g_warm; wallpaper_build(); damage(g_s.all()); printf("wm: warm %s\n", g_warm ? "on" : "off");
+      } else if (!Rect{x, 56, 400, static_cast<int32_t>(g_s.height) - 80}.contains(g_cursor.x, g_cursor.y)) control_toggle();
+    }
     return;
   }
   if (g_launcher) {
     if (e.type == sc::kInputButton && e.code == 1 && e.value == 1) {
-      int32_t x = static_cast<int32_t>(g_s.width) / 2 - 280;
-      if (Rect{x + 20, 220, 520, 76}.contains(g_cursor.x, g_cursor.y) && demo_matches()) launch_demo();
+      int32_t x = g_s.width >= 1000 ? 120 : 32;
+      if (Rect{x, 240, 192, 156}.contains(g_cursor.x, g_cursor.y) && demo_matches()) launch_demo();
+      else if (Rect{x + 212, 240, 192, 156}.contains(g_cursor.x, g_cursor.y) && files_match()) launch_files();
+      else for (int i = 0; i < g_zn && i < 8; ++i) {
+        if (Rect{x + (i % 4) * 218, 468 + (i / 4) * 62, 200, 48}.contains(g_cursor.x, g_cursor.y)) {
+          int wi = g_z[i]; raise(wi); set_focus(wi); launcher_toggle(); break;
+        }
+      }
     }
+    return;
+  }
+  if (e.type == sc::kInputButton && e.value == 1 && e.code == 1 &&
+      Rect{32, static_cast<int32_t>(g_s.height) - 192, 392, 160}.contains(g_cursor.x, g_cursor.y) &&
+      window_at(g_cursor.x, g_cursor.y) < 0) {
+    int32_t y = static_cast<int32_t>(g_s.height) - 152;
+    if (Rect{47, y, 114, 104}.contains(g_cursor.x, g_cursor.y)) { if (g_files_available) launch_files(); else launch_demo(); }
+    else if (Rect{169, y, 114, 104}.contains(g_cursor.x, g_cursor.y)) launcher_toggle();
+    else if (Rect{291, y, 114, 104}.contains(g_cursor.x, g_cursor.y)) control_toggle();
     return;
   }
   if (e.type == sc::kInputButton) {
@@ -523,7 +752,7 @@ void input_event(const sc::InputEvent& e) {
         raise(wi);
         set_focus(wi);
         if (g_cursor.y < g_win[wi].frame.y + kTitle) {
-          if (e.code == 1 && g_cursor.x >= g_win[wi].frame.x + g_win[wi].frame.w - 24) {
+          if (e.code == 1 && Rect{g_win[wi].frame.x + 16, g_win[wi].frame.y + 16, 20, 20}.contains(g_cursor.x, g_cursor.y)) {
             send_event(g_win[wi].client, wm::kCloseRequest, g_win[wi].id, 0); return;
           }
           if (e.code == 1) g_drag = wi;  // за заголовок — тащим (событие окну не идёт)
@@ -554,15 +783,25 @@ void compose() {
   Rect d = intersect(g_damage, g_s.all());
   g_damage = {};
   if (d.empty()) return;
-  g_s.fill(d, kInk, d);
+  if (g_wallpaper != nullptr) {
+    for (int32_t y = d.y; y < d.y + d.h; ++y)
+      memcpy(g_s.back + uint64_t{static_cast<uint32_t>(y)} * g_s.width + d.x,
+             g_wallpaper + uint64_t{static_cast<uint32_t>(y)} * g_s.width + d.x, static_cast<size_t>(d.w) * 4);
+  } else g_s.fill(d, kInk, d);
   desktop(d);
   for (int i = 0; i < g_zn; ++i) {
     Window& w = g_win[g_z[i]];
     Rect bar{w.frame.x, w.frame.y, w.frame.w, kTitle};
-    g_s.fill(bar, g_z[i] == g_focus ? kAmber : kRaised, d);
-    text(w.title, bar.x + 9, bar.y + 18, g_z[i] == g_focus ? kInk : kWhite,
-         intersect({bar.x, bar.y, bar.w - 24, bar.h}, d));
-    text("x", bar.x + bar.w - 16, bar.y + 18, g_z[i] == g_focus ? kInk : kWhite, intersect(bar, d));
+    if (g_shadows) {
+      shadow({bar.x - 12, bar.y - 4, w.frame.w + 24, w.frame.h + 24}, w.frame, 28, 24, d);
+      shadow({bar.x - 6, bar.y, w.frame.w + 12, w.frame.h + 12}, w.frame, 22, 40, d);
+    }
+    rounded({bar.x - 1, bar.y - 1, w.frame.w + 2, w.frame.h + 2}, 18, g_z[i] == g_focus ? 0x5b5140 : 0x2a2a2e, d);
+    rounded(w.frame, 17, 0x17171a, d);
+    g_s.fill({bar.x, bar.y + kTitle - 1, bar.w, 1}, 0x2a2a2e, d);
+    rounded({bar.x + 16, bar.y + 20, 12, 12}, 3, 0xe0352b, d);
+    text(w.title, bar.x + 44, bar.y + 31, g_z[i] == g_focus ? 0xf3efe7 : 0x8e887d,
+         intersect({bar.x + 40, bar.y, bar.w - 52, bar.h}, d), false, 14);
     Rect c = intersect(intersect(content(w), d), g_s.all());
     if (w.pending >= 0) {
       w.shown = w.pending;
@@ -579,11 +818,24 @@ void compose() {
     for (int32_t y = c.y; y < c.y + c.h; ++y) {
       const uint32_t* s = src + static_cast<uint64_t>(y - cc.y) * static_cast<uint64_t>(w.w) + (c.x - cc.x);
       uint32_t* t = g_s.back + static_cast<uint64_t>(y) * g_s.width + c.x;
-      memcpy(t, s, static_cast<size_t>(c.w) * 4);
+      if (y < w.frame.y + w.frame.h - 17) memcpy(t, s, static_cast<size_t>(c.w) * 4);
+      else for (int32_t x = c.x; x < c.x + c.w; ++x) {
+        if (x >= w.frame.x + 17 && x < w.frame.x + w.frame.w - 17) { t[x - c.x] = s[x - c.x]; continue; }
+        int32_t cx = x < w.frame.x + 17 ? w.frame.x + 17 :
+                     (x >= w.frame.x + w.frame.w - 17 ? w.frame.x + w.frame.w - 17 : x);
+        int32_t cy = w.frame.y + w.frame.h - 17;
+        unsigned samples = 0;
+        for (int sy = 1; sy < 4; sy += 2) for (int sx = 1; sx < 4; sx += 2) {
+          int32_t dx = (x - cx) * 4 + sx, dy = (y - cy) * 4 + sy;
+          samples += dx * dx + dy * dy <= 17 * 17 * 16 ? 1u : 0u;
+        }
+        t[x - c.x] = blend(s[x - c.x], t[x - c.x], samples * 255 / 4);
+      }
     }
   }
   if (g_launcher) launcher_draw(d);
-  g_s.fill(g_cursor, kWhite, d);
+  if (g_control) control_draw(d);
+  cursor_draw(d);
   g_s.present(d);
 }
 
@@ -616,6 +868,9 @@ extern "C" int main(int, char**) {
   bool fonts_ok = g_ui_font.open({wm_ui_font, static_cast<size_t>(wm_ui_font_end - wm_ui_font)}) &&
                   g_mono_font.open({wm_mono_font, static_cast<size_t>(wm_mono_font_end - wm_mono_font)});
   if (!fonts_ok) { printf("wm: invalid embedded font\n"); return 1; }
+  struct stat files_stat{};
+  g_files_available = stat("/bin/files", &files_stat) == 0 && S_ISREG(files_stat.st_mode);
+  wallpaper_build();
   printf("wm: TrueType fonts ready (Space Grotesk, JetBrains Mono)\n");
   printf("wm: display %ux%u, pitch %u, %s\n", info.width, info.height, info.pitch, g_s.bgrx ? "BGRX" : "RGBX");
   g_cursor = {static_cast<int32_t>(info.width / 2), static_cast<int32_t>(info.height / 2), kCursor, kCursor};

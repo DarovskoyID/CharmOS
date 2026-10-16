@@ -1,0 +1,11 @@
+# Real compositor settings: overlay, shadows, wallpaper and Escape dismissal.
+[wm] wm: control open
+[wm] wm: shadows off
+[wm] wm: warm off
+[wm] wm: control closed
+[wm] wm: control open
+[wm] wm: control closed
+init: poweroff: stopping services
+acpi: entering S5
+screen: pixel 1230,600 = 141416
+screen: pixel 800,500 = 0b0b0c

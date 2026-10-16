@@ -7,9 +7,9 @@
 [wdemo] wdemo amber: key 0x4
 [wdemo] wdemo amber: input->pixel
 init: poweroff: stopping services
-# До перетаскивания: в окне amber (содержимое 80,104) — его цвет, в ember (380,254) — свой.
+# До перетаскивания: amber (содержимое 80,132) — его цвет, ember (380,282) — свой.
 screen: pixel 90,150 = f5c518
 screen: pixel 400,330 = ff8a00
-# После: amber переехал на +200,+300 (содержимое 280,404), на старом месте — фон.
+# После: amber переехал на +200,+300 (содержимое 280,432), на старом месте — фон.
 screen: pixel 90,150 = 0b0b0c
 screen: pixel 290,450 = f5c518

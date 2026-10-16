@@ -1,0 +1,6 @@
+# Interactive desktop; keep animated protocol probes in the windows test profile.
+-device intel-iommu
+-drive if=none,id=d0,format=raw,file=build/disk-desktop.img
+-device virtio-blk-pci,drive=d0,disable-legacy=on,iommu_platform=on
+-nic none
+-monitor unix:/tmp/charmos-mon,server,nowait

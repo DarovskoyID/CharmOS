@@ -1,0 +1,15 @@
+# Native file browser uses the real filesystem, with legacy wm v2 buffer ownership.
+[wm] wm: launch files ok
+[wm] wm: window 3 "Файлы"
+[files] files: directory / (
+[files] files: directory /bin (
+[files] files: directory / (
+[files] files: directory /etc (
+[files] files: preview /etc/init.conf
+[files] files: preview /etc/init.conf
+[files] files: directory /bin (
+[files] files: directory /etc (
+[files] files: preview /etc/init.conf
+[wm] wm: window 3 destroyed
+init: poweroff: stopping services
+acpi: entering S5

@@ -6,4 +6,4 @@ ps2: keyboard and mouse (scan set 2)
 init: poweroff: stopping services
 # Курсор сдвинут из 640,400 на (40, 30): новое место белое, старое — снова фон.
 screen: pixel 682,432 = ffffff
-screen: pixel 642,402 = 0b0b0c
+screen: pixel 642,402 = 191613

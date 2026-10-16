@@ -1,0 +1,30 @@
+#wait wdemo ember: 60 frames
+#monitor mouse_move 420 -380
+#monitor mouse_button 1
+#monitor mouse_button 0
+#wait wm: control open
+#pixel 1230 600
+#monitor mouse_move 128 240
+#monitor mouse_button 1
+#monitor mouse_button 0
+#wait wm: shadows off
+#monitor mouse_move 0 72
+#monitor mouse_button 1
+#monitor mouse_button 0
+#wait wm: warm off
+#pixel 800 500
+#monitor screendump /mnt/a/CharmOS/build/control-ui.ppm
+#monitor sendkey esc
+#wait wm: control closed
+#monitor mouse_move -200 100
+#monitor mouse_move -200 100
+#monitor mouse_move -200 100
+#monitor mouse_move -200 100
+#monitor mouse_move -48 -12
+#sleep 2
+#monitor mouse_button 1
+#monitor mouse_button 0
+#sleep 1
+#monitor screendump /mnt/a/CharmOS/build/control-dock.ppm
+#monitor sendkey esc
+svc poweroff
