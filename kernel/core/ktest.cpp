@@ -864,6 +864,7 @@ bool tcp_round(uint32_t conn_no, uint32_t bytes) {
   if (!ok) {
     kprint("ktest: tcp round {} failed: sent={} got={}\n", conn_no, sent_total, got_total);
     net::tcp_dump(c);
+    net::dump();
   }
   (void)net::tcp_shutdown(c, false, true);
   net::tcp_release(c);

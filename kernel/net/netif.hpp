@@ -18,6 +18,8 @@ using abi::syscall::Status;
 void serve(uint32_t pci_index, ipc::Cap* kernel_end, const char* name);
 
 bool link_up();
+// Отладка: состояние колец с драйвером (net.md) — в журнал ядра.
+void dump();
 bool mac(uint8_t out[6]);
 uint16_t mtu();
 

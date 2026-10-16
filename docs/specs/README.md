@@ -54,3 +54,5 @@
 | `hid-usage-tables-1.12.pdf` | USB HID Usage Tables 1.12 | https://www.usb.org/sites/default/files/documents/hut1_12v2.pdf | M10 |
 | `usb-2.0.pdf` | Universal Serial Bus Specification 2.0 (из архива usb_20_20211008.zip) | https://www.usb.org/sites/default/files/usb_20_20211008.zip | M10 |
 | `usb-msc-bot-1.0.pdf` | USB Mass Storage Class — Bulk-Only Transport 1.0 | https://www.usb.org/sites/default/files/usbmassbulk_10.pdf | M10 |
+| \high-definition-audio-specification.pdf\ | Intel High Definition Audio Specification 1.0a (2010) | https://www.intel.com/content/www/us/en/standards/high-definition-audio-specification.html (вручную, автор) | M10 |
+| \ps2-mouse-sources.md\ | **Вторичный:** сводка автора по протоколу мыши PS/2 (пакет 3 байта, команды) с источниками | автор проекта | M10 |

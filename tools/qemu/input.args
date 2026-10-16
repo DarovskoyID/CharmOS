@@ -1,0 +1,6 @@
+# M10: экран — компоновщик wm на фреймбуфере GOP; монитор QEMU для снимков экрана.
+-device intel-iommu
+-drive if=none,id=d0,format=raw,file=build/disk-gui.img
+-device virtio-blk-pci,drive=d0,disable-legacy=on,iommu_platform=on
+-nic none
+-monitor unix:/tmp/charmos-mon,server,nowait

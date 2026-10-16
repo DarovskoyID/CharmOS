@@ -2,6 +2,7 @@
 # Снимок экрана QEMU через монитор (tools/qemu/<сценарий>.args:
 # -monitor unix:/tmp/charmos-mon,server,nowait) и цвет пикселей:
 #   qemu-screen.py pixel X Y [X Y ...]  ->  "screen: pixel X,Y = rrggbb"
+#   qemu-screen.py monitor <команда>     ->  (sendkey a, mouse_move 10 5, ...)
 # Вызывается из tools/test.sh по строке «#pixel X Y» в <сценарий>.keys.
 import os
 import socket
@@ -40,7 +41,35 @@ def screendump():
     return w, h, parts[3]
 
 
+def monitor(cmd):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect(MON)
+    s.settimeout(1)
+    try:
+        s.recv(4096)
+    except socket.timeout:
+        pass
+    s.sendall((cmd + "\n").encode())
+    out = b""
+    try:
+        while True:
+            d = s.recv(65536)
+            if not d:
+                break
+            out += d
+    except socket.timeout:
+        pass
+    s.close()
+    # Ответ — в вывод (test.sh пишет его в <лог>.screen): для отладки, в .expected не нужен.
+    for line in out.decode(errors="replace").splitlines():
+        if line.strip() and not line.startswith(cmd[:4]) and "(qemu)" not in line:
+            print("monitor: " + line.strip())
+
+
 def main():
+    if len(sys.argv) >= 3 and sys.argv[1] == "monitor":  # команда монитора QEMU как есть
+        monitor(" ".join(sys.argv[2:]))
+        return 0
     if len(sys.argv) < 4 or sys.argv[1] != "pixel" or len(sys.argv) % 2 != 0:
         print("usage: qemu-screen.py pixel X Y [X Y ...]", file=sys.stderr)
         return 2

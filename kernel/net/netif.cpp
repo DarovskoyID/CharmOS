@@ -96,6 +96,18 @@ void give_rx(uint32_t b) {
 
 bool link_up() { return g_if.up && load(&header()->link_up) != 0; }
 
+void dump() {
+  sync::MutexGuard guard(g_if.lock);
+  if (!g_if.up) return;
+  NetRingHeader* h = header();
+  uint32_t owned = 0;
+  for (uint32_t b = 0; b < g_if.buffer_count; ++b) owned += g_if.kernel_owns[b] ? 1 : 0;
+  kprint("net: rx_free {}..{} rx_done {}..{} tx {}..{} tx_done {}..{} kick drv {} kern {} link {} kernel owns {}/{}\n",
+         load(&h->rx_free_head), h->rx_free_tail, h->rx_done_head, load(&h->rx_done_tail), load(&h->tx_head),
+         h->tx_tail, h->tx_done_head, load(&h->tx_done_tail), load(&h->driver_wants_kick),
+         load(&h->kernel_wants_kick), load(&h->link_up), owned, g_if.buffer_count);
+}
+
 bool mac(uint8_t out[6]) {
   if (!g_if.up) return false;
   __builtin_memcpy(out, g_if.mac, 6);

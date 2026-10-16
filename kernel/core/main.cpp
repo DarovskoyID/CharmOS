@@ -13,6 +13,7 @@
 #include "../mm/vmm.hpp"
 #include "../acpi/acpi.hpp"
 #include "../tpm/tpm.hpp"
+#include "../input/ps2.hpp"
 #include "../console/console.hpp"
 #include "../drivers/devmgr.hpp"
 #include "../fs/vfs.hpp"
@@ -157,6 +158,12 @@ constinit size_t g_init_len = 0;
                                   &caps[n]) == kernel::ipc::Status::Ok) {
     roles[n++] = ap::kRoleDisplay;
   }
+  // input.md §1: ввод — только init (дальше — компоновщику).
+  if (kernel::ipc::create_input(abi::syscall::rights::kDuplicate | abi::syscall::rights::kTransfer |
+                                    abi::syscall::rights::kRead | abi::syscall::rights::kWrite,
+                                &caps[n]) == kernel::ipc::Status::Ok) {
+    roles[n++] = ap::kRoleInput;
+  }
   if (kernel::console::console_cap(&caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleConsole;
   if (kernel::net::net_cap(&caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleNet;
   if (kernel::ipc::create_job_cap(kernel::ipc::root_job(), &caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleJob;
@@ -255,6 +262,7 @@ extern "C" [[noreturn]] void kernel_main(uint64_t boot_info_phys, uint64_t stack
   kernel::acpi::init();
   (void)kernel::tpm::init();  // закрытая область (sysarea-crypt.md)
   kernel::console::init();
+  (void)kernel::input::ps2_init();  // клавиатура и мышь (input.md)
   kernel::console::set_control_handler(&kernel::proc::signal_foreground);
   kernel::proc::init_accounting();
   kernel::smp::late_init_bsp();

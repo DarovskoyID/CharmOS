@@ -172,6 +172,11 @@ Status get_power(uint32_t h, uint32_t need);
 Status create_display(const abi::boot::Framebuffer& fb, uint32_t rights, Cap** out);
 Status sys_display_info(uint32_t h, uint64_t user_out);
 Status sys_display_map(uint32_t h, uint64_t* out);
+
+// --- ввод (docs/abi/input.md) -------------------------------------------------------------
+Status create_input(uint32_t rights, Cap** out);
+Status sys_input_attach(uint32_t h, uint32_t vmo);
+void input_push(const abi::syscall::InputEvent& e);
 void set_console_input_probe(bool (*probe)());
 // Из прерывания консоли: пришёл ввод — пакеты подписчикам.
 void console_readable();

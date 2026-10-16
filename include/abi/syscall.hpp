@@ -100,6 +100,31 @@ struct DisplayInfo {
 };
 static_assert(sizeof(DisplayInfo) == 32);
 static_assert(__builtin_offsetof(DisplayInfo, size) == 16);
+// input.md §3.
+struct InputRingHeader {
+  char magic[4];  // "INPR"
+  uint32_t version;
+  uint32_t capacity;
+  uint32_t reserved;
+  uint32_t head;
+  uint32_t tail;
+  uint32_t dropped;
+  uint8_t pad[36];
+};
+static_assert(sizeof(InputRingHeader) == 64);
+static_assert(__builtin_offsetof(InputRingHeader, head) == 16 && __builtin_offsetof(InputRingHeader, dropped) == 24);
+struct InputEvent {
+  uint64_t time_ns;
+  uint16_t type;
+  uint16_t code;
+  int32_t value;
+  int32_t x;
+  int32_t y;
+};
+static_assert(sizeof(InputEvent) == 24);
+inline constexpr uint16_t kInputKey = 1, kInputMotion = 2, kInputButton = 3, kInputWheel = 4;
+inline constexpr uint64_t kInputRingMax = 64 * 1024;
+
 inline constexpr uint32_t kDisplayBgrx = 1;
 inline constexpr uint32_t kDisplayRgbx = 2;
 

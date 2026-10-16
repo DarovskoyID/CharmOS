@@ -30,7 +30,7 @@ using arch::x86_64::kPageSize;
 
 // --- объекты ------------------------------------------------------------------------
 
-enum class Type : uint8_t { Endpoint, Vmo, Port, Device, Interrupt, FsNode, Net, Socket, Console, Thread, Process, Job, Power, Display };
+enum class Type : uint8_t { Endpoint, Vmo, Port, Device, Interrupt, FsNode, Net, Socket, Console, Thread, Process, Job, Power, Display, Input };
 
 struct Object {
   Type type;
@@ -139,6 +139,15 @@ struct ConsoleObj {
 constexpr uint32_t kMaxConsoleBinds = 8;
 constinit bool (*console_has_input)() = nullptr;
 constinit ConsoleObj* g_console_binds[kMaxConsoleBinds] = {};
+
+// Ввод (docs/abi/input.md): объектов может быть несколько (дубликаты), кольцо и
+// подписка — общие на систему (одно кольцо: у компоновщика).
+struct InputObj {
+  Object base;
+};
+constinit Vmo* g_input_ring = nullptr;  // держит ссылку
+constinit Port* g_input_port = nullptr;  // одноразовая подписка (как у консоли)
+constinit uint64_t g_input_key = 0;
 
 // Запущенный процесс (docs/abi/process.md §3): держит ссылку на proc::Process.
 struct ProcessObj {
@@ -552,7 +561,7 @@ void release_object(Object* obj) {
     mm::kfree(obj);
     return;
   }
-  if (obj->type == Type::Power || obj->type == Type::Display) {
+  if (obj->type == Type::Power || obj->type == Type::Display || obj->type == Type::Input) {
     mm::kfree(obj);
     return;
   }
@@ -1229,6 +1238,24 @@ Status sys_object_bind(uint32_t port_h, uint32_t h, uint64_t key) {
     }
     to->bound = port;
     to->bound_key = key;
+    ++port->armed;
+    ++port->base.refs;
+    return Status::Ok;
+  }
+  if (oc->obj->type == Type::Input) {
+    if ((oc->rights & rights::kRead) == 0) return Status::AccessDenied;
+    if (g_input_port != nullptr) return Status::Busy;
+    auto* port = reinterpret_cast<Port*>(pc->obj);
+    if (port->count + port->armed >= abi::syscall::kPortMaxPackets) return Status::Busy;
+    if (g_input_ring != nullptr) {
+      auto* rh = mm::phys_to_virt<abi::syscall::InputRingHeader>(g_input_ring->frames[0]);
+      if (__atomic_load_n(&rh->tail, __ATOMIC_ACQUIRE) != __atomic_load_n(&rh->head, __ATOMIC_ACQUIRE)) {
+        port_push(port, key, abi::syscall::kPacketInputReadable);  // события уже есть
+        return Status::Ok;
+      }
+    }
+    g_input_port = port;
+    g_input_key = key;
     ++port->armed;
     ++port->base.refs;
     return Status::Ok;
@@ -2133,6 +2160,75 @@ Status sys_display_map(uint32_t h, uint64_t* out) {
   v->wc = true;
   sync::SpinGuard guard(g_lock);
   return install_new(&v->base, rights::kRead | rights::kWrite | rights::kMap | rights::kTransfer, out);
+}
+
+// --- ввод (docs/abi/input.md) -------------------------------------------------------------
+
+Status create_input(uint32_t r, Cap** out) {
+  auto* o = alloc_zeroed<InputObj>(sizeof(InputObj));
+  if (o == nullptr) return Status::NoMemory;
+  o->base.type = Type::Input;
+  sync::SpinGuard guard(g_lock);
+  Cap* c = new_cap(&o->base, r, nullptr);
+  if (c == nullptr) {
+    mm::kfree(o);
+    return Status::NoMemory;
+  }
+  *out = c;
+  return Status::Ok;
+}
+
+Status sys_input_attach(uint32_t h, uint32_t vmo_h) {
+  sync::SpinGuard guard(g_lock);
+  proc::Process* p = me();
+  Cap* c = lookup(p, h);
+  Cap* vc = lookup(p, vmo_h);
+  if (c == nullptr || vc == nullptr) return Status::BadHandle;
+  if (c->obj->type != Type::Input || vc->obj->type != Type::Vmo) return Status::WrongType;
+  if ((c->rights & rights::kWrite) == 0 || (vc->rights & rights::kWrite) == 0) return Status::AccessDenied;
+  auto* v = reinterpret_cast<Vmo*>(vc->obj);
+  if (v->mmio || v->size > abi::syscall::kInputRingMax || (v->size & (v->size - 1)) != 0) {
+    return Status::InvalidArgs;
+  }
+  auto* hdr = mm::phys_to_virt<abi::syscall::InputRingHeader>(v->frames[0]);
+  uint64_t room = (v->size - sizeof(abi::syscall::InputRingHeader)) / sizeof(abi::syscall::InputEvent);
+  if (__builtin_memcmp(hdr->magic, "INPR", 4) != 0 || hdr->version != 1 || hdr->capacity == 0 ||
+      (hdr->capacity & (hdr->capacity - 1)) != 0 || hdr->capacity > room) {
+    return Status::InvalidArgs;
+  }
+  ++v->base.refs;
+  if (g_input_ring != nullptr) release_object(&g_input_ring->base);
+  g_input_ring = v;
+  return Status::Ok;
+}
+
+// Из прерывания драйвера ввода: событие в кольцо, пакет подписчику.
+void input_push(const abi::syscall::InputEvent& e) {
+  sync::SpinGuard guard(g_lock);
+  Vmo* v = g_input_ring;
+  if (v == nullptr) return;
+  auto* hdr = mm::phys_to_virt<abi::syscall::InputRingHeader>(v->frames[0]);
+  uint32_t cap = hdr->capacity;  // проверено при attach; читатель может портить только head/tail
+  uint32_t head = __atomic_load_n(&hdr->head, __ATOMIC_ACQUIRE);
+  uint32_t tail = hdr->tail;
+  if (tail - head >= cap) {
+    ++hdr->dropped;
+  } else {
+    uint64_t off = sizeof(abi::syscall::InputRingHeader) + uint64_t{tail % cap} * sizeof(e);
+    // Запись может пересечь границу страниц VMO (страницы не подряд) — по байтам.
+    auto* src = reinterpret_cast<const uint8_t*>(&e);
+    for (uint64_t i = 0; i < sizeof(e); ++i) {
+      uint64_t at = off + i;
+      mm::phys_to_virt<uint8_t>(v->frames[at / kPageSize])[at % kPageSize] = src[i];
+    }
+    __atomic_store_n(&hdr->tail, tail + 1, __ATOMIC_RELEASE);
+  }
+  if (Port* port = g_input_port) {
+    g_input_port = nullptr;
+    --port->armed;
+    port_push(port, g_input_key, abi::syscall::kPacketInputReadable);
+    release_object(&port->base);
+  }
 }
 
 Status get_power(uint32_t h, uint32_t need) {

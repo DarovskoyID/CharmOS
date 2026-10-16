@@ -43,8 +43,12 @@ bool ignored_by_default(uint32_t signo) {
 
 // Следующий доставляемый сигнал текущему потоку (бит снимается).
 bool take(Process* p, sched::Thread* t, uint32_t* signo) {
-  if (!__atomic_load_n(&p->exiting, __ATOMIC_ACQUIRE)) {
-    __atomic_store_n(&t->interrupt_pending, false, __ATOMIC_SEQ_CST);
+  // Сначала снять, потом проверить exiting: begin_exit_locked ставит exiting до
+  // interrupt(), поэтому убийство, пришедшее между нашими шагами, не теряется
+  // (иначе поток засыпает в следующем вызове навсегда — зависал svc poweroff).
+  __atomic_store_n(&t->interrupt_pending, false, __ATOMIC_SEQ_CST);
+  if (__atomic_load_n(&p->exiting, __ATOMIC_SEQ_CST)) {
+    __atomic_store_n(&t->interrupt_pending, true, __ATOMIC_SEQ_CST);
   }
   for (;;) {
     uint64_t pending = __atomic_load_n(&p->sig_pending, __ATOMIC_ACQUIRE);

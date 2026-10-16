@@ -34,7 +34,8 @@ for exp in "$dir"/*.expected; do
   # <сценарий>.keys — ввод по шагам: строка — набрать и Enter, «^C» — Ctrl-C,
   # «#sleep N» — пауза, «#wait ТЕКСТ» — ждать ТЕКСТ в serial-выводе,
   # «#pixel X Y ...» — снимок экрана (tools/qemu-screen.py): строки
-  # «screen: …» идут в конец проверяемого вывода.
+  # «screen: …» идут в конец проверяемого вывода; «#monitor КОМАНДА» —
+  # команда монитора QEMU (sendkey, mouse_move — ввод PS/2).
   if [[ -f "$dir/$name.keys" ]]; then
     : >"$log"
     { while IFS= read -r line || [[ -n "$line" ]]; do
@@ -43,6 +44,7 @@ for exp in "$dir"/*.expected; do
           "#sleep "*) sleep "${line#\#sleep }" ;;
           "#wait "*) want=${line#\#wait }
                      for _ in $(seq 1 "$timeout_s"); do grep -qF -- "$want" "$log" && break; sleep 1; done ;;
+          "#monitor "*) python3 "$root/tools/qemu-screen.py" monitor ${line#\#monitor } >>"$log.screen" ;;
           "#pixel "*) python3 "$root/tools/qemu-screen.py" pixel ${line#\#pixel } >>"$log.screen" ;;
           "^C") printf '\003' ;;
           *) printf '%s\n' "$line"; sleep 0.3 ;;

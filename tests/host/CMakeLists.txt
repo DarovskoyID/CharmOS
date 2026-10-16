@@ -45,3 +45,5 @@ target_compile_definitions(test_aml PRIVATE CHARMOS_TEST_DATA="${CMAKE_CURRENT_S
 add_test(NAME check_mkdisk COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/check_mkdisk.sh $<TARGET_FILE:mkdisk>)
 charmos_host_test(test_sysarea test_sysarea.cpp)
 target_link_libraries(test_sysarea PRIVATE sysarea)
+charmos_host_test(test_ps2 test_ps2.cpp)
+target_link_libraries(test_ps2 PRIVATE input)

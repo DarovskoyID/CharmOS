@@ -358,6 +358,9 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
       set_result(f, kernel::ipc::sys_display_map(static_cast<uint32_t>(f.rdi), &v), v);
       break;
     }
+    case Number::InputAttach:
+      set_result(f, kernel::ipc::sys_input_attach(static_cast<uint32_t>(f.rdi), static_cast<uint32_t>(f.rsi)));
+      break;
     case Number::SystemPower:
       set_result(f, sys_system_power(static_cast<uint32_t>(f.rdi), f.rsi));
       break;

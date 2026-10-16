@@ -132,5 +132,63 @@ extern "C" int main(int, char**) {
          static_cast<unsigned long long>((s.copied - before) / 1024),
          static_cast<unsigned long long>(uint64_t{info.width} * info.height * 4 / 1024));
   printf("wm: frame ready, box at %d,%d\n", box.x, box.y);
-  for (;;) sleep(1);
+
+  // Ввод (docs/abi/input.md): своё кольцо, ядро пишет в него события PS/2.
+  Handle input = charm_input();
+  if (input == 0) {
+    printf("wm: no input handle\n");
+    for (;;) sleep(1);
+  }
+  auto ring_vmo = charm::vmo_create(4096);
+  if (!ring_vmo.ok()) return 1;
+  auto ring_map = charm::vmo_map(static_cast<Handle>(ring_vmo.value), charm::rights::kRead | charm::rights::kWrite);
+  if (!ring_map.ok()) return 1;
+  auto* ring = reinterpret_cast<abi::syscall::InputRingHeader*>(ring_map.value);
+  auto* events = reinterpret_cast<abi::syscall::InputEvent*>(ring_map.value + sizeof *ring);
+  memcpy(ring->magic, "INPR", 4);
+  ring->version = 1;
+  ring->capacity = 128;  // 64 + 128 × 24 ≤ 4096
+  if (charm::syscall2(Number::InputAttach, input, static_cast<Handle>(ring_vmo.value)).status != Status::Ok) {
+    printf("wm: input_attach failed\n");
+    return 1;
+  }
+  auto port = charm::port_create();
+  if (!port.ok()) return 1;
+  Handle port_h = static_cast<Handle>(port.value);
+  // Курсор — квадрат 8×8, движется по событиям мыши (повреждено старое и новое место).
+  Rect cursor{static_cast<int32_t>(info.width / 2), static_cast<int32_t>(info.height / 2), 8, 8};
+  s.fill(cursor, 0xffffff);
+  s.present(cursor);
+  printf("wm: input ready\n");
+  for (;;) {
+    (void)charm::object_bind(port_h, input, 1);
+    charm::PortPacket pk;
+    (void)charm::port_wait(port_h, &pk, charm::kForever);
+    uint32_t tail = __atomic_load_n(&ring->tail, __ATOMIC_ACQUIRE);
+    Rect damage{};
+    for (uint32_t head = ring->head; head != tail; ++head) {
+      const abi::syscall::InputEvent& e = events[head % ring->capacity];
+      if (e.type == abi::syscall::kInputKey) {
+        printf("wm: key %#x %s\n", e.code, e.value != 0 ? "down" : "up");
+      } else if (e.type == abi::syscall::kInputButton) {
+        printf("wm: button %u %s\n", e.code, e.value != 0 ? "down" : "up");
+      } else if (e.type == abi::syscall::kInputMotion) {
+        Rect old = cursor;
+        cursor.x += e.x;
+        cursor.y += e.y;
+        if (cursor.x < 0) cursor.x = 0;
+        if (cursor.y < 0) cursor.y = 0;
+        if (cursor.x > static_cast<int32_t>(info.width) - 8) cursor.x = static_cast<int32_t>(info.width) - 8;
+        if (cursor.y > static_cast<int32_t>(info.height) - 8) cursor.y = static_cast<int32_t>(info.height) - 8;
+        s.fill(old, kInk);
+        damage = unite(damage, unite(old, cursor));
+      }
+    }
+    __atomic_store_n(&ring->head, tail, __ATOMIC_RELEASE);
+    if (!damage.empty()) {
+      s.fill(cursor, 0xffffff);
+      s.present(damage);
+      printf("wm: cursor %d,%d\n", cursor.x, cursor.y);
+    }
+  }
 }

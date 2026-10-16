@@ -1,0 +1,11 @@
+# M10 (фаза 5): клавиатура и мышь PS/2 в ядре (8042, набор 2 → HID Usage),
+# события — в кольцо компоновщика (input.md); wm двигает курсор.
+ps2: keyboard and mouse (scan set 2)
+[wm] wm: input ready
+[wm] wm: key 0x4 down
+[wm] wm: key 0x4 up
+[wm] wm: key 0x28 down
+[wm] wm: cursor 680,430
+# Курсор 8×8 из центра 1280×800 (640,400) сдвинут мышью на (40, 30) —
+# на снимке экрана в этой точке белый курсор.
+screen: pixel 682,432 = ffffff

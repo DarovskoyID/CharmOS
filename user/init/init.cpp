@@ -251,6 +251,7 @@ void control() {
 void stop_services() {
   for (int i = 0; i < g_count; ++i) {
     if (g_svc[i].proc == 0) continue;
+    printf("init: stopping %s\n", g_svc[i].name);
     (void)charm_kill(g_svc[i].proc);
     int64_t code;
     (void)charm_wait(g_svc[i].proc, &code);
