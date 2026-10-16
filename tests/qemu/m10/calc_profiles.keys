@@ -1,0 +1,73 @@
+#wait wm: ready (input yes, door yes)
+#monitor sendkey alt-spc
+#monitor sendkey c
+#monitor sendkey a
+#monitor sendkey l
+#monitor sendkey c
+#monitor sendkey ret
+#wait calc: ready
+#monitor sendkey l
+#monitor sendkey n
+#monitor sendkey shift-9
+#monitor sendkey e
+#monitor sendkey shift-0
+#monitor sendkey ret
+#wait calc: result 1.000000
+#monitor screendump /mnt/a/CharmOS/build/calc-engineering.ppm
+#monitor sendkey f3
+#monitor sendkey ret
+#wait calc: integer 10
+#monitor screendump /mnt/a/CharmOS/build/calc-programmer.ppm
+#monitor sendkey f4
+#monitor sendkey ret
+#wait calc: molar 74.0920 ok
+#monitor screendump /mnt/a/CharmOS/build/calc-chemistry.ppm
+#monitor sendkey shift-h
+#monitor sendkey 2
+#monitor sendkey shift-o
+#monitor sendkey ret
+#wait calc: molar 18.0150 ok
+#monitor sendkey f5
+#monitor sendkey ret
+#wait calc: result 2.000000
+#monitor sendkey tab
+#monitor sendkey up
+#monitor sendkey ret
+#wait calc: result 3.125000
+#monitor screendump /mnt/a/CharmOS/build/calc-physics.ppm
+#monitor sendkey f6
+#monitor sendkey ret
+#wait calc: circuit ok R=300.0000 I=0.040000
+#monitor screendump /mnt/a/CharmOS/build/calc-series.ppm
+#monitor sendkey f7
+#monitor sendkey ret
+#wait calc: circuit ok R=66.6667 I=0.180000
+#monitor sendkey minus
+#monitor sendkey ret
+#wait calc: model input error
+#monitor sendkey esc
+#monitor sendkey 2
+#monitor sendkey 4
+#monitor sendkey ret
+#wait calc: circuit ok R=66.6667 I=0.360000
+#monitor screendump /mnt/a/CharmOS/build/calc-parallel.ppm
+#monitor sendkey f8
+#monitor sendkey ret
+#wait calc: spring ok x=0.1000 T=0.6283
+#monitor sendkey tab
+#monitor sendkey 0
+#monitor sendkey ret
+#wait calc: spring error
+#monitor screendump /mnt/a/CharmOS/build/calc-model-error.ppm
+#monitor sendkey 1
+#monitor sendkey 0
+#monitor sendkey 0
+#monitor sendkey ret
+#monitor sendkey tab
+#monitor sendkey 4
+#monitor sendkey ret
+#wait calc: spring ok x=0.1000 T=1.2566
+#monitor screendump /mnt/a/CharmOS/build/calc-spring.ppm
+#monitor sendkey alt-f4
+#wait wm: window 1 destroyed
+svc poweroff

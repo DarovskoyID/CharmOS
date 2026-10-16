@@ -1,0 +1,15 @@
+calc: result 1.000000
+calc: integer 10
+calc: molar 74.0920 ok
+calc: molar 18.0150 ok
+calc: result 2.000000
+calc: result 3.125000
+calc: circuit ok R=300.0000 I=0.040000
+calc: circuit ok R=66.6667 I=0.180000
+calc: model input error
+calc: circuit ok R=66.6667 I=0.360000
+calc: spring ok x=0.1000 T=0.6283
+calc: spring error
+calc: spring ok x=0.1000 T=1.2566
+wm: window 1 destroyed
+acpi: entering S5

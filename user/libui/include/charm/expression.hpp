@@ -22,17 +22,43 @@ class Expression {
     p_ = q; return true;
   }
   double root(double a) {
+    a=bounded(a); if(error_!=Error::None) return 0;
     if (a < 0) return fail(Error::Domain);
     if (a == 0) return 0;
-    double r = a > 1 ? a : 1;
-    for (unsigned i = 0; i < 200; ++i) {
+    double scale=1;
+    while(a>=4) { a*=.25; scale*=2; }
+    while(a<1) { a*=4; scale*=.5; }
+    double r=2;
+    for (unsigned i = 0; i < 24; ++i) {
       double next = (r + a / r) * 0.5;
       if (next == r) break;
       r = next;
     }
-    return r;
+    return r*scale;
+  }
+  double logarithm(double n) {
+    n=bounded(n); if(error_!=Error::None) return 0;
+    if(n<=0) return fail(Error::Domain);
+    int exponent=0;
+    while(n>=2) { n*=.5; ++exponent; }
+    while(n<1) { n*=2; --exponent; }
+    double z=(n-1)/(n+1), term=z, result=0;
+    for(int k=1;k<=61;k+=2) { result+=term/k; term*=z*z; }
+    return 2*result+exponent*.69314718055994530942;
+  }
+  double exponential(double n) {
+    n=bounded(n); if(error_!=Error::None) return 0;
+    if(n>230.2585092994045684) return fail(Error::Limit);
+    if(n< -745) return 0;
+    int exponent=static_cast<int>(n/.69314718055994530942);
+    double reduced=n-exponent*.69314718055994530942, term=1, value=1;
+    for(unsigned i=1;i<=30;++i) { term*=reduced/i; value+=term; }
+    while(exponent>0) { value*=2; --exponent; }
+    while(exponent<0) { value*=.5; ++exponent; }
+    return bounded(value);
   }
   double trig(double a, bool cosine) {
+    a=bounded(a); if(error_!=Error::None) return 0;
     if (a > 1e6 || a < -1e6) return fail(Error::Limit);
     constexpr double pi = 3.14159265358979323846;
     a -= static_cast<double>(static_cast<long long>(a / (2 * pi))) * (2 * pi);
@@ -49,6 +75,7 @@ class Expression {
     space();
     if (take('(')) { double n = sum(); if (!take(')')) return fail(Error::Syntax); return n; }
     if (word("pi")) return 3.14159265358979323846;
+    if (word("e")) return 2.71828182845904523536;
     if (word("x")) return variable_;
     if (word("a")) return parameter_;
     if (word("sqrt")) { if (!take('(')) return fail(Error::Syntax); double n = sum(); if (!take(')')) return fail(Error::Syntax); return root(n); }
@@ -56,6 +83,15 @@ class Expression {
     bool sine = word("sin");
     bool cosine = !sine && word("cos");
     if (sine || cosine) { if (!take('(')) return fail(Error::Syntax); double n = sum(); if (!take(')')) return fail(Error::Syntax); return trig(n, cosine); }
+    bool tangent=word("tan"), natural=!tangent && word("ln"), decimal=!tangent && !natural && word("log");
+    bool exp=!tangent && !natural && !decimal && word("exp");
+    if(tangent || natural || decimal || exp) {
+      if(!take('(')) return fail(Error::Syntax); double argument=sum(); if(!take(')')) return fail(Error::Syntax);
+      if(exp) return exponential(argument);
+      if(natural || decimal) { double value=logarithm(argument); return decimal?value/2.302585092994045684:value; }
+      double denominator=trig(argument,true); if(denominator<1e-12 && denominator> -1e-12) return fail(Error::Domain);
+      return bounded(trig(argument,false)/denominator);
+    }
     double n = 0; bool digit = false;
     while (*p_ >= '0' && *p_ <= '9') { digit = true; n = bounded(n * 10 + *p_++ - '0'); }
     if (take('.')) {
@@ -63,6 +99,13 @@ class Expression {
       while (*p_ >= '0' && *p_ <= '9') { digit = true; n += (*p_++ - '0') * scale; scale *= 0.1; }
     }
     if (!digit) return fail(Error::Syntax);
+    if(*p_=='e' || *p_=='E') {
+      ++p_; bool negative=false; if(*p_=='-' || *p_=='+') negative=*p_++=='-';
+      unsigned exponent=0, digits=0;
+      while(*p_>='0' && *p_<='9') { if(exponent>40) return fail(Error::Limit); exponent=exponent*10+static_cast<unsigned>(*p_++-'0'); ++digits; }
+      if(!digits) return fail(Error::Syntax); if(exponent>400) return fail(Error::Limit);
+      while(exponent--) n=bounded(negative?n*.1:n*10);
+    }
     return n;
   }
   double power() {
@@ -107,6 +150,7 @@ class Expression {
  public:
   explicit Expression(const char* text, double x, double a) : start_(text), p_(text), variable_(x), parameter_(a) {}
   Result run() {
+    variable_=bounded(variable_); parameter_=bounded(parameter_);
     // Bound the input before parsing, including malformed untrusted queries.
     unsigned length = 0;
     while (start_[length] && length < 512) ++length;

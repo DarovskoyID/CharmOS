@@ -4,8 +4,58 @@
 #include <charm/units.hpp>
 #include <charm/preferences.hpp>
 #include <charm/text_buffer.hpp>
+#include <charm/calculator_profiles.hpp>
 using charm::math::evaluate;
 using charm::math::Error;
+TEST(scientific_functions_exponents_and_extreme_roots) {
+  auto close=[](double a,double b,double eps) { return a>b-eps && a<b+eps; };
+  CHECK(close(evaluate("ln(exp(2))").value,2,1e-12));
+  CHECK(close(evaluate("log(1000)").value,3,1e-12));
+  CHECK(close(evaluate("tan(pi/4)").value,1,1e-12));
+  CHECK(close(evaluate("sqrt(1e-200)").value,1e-100,1e-112));
+  CHECK(close(evaluate("1.25e3+2E-1").value,1250.2,1e-9));
+  CHECK(evaluate("ln(0)").error==Error::Domain);
+  CHECK(evaluate("tan(pi/2)").error==Error::Domain);
+  CHECK(evaluate("exp(1000)").error==Error::Limit);
+  CHECK(evaluate("1e+").error==Error::Syntax);
+  CHECK(evaluate("sqrt(x)",__builtin_inf()).error==Error::Limit);
+  CHECK(evaluate("exp(x)",__builtin_nan("")).error==Error::Limit);
+}
+TEST(programmer_precedence_modulo_and_invalid_operations) {
+  using charm::calc::integer;
+  CHECK(integer("0xFF & 0b1010").value==10);
+  CHECK(integer("1 << 4 + 1").value==32);
+  CHECK(integer("1 | 2 ^ 3 & 4").value==3);
+  CHECK(integer("~0").value==UINT64_MAX);
+  CHECK(integer("18446744073709551615+1").value==0);
+  CHECK(integer("(12+3)*2%7").value==2);
+  CHECK(integer("-1>>63").value==1);
+  const char* bad[]={"","0x","0b2","2/0","1%0","1<<64","1>>-1","0x10000000000000000","18446744073709551616","1.5","(1+2","2&&3"};
+  for(auto* text:bad) CHECK(!integer(text).valid);
+  char text[65]; charm::calc::base_text(UINT64_MAX,2,text,sizeof text); CHECK(strlen(text)==64);
+  charm::calc::base_text(255,16,text,sizeof text); CHECK_STR(text,strlen(text),"FF");
+  char small[2]; charm::calc::base_text(255,16,small,sizeof small); CHECK(small[0]==0);
+}
+TEST(chemistry_group_counts_unknown_elements_and_limits) {
+  using charm::calc::molar_mass;
+  auto water=molar_mass("H2O"); CHECK(water.valid); CHECK(water.mass>18.0149 && water.mass<18.0151);
+  auto lime=molar_mass("Ca(OH)2"); CHECK(lime.valid); CHECK(lime.mass>74.091 && lime.mass<74.093);
+  auto alum=molar_mass("Al2(SO4)3"); CHECK(alum.valid); CHECK(alum.mass>342.12 && alum.mass<342.14);
+  const char* bad[]={"","()","H0","2H2O","Xx2","Ca(OH","H2O)","H10000","((((((((((H))))))))))"};
+  for(auto* text:bad) CHECK(!molar_mass(text).valid);
+}
+TEST(resistor_and_spring_reference_models_and_invalid_parameters) {
+  using namespace charm::calc;
+  auto series=resistors(12,100,200,false); CHECK(series.valid); CHECK(series.resistance==300); CHECK(series.current==.04); CHECK(series.power==.48);
+  auto parallel=resistors(12,100,200,true); CHECK(parallel.valid); CHECK(parallel.resistance>66.666 && parallel.resistance<66.667); CHECK(parallel.current>.17999 && parallel.current<.18001);
+  CHECK(parallel.branch1+parallel.branch2>.17999 && parallel.branch1+parallel.branch2<.18001);
+  CHECK(!resistors(12,0,100,true).valid); CHECK(!resistors(-1,100,100,false).valid);
+  auto model=spring(10,100,1); CHECK(model.valid); CHECK(model.displacement==.1); CHECK(model.period>.62831 && model.period<.62832); CHECK(model.energy>.49999 && model.energy<.50001);
+  CHECK(!spring(10,0,1).valid); CHECK(!spring(10,100,-1).valid);
+  auto tiny=spring(0,1,1e-100); CHECK(tiny.valid); CHECK(tiny.period>6.28318e-50 && tiny.period<6.28319e-50);
+  CHECK(!resistors(1,1e-300,1,true).valid);
+  CHECK(!spring(1,1e-300,1).valid);
+}
 TEST(expressions_precedence_domains_and_limits) {
   CHECK(evaluate("5*3-2").value == 13);
   CHECK(evaluate("-2^2").value == -4);
