@@ -1,0 +1,47 @@
+[
+  {
+    "file": "docs/specs/opentype/otff.html",
+    "source": "https://learn.microsoft.com/en-us/typography/opentype/spec/otff",
+    "sha256": "34fff0ce6a27d0a5494de159682a5872cf94e669e1bf6d2f29e41fdd5905efcf"
+  },
+  {
+    "file": "docs/specs/opentype/head.html",
+    "source": "https://learn.microsoft.com/en-us/typography/opentype/spec/head",
+    "sha256": "2c4c19a23621d139d921575e104c81aaea43b37dccb9c789f1cb0641cc65db1f"
+  },
+  {
+    "file": "docs/specs/opentype/hhea.html",
+    "source": "https://learn.microsoft.com/en-us/typography/opentype/spec/hhea",
+    "sha256": "325a73bcdc760604689c2c7d87a99ffed491d20ff6f49144d42a26739ed2f380"
+  },
+  {
+    "file": "docs/specs/opentype/hmtx.html",
+    "source": "https://learn.microsoft.com/en-us/typography/opentype/spec/hmtx",
+    "sha256": "7f05d879738e15b9ef11fe5cc8c1137939368e781966e15d1878537e9f05d484"
+  },
+  {
+    "file": "docs/specs/opentype/maxp.html",
+    "source": "https://learn.microsoft.com/en-us/typography/opentype/spec/maxp",
+    "sha256": "e09c2acaf843e855cd1e504bc5300801a930c38e63deef36cc096acb273053f0"
+  },
+  {
+    "file": "docs/specs/opentype/loca.html",
+    "source": "https://learn.microsoft.com/en-us/typography/opentype/spec/loca",
+    "sha256": "64f6f24ff84fc023b58e08dca9a55ea8dd075a2396265f836da9e29c43bb3752"
+  },
+  {
+    "file": "docs/specs/opentype/glyf.html",
+    "source": "https://learn.microsoft.com/en-us/typography/opentype/spec/glyf",
+    "sha256": "1742a12bef491b942c600fc10edf7003aecc45d434e77893076ba3198a2cf721"
+  },
+  {
+    "file": "docs/specs/opentype/cmap.html",
+    "source": "https://learn.microsoft.com/en-us/typography/opentype/spec/cmap",
+    "sha256": "ffd9c79177f2ed3df98ac0d76752abf3a8a00df6b87a2ad62efc4549cb6a4aec"
+  },
+  {
+    "sha256": "763f3331bbada433161be39af8c023803a16bc8bef0bda4f627676279f3bf508",
+    "source": "https://learn.microsoft.com/en-us/typography/opentype/spec/ttch01",
+    "file": "docs/specs/opentype/ttch01.html"
+  }
+]

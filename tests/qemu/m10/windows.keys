@@ -11,6 +11,7 @@
 #wait wm: window 1 moved
 #sleep 1
 #pixel 90 150 290 450
+#monitor screendump /mnt/a/CharmOS/build/windows-ui.ppm
 #monitor sendkey a
 #wait input->pixel
 #monitor sendkey b

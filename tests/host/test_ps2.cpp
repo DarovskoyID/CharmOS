@@ -1,11 +1,53 @@
 // Клавиатура PS/2: набор 2 → HID Usage (lib/input, источники — в ps2.cpp).
 #include <lib/input/ps2.hpp>
+#include <lib/input/ring.hpp>
+#include <atomic>
+#include <chrono>
+#include <thread>
 
 #include <vector>
 
 #include "test.hpp"
 
 using namespace lib::input;
+
+TEST(input_ring_notification_handshake) {
+  uint32_t head = 0, tail = 1;
+  // Reader took tail=1; writer publishes while the queue still appears nonempty.
+  CHECK(!publish_tail(&tail, &head, 2));
+  CHECK(!consume_head(&head, &tail, 1));  // must drain again rather than sleep
+  CHECK(consume_head(&head, &tail, 2));
+  CHECK(publish_tail(&tail, &head, 3));   // reader got to sleep first: must wake
+  CHECK(consume_head(&head, &tail, 3));
+  head = tail = 0xffffffff;
+  CHECK(publish_tail(&tail, &head, 0));
+  CHECK(consume_head(&head, &tail, 0));
+}
+
+TEST(input_ring_concurrent_notifications) {
+  constexpr uint32_t n = 100000, capacity = 32;
+  uint32_t head = 0, tail = 0, data[capacity]{};
+  std::atomic<bool> stop{false}, wakeup{false};
+  std::thread writer([&] {
+    for (uint32_t i = 0; i < n && !stop.load(); ++i) {
+      while (i - __atomic_load_n(&head, __ATOMIC_ACQUIRE) == capacity && !stop.load()) std::this_thread::yield();
+      if (stop.load()) break;
+      data[i % capacity] = i;
+      if (publish_tail(&tail, &head, i + 1)) wakeup.store(true);
+    }
+  });
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  uint32_t count = 0;
+  bool ordered = true, empty = true;
+  while (count < n && std::chrono::steady_clock::now() < deadline) {
+    if (empty && !wakeup.exchange(false)) { std::this_thread::yield(); continue; }
+    uint32_t end = __atomic_load_n(&tail, __ATOMIC_ACQUIRE);
+    while (count != end) { ordered &= data[count % capacity] == count; ++count; }
+    empty = consume_head(&head, &tail, count);
+  }
+  stop.store(true); writer.join();
+  CHECK(ordered && count == n);
+}
 
 namespace {
 

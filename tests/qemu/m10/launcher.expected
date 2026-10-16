@@ -1,0 +1,14 @@
+# UI: real TrueType, Alt+Space launcher, spawn via libwm, close via Alt+F4.
+[wm] wm: TrueType fonts ready (Space Grotesk, JetBrains Mono)
+[wm] wm: ready (input yes, door yes)
+[wm] wm: launcher open
+[wm] wm: launch demo ok
+[wm] wm: launcher closed
+[wm] wm: window 3 "Colors"
+[wm] wm: window 3 destroyed
+init: poweroff: stopping services
+acpi: entering S5
+screen: pixel 370,110 = 121214
+screen: pixel 400,230 = 1b1a18
+screen: pixel 10,38 = f5c518
+screen: pixel 370,110 = 0b0b0c

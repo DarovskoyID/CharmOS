@@ -33,7 +33,8 @@ struct Thread {
   mm::KernelStack stack;
   void (*entry)(void*);
   void* arg;
-  Thread* next;        // очередь готовых / ожидания / зомби
+  Thread* next;        // очередь готовых / зомби
+  Thread* wait_next;   // очередь ожидания: может ещё содержать уже разбуженный поток
   uint64_t wake_ns;    // для Sleeping
   Thread* sleep_next;
 

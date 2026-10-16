@@ -1,3 +1,4 @@
-* text=auto eol=lf
-*.pdf binary
-*.fd binary
+# Preserve the downloaded source snapshots and licenses byte-for-byte so their
+# recorded SHA-256 values remain valid on Windows and Linux checkouts.
+docs/specs/opentype/*.html -text
+assets/fonts/*/OFL.txt -text

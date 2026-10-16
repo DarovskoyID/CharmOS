@@ -23,6 +23,7 @@ add_library(c STATIC
 target_include_directories(c PUBLIC libc/include rt/include)
 target_link_libraries(c PUBLIC abi)
 target_compile_options(c PRIVATE -fno-builtin)
+add_subdirectory(libwm)
 
 function(charmos_c_program name)
   add_executable(${name} ${ARGN})
@@ -39,6 +40,14 @@ foreach(prog logd sh echo cat ls mkdir rm sleep httpd corrupt wm wdemo)
   charmos_c_program(${prog} bin/${prog}/${prog}.cpp)
 endforeach()
 # Служба пакетов (M8.5) и тестовые программы для пакетов.
+configure_file(bin/wm/fonts.S.in ${CMAKE_CURRENT_BINARY_DIR}/wm-fonts.S @ONLY)
+target_sources(wm PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/wm-fonts.S)
+set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/wm-fonts.S PROPERTIES OBJECT_DEPENDS
+  "${CMAKE_SOURCE_DIR}/assets/fonts/space-grotesk/SpaceGrotesk-Medium.ttf;${CMAKE_SOURCE_DIR}/assets/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf")
+target_link_libraries(wm PRIVATE font)
+target_link_libraries(wm PRIVATE input)
+target_link_libraries(wdemo PRIVATE input)
+target_link_libraries(wdemo PRIVATE wm_client)
 charmos_c_program(pkgd bin/pkgd/pkgd.cpp)
 target_link_libraries(pkgd PRIVATE package)
 foreach(app hello free)

@@ -1,10 +1,11 @@
 # M10 (фаза 4): компоновщик получает экран (display.md), рисует в задний буфер
 # и копирует на экран повреждённое. Снимок экрана — tools/qemu-screen.py.
 init: started wm
+[wm] wm: TrueType fonts ready (Space Grotesk, JetBrains Mono)
 [wm] wm: display
 [wm] wm: full frame
 [wm] wm: ready
 init: poweroff: stopping services
-# Фон — Ink, в центре 1280×800 — курсор (белый квадрат 8×8 с 640,400).
-screen: pixel 10,10 = 0b0b0c
+# Верхняя панель, в центре 1280×800 — курсор (белый квадрат 8×8 с 640,400).
+screen: pixel 10,10 = 0e0e10
 screen: pixel 642,402 = ffffff

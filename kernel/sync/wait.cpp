@@ -4,41 +4,6 @@
 
 namespace kernel::sync {
 
-void WaitList::push(sched::Thread* t) {
-  t->next = nullptr;
-  if (tail_ != nullptr) {
-    tail_->next = t;
-  } else {
-    head_ = t;
-  }
-  tail_ = t;
-}
-
-sched::Thread* WaitList::pop() {
-  sched::Thread* t = head_;
-  if (t == nullptr) return nullptr;
-  head_ = t->next;
-  if (head_ == nullptr) tail_ = nullptr;
-  t->next = nullptr;
-  return t;
-}
-
-bool WaitList::remove(sched::Thread* t) {
-  sched::Thread* prev = nullptr;
-  for (sched::Thread* cur = head_; cur != nullptr; prev = cur, cur = cur->next) {
-    if (cur != t) continue;
-    if (prev != nullptr) {
-      prev->next = cur->next;
-    } else {
-      head_ = cur->next;
-    }
-    if (tail_ == cur) tail_ = prev;
-    cur->next = nullptr;
-    return true;
-  }
-  return false;
-}
-
 namespace {
 
 // Общая часть ожидания: вызывающий держит lock (прерывания запрещены),

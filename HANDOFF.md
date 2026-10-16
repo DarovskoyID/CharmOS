@@ -38,16 +38,34 @@
 
 ## Следующее по M10 (решения автора уже есть)
 
-1. **Шрифты** (журнал 2026-10-16): свой разбор OpenType/TrueType и
-   растеризатор со сглаживанием; шрифты Space Grotesk и JetBrains Mono
-   (SIL OFL). Сначала скачать спеку OpenType (Microsoft/ISO 14496-22) в
-   `docs/specs`, файлы шрифтов + OFL — согласовать место (LAYOUT.md).
-2. UI по макету `plans/charm-os-design.zip` (верхняя панель, лаунчер
-   Alt+Пробел, окна) — цвета из UI-кита уже в wm.
-3. Клиентская библиотека (фаза 7 os-gui-design.md).
-4. USB: xHCI → HID → Mass Storage; Intel HDA. **Спека xHCI отсутствует**
-   (автор положил не тот файл: `USB PD3 CTS…` и `docs/specs/ECNs` — это тесты
-   USB Power Delivery, не нужны; удалять — только автору). HDA 1.0a есть.
+Часть 3 отправлена в origin/main (`c1b2ec4`). Часть 4 реализована, все
+4 сценария M10 зелёные, 23 хостовых теста тоже. Полная регрессия
+63 сценариев зелёная (`build/regress-font-ui.log`). Часть 4 готова к коммиту;
+следом идёт первый этап драйвера xHCI.
+Автор поручил продолжать дорожную карту без запросов на каждый этап
+(записано в CLAUDE.md). M10 целиком пока не закрыт.
+
+1. **Шрифты готовы в базовом виде:** свой `lib/font`, статические TrueType,
+   Unicode cmap 4/12, составные glyf и сглаживание 4×4. Все глифы трёх файлов
+   проверены; font прошёл GCC ASan/UBSan. Источники OpenType —
+   `docs/specs/opentype`; файлы Space Grotesk и JetBrains Mono с OFL и
+   закреплёнными URL/хешами — `assets/fonts` (LAYOUT.md). Без hinting VM,
+   shaping и переменных осей; кириллица — резервный JetBrains Mono.
+2. UI по макету: панель, лаунчер Alt+Space, Enter запускает Colors,
+   Escape закрывает лаунчер, Alt+Tab переключает окна, Alt+F4/рамка закрывают.
+   Лаунчер показывает доступную Colors и открытые окна, вымышленных приложений нет.
+3. Клиентская библиотека — `user/libwm`, `wdemo` переведён на неё.
+4. **Далее USB:** xHCI → HID → Mass Storage; Intel HDA. Спецификация Intel
+   xHCI 1.2 скачана в `docs/specs/xhci-1.2.pdf` (источник — xhci-source.md).
+   `USB PD3 CTS…` и `docs/specs/ECNs` — тесты USB Power Delivery;
+   удалять — только автору. HDA 1.0a есть.
+
+Исправлены две обнаруженные гонки: потерянный INPUT (SC handshake в
+`lib/input/ring.hpp`) и повреждение ready-очереди при прерывании ожидания
+(новый `Thread::wait_next`; WaitList больше не трогает ready/zombie next).
+GDB в зависшем QEMU показал ready=2 при пустой очереди. После исправления
+выключение и оконные тесты проходят; добавлены прямой тест WaitList и
+конкурентный тест 100000 событий. Старые неудачные прогоны — build/*.fail.
 
 ## Открытые проблемы
 

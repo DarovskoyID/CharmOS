@@ -16,6 +16,7 @@ add_executable(kernel
   smp/smp.cpp
   sync/spinlock.cpp
   sync/wait.cpp
+  sync/wait_list.cpp
   pci/pci.cpp
   pci/iommu.cpp
   block/block.cpp

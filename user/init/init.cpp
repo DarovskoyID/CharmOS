@@ -143,7 +143,7 @@ bool start(int i) {
       }
     }
   }
-  if (!is_wm && g_wm_door != 0) {
+  if (g_wm_door != 0) {
     auto d = charm::handle_duplicate(g_wm_door, charm::rights::kDuplicate | charm::rights::kTransfer |
                                                     charm::rights::kWrite);
     if (d.ok()) {

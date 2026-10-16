@@ -13,6 +13,7 @@ CharmOS/
 │   ├── toolchain-user.cmake     clang, x86_64-charmos                  (M3)
 │   └── flags.cmake              общие флаги, -Werror, предупреждения
 ├── plans/                 планы и журнал решений (не код)
+├── assets/fonts/          файлы Space Grotesk и JetBrains Mono, OFL рядом (M10)
 ├── docs/
 │   ├── abi/               стабильные интерфейсы: boot.md, syscalls.md, ipc.md, driver.md, class-*.md
 │   └── specs/             PDF спецификаций (UEFI, Intel SDM, ACPI, PCIe, VIRTIO, AHCI, NVMe…)
@@ -20,6 +21,7 @@ CharmOS/
 │                           (структуры со static_assert, номера syscall, коды ошибок, версии)
 ├── lib/                   общий freestanding-код без зависимости от ядра:
 │   ├── core/              Result, Span, intrusive-списки, битмапы, форматирование, memcpy/memset
+│   ├── font/              свой TrueType-парсер и растеризатор (M10, юзерспейс/хост)
 │   └── <name>/            парсеры (ELF, TOML, FAT, ext2-структуры) — тестируются на хосте
 ├── boot/uefi/             загрузчик (M1)
 ├── arch/x86_64/           ВСЁ платформенно-зависимое: GDT/IDT, paging, APIC, SMP, syscall entry, asm
@@ -39,6 +41,7 @@ CharmOS/
 ├── user/
 │   ├── rt/                crt0, обёртки syscall (M3)
 │   ├── libc/              своя libc (M8)
+│   ├── libwm/             клиент оконного протокола v2, буферы и ввод (M10)
 │   ├── init/              init и менеджер служб (M8)
 │   └── bin/<имя>/         шелл, утилиты, httpd (M8)
 ├── compat/linux/          слой совместимости (M11, только после решения о лицензии)

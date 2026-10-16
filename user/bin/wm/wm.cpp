@@ -9,6 +9,8 @@
 #include <abi/wm.hpp>
 #include <charm/libc.h>
 #include <charm/sys.hpp>
+#include <lib/font/truetype.hpp>
+#include <lib/input/ring.hpp>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -28,6 +30,7 @@ constexpr int32_t kCursor = 8;   // курсор — квадрат
 constexpr uint64_t kFrameNs = 16'666'667;  // не чаще 60 Гц (wm.md §3)
 constexpr int kMaxClients = 8, kMaxWindows = 16;
 constexpr uint64_t kKeyInput = 1, kKeyDoor = 2, kKeyClient = 100;
+constexpr int32_t kPanel = 40;
 
 struct Rect {
   int32_t x, y, w, h;
@@ -112,6 +115,125 @@ Rect g_cursor;
 Rect g_damage{};
 Handle g_port;
 int g_drag = -1;  // окно, которое тащат за заголовок
+bool g_alt = false, g_launcher = false;
+char g_query[64]{};
+uint32_t g_query_len = 0;
+
+extern "C" const uint8_t wm_ui_font[], wm_ui_font_end[], wm_mono_font[], wm_mono_font_end[];
+lib::font::Face g_ui_font, g_mono_font;
+lib::font::Workspace g_font_work;
+struct CachedGlyph {
+  bool used, mono;
+  uint32_t codepoint;
+  lib::font::Bitmap bitmap;
+  uint8_t alpha[64 * 64];
+};
+CachedGlyph g_glyphs[128];
+uint32_t g_next_glyph = 0;
+
+CachedGlyph* glyph(uint32_t cp, bool mono) {
+  for (auto& c : g_glyphs) if (c.used && c.codepoint == cp && c.mono == mono) return &c;
+  CachedGlyph& c = g_glyphs[g_next_glyph++ % 128];
+  c.used = false; c.mono = mono; c.codepoint = cp;
+  c.bitmap = {c.alpha, 64, 64, 64, 0, 0, 0};
+  const auto& face = mono || g_ui_font.glyph(cp) == 0 ? g_mono_font : g_ui_font;
+  if (!face.rasterize(face.glyph(cp), mono ? 14u : 16u, &c.bitmap, &g_font_work)) return nullptr;
+  c.used = true;
+  return &c;
+}
+
+void text(const char* str, int32_t x, int32_t baseline, uint32_t color, Rect clip, bool mono = false) {
+  clip = intersect(clip, g_s.all());
+  if (clip.empty()) return;
+  uint32_t fg = g_s.pixel(color);
+  while (*str != 0) {
+    CachedGlyph* c = glyph(lib::font::utf8_next(&str), mono);
+    if (c == nullptr) continue;
+    auto& b = c->bitmap;
+    Rect r{x + b.left, baseline + b.top, static_cast<int32_t>(b.width), static_cast<int32_t>(b.height)};
+    Rect visible = intersect(r, clip);
+    for (int32_t py = visible.y; py < visible.y + visible.h; ++py) {
+      for (int32_t px = visible.x; px < visible.x + visible.w; ++px) {
+        uint32_t a = c->alpha[static_cast<uint32_t>(py - r.y) * b.stride + static_cast<uint32_t>(px - r.x)];
+        uint32_t& dst = g_s.back[static_cast<uint64_t>(py) * g_s.width + static_cast<uint32_t>(px)];
+        uint32_t out = 0;
+        for (unsigned shift = 0; shift < 24; shift += 8) {
+          out |= ((((fg >> shift) & 255) * a + ((dst >> shift) & 255) * (255 - a) + 127) / 255) << shift;
+        }
+        dst = out;
+      }
+    }
+    x += b.advance;
+    if (x >= clip.x + clip.w) break;
+  }
+}
+
+void damage(Rect r);
+
+void launcher_toggle() {
+  g_launcher = !g_launcher;
+  g_query_len = 0; g_query[0] = 0;
+  damage(g_s.all());
+  printf("wm: launcher %s\n", g_launcher ? "open" : "closed");
+}
+
+void launch_demo() {
+  char path[] = "/bin/wdemo", title[] = "Colors", color[] = "ff8a00";
+  char* args[] = {path, title, color, nullptr};
+  charm_spawn_opts options{};
+  options.give = CHARM_GIVE_ROOT | CHARM_GIVE_CWD | CHARM_GIVE_WM | CHARM_GIVE_LOG;
+  int64_t child = charm_spawn(path, args, nullptr, &options);
+  if (child >= 0) (void)charm::handle_close(static_cast<Handle>(child));
+  printf("wm: launch demo %s\n", child >= 0 ? "ok" : "failed");
+  if (child >= 0 && g_launcher) launcher_toggle();
+}
+
+bool demo_matches() {
+  return g_query_len == 0 || strstr("colors", g_query) != nullptr || strstr("demo", g_query) != nullptr;
+}
+
+void desktop(Rect d) {
+  g_s.fill({0, 0, static_cast<int32_t>(g_s.width), kPanel}, 0x0e0e10, d);
+  g_s.fill({0, kPanel - 2, static_cast<int32_t>(g_s.width), 2}, kAmber, d);
+  text("CHARM", 18, 26, kWhite, d);
+  text("Приложения", 112, 26, 0xb7b1a6, d);
+  text("Окна", 256, 26, 0xb7b1a6, d);
+  text("Alt + Space", static_cast<int32_t>(g_s.width) - 132, 26, 0xd8d2c7, d, true);
+  int32_t cx = static_cast<int32_t>(g_s.width) / 2, cy = static_cast<int32_t>(g_s.height) / 2 - 40;
+  Rect mark = intersect({cx - 88, cy - 88, 176, 176}, d);
+  for (int32_t y = mark.y; y < mark.y + mark.h; ++y) for (int32_t x = mark.x; x < mark.x + mark.w; ++x) {
+    int32_t dx = x - cx, dy = y - cy, r2 = dx * dx + dy * dy;
+    bool ring = r2 >= 70 * 70 && r2 <= 86 * 86 && !(dx > 54 && dy > -40 && dy < 40);
+    bool hand = dx >= -3 && dx <= 70 && (dy * 66 + dx * 38 >= -400) && (dy * 66 + dx * 38 <= 400);
+    if (ring || hand) g_s.fill({x, y, 1, 1}, hand ? 0xe0352b : kAmber, d);
+  }
+  text("CHARM OS", cx - 44, cy + 128, kWhite, d);
+}
+
+void launcher_draw(Rect d) {
+  int32_t x = static_cast<int32_t>(g_s.width) / 2 - 280, y = 96;
+  Rect box{x, y, 560, 360};
+  g_s.fill(box, 0x332e25, d);
+  g_s.fill({x + 1, y + 1, 558, 358}, 0x121214, d);
+  text("Приложения", x + 24, y + 34, kWhite, d);
+  g_s.fill({x + 20, y + 56, 520, 48}, kAmber, d);
+  g_s.fill({x + 21, y + 57, 518, 46}, kInk, d);
+  text(g_query_len == 0 ? "Поиск приложений" : g_query, x + 34, y + 86, g_query_len == 0 ? 0x8e887d : kWhite, d);
+  text("ESC", x + 493, y + 86, 0x8e887d, d, true);
+  if (demo_matches()) {
+    g_s.fill({x + 20, y + 124, 520, 76}, kRaised, d);
+    g_s.fill({x + 20, y + 124, 3, 76}, kAmber, d);
+    text("Colors", x + 42, y + 155, kWhite, d);
+    text("Демонстрация окон", x + 42, y + 180, 0x8e887d, d);
+    text("ENTER", x + 467, y + 166, kAmber, d, true);
+  } else text("Ничего не найдено", x + 34, y + 155, 0x8e887d, d);
+  text("Открытые окна", x + 24, y + 238, 0xb7b1a6, d);
+  int32_t at = 0;
+  for (int i = 0; i < g_zn && at < 3; ++i) {
+    Window& w = g_win[g_z[i]];
+    text(w.title, x + 34, y + 270 + at * 24, kWhite, d); ++at;
+  }
+}
 
 Rect content(const Window& w) { return {w.frame.x, w.frame.y + kTitle, w.w, w.h}; }
 
@@ -156,6 +278,7 @@ int window_at(int32_t x, int32_t y) {
 
 void destroy_window(int wi) {
   Window& w = g_win[wi];
+  printf("wm: window %u destroyed\n", w.id);
   damage(w.frame);
   int k = 0;
   for (int i = 0; i < g_zn; ++i) {
@@ -164,7 +287,12 @@ void destroy_window(int wi) {
   g_zn = k;
   if (g_focus == wi) g_focus = -1;
   if (g_drag == wi) g_drag = -1;
-  w.used = false;  // отображения буферов остаются до выхода (памяти хватает; см. LAYOUT — позже)
+  for (auto& buf : w.buf) {
+    if (buf != nullptr) (void)charm::vmo_unmap(reinterpret_cast<uint64_t>(buf));
+    buf = nullptr;
+  }
+  if (w.ring != nullptr) (void)charm::vmo_unmap(reinterpret_cast<uint64_t>(w.ring));
+  w.ring = nullptr; w.used = false;
 }
 
 void drop_client(int ci) {
@@ -184,8 +312,9 @@ void forward(int wi, const sc::InputEvent& e) {
     return;
   }
   w.events[tail % w.ring->capacity] = e;
-  __atomic_store_n(&w.ring->tail, tail + 1, __ATOMIC_RELEASE);
-  if (tail == head) send_event(w.client, wm::kInput, w.id, 0);
+  // Publish before testing emptiness again. Paired with the client's SC head
+  // store + tail recheck: either it drains this event or we send a wakeup.
+  if (lib::input::publish_tail(&w.ring->tail, &w.ring->head, tail + 1)) send_event(w.client, wm::kInput, w.id, 0);
 }
 
 void create_window(int ci, const wm::Create& m, const Handle* hs, uint32_t nh) {
@@ -329,6 +458,26 @@ void door_message(Handle door) {
 
 // Ввод из ядра: курсор, перетаскивание, фокус; остальное — окну.
 void input_event(const sc::InputEvent& e) {
+  if (e.type == sc::kInputKey) {
+    if (e.code == 0xe2 || e.code == 0xe6) { g_alt = e.value != 0; return; }
+    if (g_alt && e.value == 1 && e.code == 0x2c) { launcher_toggle(); return; }
+    if (g_alt && e.value == 1 && e.code == 0x2b && g_zn > 0) {
+      int wi = g_z[0]; raise(wi); set_focus(wi); return;
+    }
+    if (g_alt && e.value == 1 && e.code == 0x3d && g_focus >= 0) {
+      send_event(g_win[g_focus].client, wm::kCloseRequest, g_win[g_focus].id, 0); return;
+    }
+    if (g_launcher) {
+      if (e.value == 0) return;
+      if (e.code == 0x29) { launcher_toggle(); return; }
+      if (e.code == 0x28 && demo_matches()) { launch_demo(); return; }
+      if (e.code == 0x2a && g_query_len != 0) g_query[--g_query_len] = 0;
+      else if (e.code >= 4 && e.code <= 29 && g_query_len + 1 < sizeof g_query) {
+        g_query[g_query_len++] = static_cast<char>('a' + e.code - 4); g_query[g_query_len] = 0;
+      }
+      damage(g_s.all()); return;
+    }
+  }
   if (e.type == sc::kInputMotion) {
     Rect old = g_cursor;
     int32_t dx = e.x, dy = e.y;
@@ -344,7 +493,26 @@ void input_event(const sc::InputEvent& e) {
       damage(w.frame);
       w.frame.x += g_cursor.x - old.x;
       w.frame.y += g_cursor.y - old.y;
+      if (w.frame.y < kPanel) w.frame.y = kPanel;
       damage(w.frame);
+    }
+    if (g_drag < 0 && !g_launcher) {
+      int wi = window_at(g_cursor.x, g_cursor.y);
+      if (wi >= 0 && content(g_win[wi]).contains(g_cursor.x, g_cursor.y)) {
+        auto fe = e; Rect c = content(g_win[wi]);
+        fe.x = g_cursor.x - c.x; fe.y = g_cursor.y - c.y; forward(wi, fe);
+      }
+    }
+    return;
+  }
+  if (e.type == sc::kInputButton && e.value == 1 && e.code == 1 && g_cursor.y < kPanel) {
+    if (g_cursor.x >= 100 && g_cursor.x < 250) launcher_toggle();
+    return;
+  }
+  if (g_launcher) {
+    if (e.type == sc::kInputButton && e.code == 1 && e.value == 1) {
+      int32_t x = static_cast<int32_t>(g_s.width) / 2 - 280;
+      if (Rect{x + 20, 220, 520, 76}.contains(g_cursor.x, g_cursor.y) && demo_matches()) launch_demo();
     }
     return;
   }
@@ -355,7 +523,10 @@ void input_event(const sc::InputEvent& e) {
         raise(wi);
         set_focus(wi);
         if (g_cursor.y < g_win[wi].frame.y + kTitle) {
-          g_drag = wi;  // за заголовок — тащим (событие окну не идёт)
+          if (e.code == 1 && g_cursor.x >= g_win[wi].frame.x + g_win[wi].frame.w - 24) {
+            send_event(g_win[wi].client, wm::kCloseRequest, g_win[wi].id, 0); return;
+          }
+          if (e.code == 1) g_drag = wi;  // за заголовок — тащим (событие окну не идёт)
           return;
         }
       }
@@ -365,16 +536,17 @@ void input_event(const sc::InputEvent& e) {
       return;
     }
   }
-  if (g_focus < 0) return;
+  int target = e.type == sc::kInputKey ? g_focus : window_at(g_cursor.x, g_cursor.y);
+  if (target < 0 || (e.type != sc::kInputKey && !content(g_win[target]).contains(g_cursor.x, g_cursor.y))) return;
   sc::InputEvent fe = e;
-  Rect c = content(g_win[g_focus]);
+  Rect c = content(g_win[target]);
   fe.x = g_cursor.x - c.x;
   fe.y = g_cursor.y - c.y;
   if (e.type == sc::kInputKey) {
     fe.x = fe.y = 0;
     if (e.value == 1) printf("wm: key %#x -> window %u\n", e.code, g_win[g_focus].id);
   }
-  forward(g_focus, fe);
+  forward(target, fe);
 }
 
 // Кадр: повреждённое заново в заднем буфере (фон, окна снизу вверх, курсор), на экран.
@@ -383,10 +555,14 @@ void compose() {
   g_damage = {};
   if (d.empty()) return;
   g_s.fill(d, kInk, d);
+  desktop(d);
   for (int i = 0; i < g_zn; ++i) {
     Window& w = g_win[g_z[i]];
     Rect bar{w.frame.x, w.frame.y, w.frame.w, kTitle};
     g_s.fill(bar, g_z[i] == g_focus ? kAmber : kRaised, d);
+    text(w.title, bar.x + 9, bar.y + 18, g_z[i] == g_focus ? kInk : kWhite,
+         intersect({bar.x, bar.y, bar.w - 24, bar.h}, d));
+    text("x", bar.x + bar.w - 16, bar.y + 18, g_z[i] == g_focus ? kInk : kWhite, intersect(bar, d));
     Rect c = intersect(intersect(content(w), d), g_s.all());
     if (w.pending >= 0) {
       w.shown = w.pending;
@@ -406,6 +582,7 @@ void compose() {
       memcpy(t, s, static_cast<size_t>(c.w) * 4);
     }
   }
+  if (g_launcher) launcher_draw(d);
   g_s.fill(g_cursor, kWhite, d);
   g_s.present(d);
 }
@@ -436,6 +613,10 @@ extern "C" int main(int, char**) {
   }
   g_s = {info.width, info.height, info.pitch / 4, info.format == sc::kDisplayBgrx,
          reinterpret_cast<volatile uint32_t*>(fb.value), reinterpret_cast<uint32_t*>(back.value)};
+  bool fonts_ok = g_ui_font.open({wm_ui_font, static_cast<size_t>(wm_ui_font_end - wm_ui_font)}) &&
+                  g_mono_font.open({wm_mono_font, static_cast<size_t>(wm_mono_font_end - wm_mono_font)});
+  if (!fonts_ok) { printf("wm: invalid embedded font\n"); return 1; }
+  printf("wm: TrueType fonts ready (Space Grotesk, JetBrains Mono)\n");
   printf("wm: display %ux%u, pitch %u, %s\n", info.width, info.height, info.pitch, g_s.bgrx ? "BGRX" : "RGBX");
   g_cursor = {static_cast<int32_t>(info.width / 2), static_cast<int32_t>(info.height / 2), kCursor, kCursor};
   uint64_t t0 = charm::now_ns();
