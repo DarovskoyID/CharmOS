@@ -20,6 +20,35 @@ int count = 0, selected = 0, first = 0, query_len = 0;
 bool viewing = false, search = false, truncated = false;
 unsigned shift_keys = 0;
 int pointer_x = 0, pointer_y = 0;
+uint16_t preview_lines[512]{};
+int preview_count = 0, preview_first = 0;
+int hover = -1;
+
+int hit(int x, int y) {
+  if (y >= 10 && y < 46) {
+    if (x >= 10 && x < 88) return 1000;
+    if (x >= 92 && x < 206) return 1001;
+  }
+  if (x >= 10 && x < 164 && y >= 102 && y < 216 && (y - 102) % 38 < 32) return 1010 + (y - 102) / 38;
+  if (!viewing && x >= 186 && x < 846 && y >= 100 && y < 420) return (y - 100) / 32;
+  return -1;
+}
+void layout_preview() {
+  preview_count = 0; preview_first = 0;
+  const char* p = preview;
+  while (*p && preview_count < 512) {
+    preview_lines[preview_count++] = static_cast<uint16_t>(p - preview);
+    int columns = 0;
+    while (*p && *p != '\n' && columns < 78) { lib::font::utf8_next(&p); ++columns; }
+    if (*p == '\n') ++p;
+  }
+}
+void scroll_preview(int step) {
+  preview_first += step;
+  int maximum = preview_count > 16 ? preview_count - 16 : 0;
+  if (preview_first < 0) preview_first = 0;
+  if (preview_first > maximum) preview_first = maximum;
+}
 
 bool matches(int index) {
   if (query_len == 0) return true;
@@ -82,13 +111,15 @@ void open_selected() {
   for (ssize_t i = 0; i < n; ++i) if ((static_cast<unsigned char>(preview[i]) < 32 && preview[i] != '\n' && preview[i] != '\t' && preview[i] != '\r')) {
     snprintf(preview, sizeof preview, "Двоичный файл.\nТекстовый просмотр недоступен."); break;
   }
-  viewing = true; printf("files: preview %s\n", absolute);
+  layout_preview(); viewing = true; printf("files: preview %s\n", absolute);
 }
 void draw(uint32_t* pixels, bool bgrx) {
   canvas.target(pixels, kWidth, kHeight, bgrx);
   canvas.fill(0, 0, kWidth, kHeight, 0x121214);
   canvas.fill(0, 0, kWidth, 56, 0x141416);
   canvas.fill(0, 55, kWidth, 1, 0x2a2a2e);
+  if (hover == 1000) canvas.rounded(10, 10, 78, 36, 8, 0x29251b);
+  if (hover == 1001) canvas.rounded(92, 10, 114, 36, 8, 0x242426);
   canvas.text("Назад", 18, 34, 0xf5c518, 84);
   canvas.text("Обновить", 100, 34, 0xf3efe7, 206);
   canvas.text(path, 218, 34, 0xb7b1a6, 610, 13, true);
@@ -102,17 +133,24 @@ void draw(uint32_t* pixels, bool bgrx) {
   for (int i = 0; i < 3; ++i) {
     bool active = strcmp(path, places[i]) == 0;
     if (active) canvas.rounded(10, 102 + i * 38, 154, 32, 8, 0x29251b);
+    else if (hover == 1010 + i) canvas.rounded(10, 102 + i * 38, 154, 32, 8, 0x202022);
     canvas.text(labels[i], 20, 126 + i * 38, active ? 0xf5c518 : 0xd8d2c7, 160);
   }
   canvas.text("ПРОСМОТР", 20, 425, 0x8e887d, 160, 11);
   if (viewing) {
     canvas.text(entries[selected].name, 194, 88, 0xf5c518, 840, 16);
-    char line[128]; const char* p = preview;
-    for (int y = 120; *p != 0 && y < 440; y += 20) {
+    char line[320];
+    for (int row = 0; row < 16 && preview_first + row < preview_count; ++row) {
+      const char* p = preview + preview_lines[preview_first + row];
+      const char* end = preview_first + row + 1 < preview_count ? preview + preview_lines[preview_first + row + 1] : preview + strlen(preview);
       int n = 0;
-      while (*p != 0 && *p != '\n' && n < 84) { line[n++] = *p == '\t' ? ' ' : *p; ++p; }
-      if (*p == '\n') ++p; line[n] = 0;
-      canvas.text(line, 194, y, 0xd8d2c7, 840, 13, true);
+      while (p < end && *p != '\n' && n < 318) { if (*p != '\r') line[n++] = *p == '\t' ? ' ' : *p; ++p; }
+      line[n] = 0;
+      canvas.text(line, 194, 120 + row * 20, 0xd8d2c7, 840, 13, true);
+    }
+    if (preview_count > 16) {
+      canvas.fill(851, 100, 4, 320, 0x1e1e21);
+      canvas.fill(851, 100 + preview_first * 320 / preview_count, 4, 5120 / preview_count, 0x8e887d);
     }
   } else {
     canvas.text("Имя", 210, 86, 0x8e887d, 590, 12);
@@ -124,6 +162,7 @@ void draw(uint32_t* pixels, bool bgrx) {
       if (i < 0) break;
       int y = 100 + row * 32;
       if (i == selected) canvas.rounded(186, y, 660, 30, 7, 0x29251b);
+      else if (hover == row) canvas.rounded(186, y, 660, 30, 7, 0x202022);
       canvas.fill(196, y + 11, 10, 10, entries[i].directory ? 0xf5c518 : 0x8e887d);
       canvas.text(entries[i].name, 218, y + 21, 0xf3efe7, 600);
       canvas.text(entries[i].directory ? "Папка" : "Файл", 620, y + 21, 0x8e887d, 730, 12);
@@ -141,11 +180,13 @@ void draw(uint32_t* pixels, bool bgrx) {
   }
   canvas.fill(174, 448, kWidth - 174, 1, 0x1e1e21);
   char status[128];
-  if (viewing) snprintf(status, sizeof status, "Предпросмотр  ·  до 4 КиБ  ·  Backspace: назад");
+  if (viewing) snprintf(status, sizeof status, "Строки %d–%d / %d  ·  до 4 КиБ  ·  ↑↓ PgUp/PgDn", preview_count ? preview_first + 1 : 0, preview_first + 16 < preview_count ? preview_first + 16 : preview_count, preview_count);
+  else if (query_len) snprintf(status, sizeof status, "Найдено %d из %d%s  ·  Enter: открыть", matching_count(), count, truncated ? "+" : "");
   else snprintf(status, sizeof status, "%d%s элементов  ·  Enter: открыть  ·  Backspace: назад", count, truncated ? "+" : "");
   canvas.text(notice[0] == 0 ? status : notice, 194, 470, notice[0] == 0 ? 0x8e887d : 0xffb5ac, 844, 11);
 }
 bool input(const sc::InputEvent& e) {
+  if (e.type == sc::kInputWheel && viewing && e.value != 0) { scroll_preview(e.value > 0 ? -3 : 3); return true; }
   if (e.type == sc::kInputWheel && !viewing && e.value != 0) {
     int next = first - (e.value > 0 ? 3 : -3);
     int maximum = matching_count() > 10 ? matching_count() - 10 : 0;
@@ -153,9 +194,10 @@ bool input(const sc::InputEvent& e) {
     if (next > maximum) next = maximum;
     first = next; return true;
   }
-  if (e.type == sc::kInputMotion) { pointer_x = e.x; pointer_y = e.y; return false; }
+  if (e.type == sc::kInputMotion) { pointer_x = e.x; pointer_y = e.y; int next = hit(e.x, e.y); bool changed = next != hover; hover = next; return changed; }
   if (e.type == sc::kInputButton && e.code == 1 && e.value == 1) {
     pointer_x = e.x; pointer_y = e.y;
+    search = pointer_y >= 10 && pointer_y < 46 && pointer_x >= 630 && pointer_x < 844;
     if (pointer_y < 56) {
       if (pointer_x < 88) parent();
       else if (pointer_x < 206) reload();
@@ -203,6 +245,10 @@ bool input(const sc::InputEvent& e) {
   // heading while leaving bytes from a different file on screen.
   if (viewing) {
     if (e.code == 0x2a || e.code == 0x29) { parent(); return true; }
+    if (e.code == 0x51 || e.code == 0x52 || e.code == 0x4e || e.code == 0x4b || e.code == 0x4a || e.code == 0x4d) {
+      scroll_preview(e.code == 0x51 ? 1 : e.code == 0x52 ? -1 : e.code == 0x4e ? 16 : e.code == 0x4b ? -16 : e.code == 0x4a ? -512 : 512);
+      return true;
+    }
     return false;
   }
   if (e.code == 0x28) open_selected();

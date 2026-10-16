@@ -1,0 +1,11 @@
+[files] files: directory / (
+[files] files: directory /etc (
+[files] files: preview /etc/z-preview.txt
+[files] files: directory /bin (
+[files] files: directory / (
+[wm] wm: window 3 destroyed
+acpi: entering S5
+screen: pixel 1061,250 = 8e887d
+screen: pixel 1061,250 = 1e1e21
+screen: pixel 1061,565 = 8e887d
+screen: pixel 1061,250 = 8e887d

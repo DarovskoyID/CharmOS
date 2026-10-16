@@ -1,0 +1,42 @@
+#wait wdemo ember: 60 frames
+#monitor sendkey alt-spc
+#monitor sendkey f
+#monitor sendkey i
+#monitor sendkey l
+#monitor sendkey e
+#monitor sendkey s
+#monitor sendkey ret
+#wait files: directory / (
+#monitor sendkey slash
+#monitor sendkey e
+#monitor sendkey t
+#monitor sendkey c
+#monitor sendkey ret
+#monitor sendkey ret
+#wait files: directory /etc (
+#monitor sendkey down
+#monitor sendkey ret
+#wait files: preview /etc/z-preview.txt
+#sleep 1
+#pixel 1061 250
+#monitor sendkey pgdn
+#monitor sendkey end
+#sleep 1
+#pixel 1061 250
+#pixel 1061 565
+#monitor screendump /mnt/a/CharmOS/build/files-preview-end.ppm
+#monitor sendkey home
+#sleep 1
+#pixel 1061 250
+#monitor sendkey slash
+#monitor mouse_move -200 -47
+#monitor mouse_move -200 -47
+#sleep 1
+#monitor mouse_button 1
+#monitor mouse_button 0
+#wait files: directory /bin (
+#monitor sendkey backspace
+#sleep 1
+#monitor sendkey alt-f4
+#wait wm: window 3 destroyed
+svc poweroff
