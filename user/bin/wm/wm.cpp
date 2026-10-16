@@ -88,6 +88,7 @@ struct Screen {
 
 struct Window {
   bool used;
+  bool minimized;
   uint32_t id;
   int client;
   Rect frame;  // с заголовком; содержимое — frame.y + kTitle
@@ -432,7 +433,8 @@ void control_draw(Rect d) {
   text("Alt + Space   Приложения", x + 24, y + 432, 0xd8d2c7, d, true, 12);
   text("Alt + Tab     Переключить окно", x + 24, y + 458, 0xd8d2c7, d, true, 12);
   text("Alt + F4      Закрыть окно", x + 24, y + 484, 0xd8d2c7, d, true, 12);
-  text("Esc           Закрыть панель", x + 24, y + 510, 0xd8d2c7, d, true, 12);
+  text("Alt + F9      Свернуть окно", x + 24, y + 510, 0xd8d2c7, d, true, 12);
+  text("Esc           Закрыть панель", x + 24, y + 536, 0xd8d2c7, d, true, 12);
 }
 
 void launcher_draw(Rect d) {
@@ -473,7 +475,8 @@ void launcher_draw(Rect d) {
     Rect r = launcher_rect(i); int32_t tx = r.x, ty = r.y;
     rounded(r, 10, i == g_launcher_selected ? kAmber : 0x2a2a2e, d);
     rounded({tx + 1, ty + 1, 198, 46}, 9, 0x141416, d);
-    text(w.title, tx + 16, ty + 29, 0xf3efe7, intersect({tx + 8, ty, 184, 48}, d), false, 14);
+    text(w.title, tx + 16, ty + (w.minimized ? 20 : 29), 0xf3efe7, intersect({tx + 8, ty, 184, 48}, d), false, 14);
+    if (w.minimized) text("Свёрнуто", tx + 16, ty + 38, 0x8e887d, d, false, 10);
   }
 }
 
@@ -493,6 +496,10 @@ void raise(int wi) {
     if (g_z[i] == wi) at = i;
   }
   if (at < 0) return;
+  if (g_win[wi].minimized) {
+    g_win[wi].minimized = false;
+    printf("wm: window %u restored\n", g_win[wi].id);
+  }
   for (int i = at; i + 1 < g_zn; ++i) g_z[i] = g_z[i + 1];
   g_z[g_zn - 1] = wi;
   damage(g_win[wi].frame);
@@ -513,13 +520,32 @@ void set_focus(int wi) {
 
 int window_at(int32_t x, int32_t y) {
   for (int i = g_zn - 1; i >= 0; --i) {
-    if (g_win[g_z[i]].frame.contains(x, y)) return g_z[i];
+    if (!g_win[g_z[i]].minimized && g_win[g_z[i]].frame.contains(x, y)) return g_z[i];
   }
   return -1;
 }
 
+void focus_top_visible() {
+  for (int i = g_zn - 1; i >= 0; --i) {
+    if (!g_win[g_z[i]].minimized) { set_focus(g_z[i]); return; }
+  }
+  set_focus(-1);
+}
+
+void minimize(int wi) {
+  if (wi < 0 || !g_win[wi].used || g_win[wi].minimized) return;
+  Window& w = g_win[wi];
+  w.minimized = true;
+  if (g_drag == wi) g_drag = -1;
+  damage(w.frame);
+  if (g_focus == wi) focus_top_visible();
+  printf("wm: window %u minimized\n", w.id);
+}
+
 void destroy_window(int wi) {
   Window& w = g_win[wi];
+  bool focused = g_focus == wi;
+  if (focused) set_focus(-1);
   printf("wm: window %u destroyed\n", w.id);
   damage(w.frame);
   int k = 0;
@@ -535,6 +561,7 @@ void destroy_window(int wi) {
   }
   if (w.ring != nullptr) (void)charm::vmo_unmap(reinterpret_cast<uint64_t>(w.ring));
   w.ring = nullptr; w.used = false;
+  if (focused) focus_top_visible();
 }
 
 void drop_client(int ci) {
@@ -746,6 +773,7 @@ void input_event(const sc::InputEvent& e) {
       g_launcher_selected = 0;
       damage(g_s.all()); return;
     }
+    if (g_alt && e.value == 1 && e.code == 0x42) { minimize(g_focus); return; }
     if (g_control) return;
   }
   if (e.type == sc::kInputMotion) {
@@ -822,6 +850,9 @@ void input_event(const sc::InputEvent& e) {
           if (e.code == 1 && Rect{g_win[wi].frame.x + 16, g_win[wi].frame.y + 16, 20, 20}.contains(g_cursor.x, g_cursor.y)) {
             send_event(g_win[wi].client, wm::kCloseRequest, g_win[wi].id, 0); return;
           }
+          if (e.code == 1 && Rect{g_win[wi].frame.x + g_win[wi].frame.w - 36, g_win[wi].frame.y + 16, 20, 20}.contains(g_cursor.x, g_cursor.y)) {
+            minimize(wi); return;
+          }
           if (e.code == 1) g_drag = wi;  // за заголовок — тащим (событие окну не идёт)
           return;
         }
@@ -858,6 +889,7 @@ void compose() {
   desktop(d);
   for (int i = 0; i < g_zn; ++i) {
     Window& w = g_win[g_z[i]];
+    if (w.minimized) continue;
     Rect bar{w.frame.x, w.frame.y, w.frame.w, kTitle};
     if (g_shadows) {
       shadow({bar.x - 12, bar.y - 4, w.frame.w + 24, w.frame.h + 24}, w.frame, 28, 24, d);
@@ -867,14 +899,11 @@ void compose() {
     rounded(w.frame, 17, 0x17171a, d);
     g_s.fill({bar.x, bar.y + kTitle - 1, bar.w, 1}, 0x2a2a2e, d);
     rounded({bar.x + 16, bar.y + 20, 12, 12}, 3, 0xe0352b, d);
+    rounded({bar.x + bar.w - 36, bar.y + 16, 20, 20}, 5, 0x29251b, d);
+    g_s.fill({bar.x + bar.w - 31, bar.y + 26, 10, 2}, kAmber, d);
     text(w.title, bar.x + 44, bar.y + 31, g_z[i] == g_focus ? 0xf3efe7 : 0x8e887d,
-         intersect({bar.x + 40, bar.y, bar.w - 52, bar.h}, d), false, 14);
+         intersect({bar.x + 40, bar.y, bar.w - 84, bar.h}, d), false, 14);
     Rect c = intersect(intersect(content(w), d), g_s.all());
-    if (w.pending >= 0) {
-      w.shown = w.pending;
-      w.pending = -1;
-      w.pending_damage = {};
-    }
     if (c.empty()) continue;
     if (w.shown < 0) {
       g_s.fill(c, kRaised, d);
@@ -1001,6 +1030,10 @@ extern "C" int main(int, char**) {
         if (g_win[i].used && g_win[i].pending >= 0) {
           done_win[nd] = i;
           done_buf[nd++] = g_win[i].shown >= 0 ? g_win[i].shown : 1 - g_win[i].pending;
+          // Buffer ownership advances even for hidden or off-screen windows.
+          g_win[i].shown = g_win[i].pending;
+          g_win[i].pending = -1;
+          g_win[i].pending_damage = {};
         }
       }
       compose();

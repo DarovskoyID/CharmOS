@@ -1,0 +1,58 @@
+#wait wdemo ember: 60 frames
+#wait wdemo amber: 60 frames
+#monitor sendkey alt-f9
+#wait wm: window 2 minimized
+#monitor sendkey a
+#wait wdemo amber: key 0x4
+#monitor sendkey alt-f9
+#wait wm: window 1 minimized
+#monitor sendkey b
+#sleep 2
+#monitor screendump /mnt/a/CharmOS/build/minimize-hidden.ppm
+#monitor sendkey alt-spc
+#monitor sendkey e
+#monitor sendkey m
+#monitor sendkey b
+#monitor sendkey e
+#monitor sendkey r
+#monitor sendkey ret
+#wait wm: window 2 restored
+#monitor sendkey b
+#wait wdemo ember: key 0x5
+#sleep 1
+#pixel 400 330
+#monitor screendump /mnt/a/CharmOS/build/minimize-restored.ppm
+#monitor sendkey alt-f9
+#monitor sendkey alt-tab
+#wait wm: window 1 restored
+#monitor sendkey c
+#wait wdemo amber: key 0x6
+#sleep 1
+#pixel 90 150
+#monitor mouse_move -153 -147
+#monitor mouse_move -153 -147
+#sleep 1
+#monitor mouse_button 1
+#monitor mouse_button 0
+#sleep 1
+#monitor sendkey alt-tab
+#monitor sendkey d
+#wait wdemo ember: key 0x7
+#sleep 1
+#pixel 400 330
+#monitor sendkey alt-f9
+#monitor sendkey alt-tab
+#monitor sendkey e
+#wait wdemo amber: key 0x8
+#sleep 1
+#pixel 90 150
+#monitor sendkey alt-spc
+#monitor sendkey ret
+#wait wm: window 3 "Colors"
+#monitor sendkey alt-f4
+#wait wm: window 3 destroyed
+#monitor sendkey f
+#wait wdemo amber: key 0x9
+#sleep 1
+#pixel 90 150
+svc poweroff

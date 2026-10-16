@@ -1,0 +1,26 @@
+[wm] wm: window 2 minimized
+[wdemo] wdemo amber: key 0x4
+[wm] wm: window 1 minimized
+[wm] wm: launcher open
+[wm] wm: window 2 restored
+[wm] wm: launcher closed
+[wdemo] wdemo ember: key 0x5
+[wm] wm: window 2 minimized
+[wm] wm: window 1 restored
+[wdemo] wdemo amber: key 0x6
+[wm] wm: window 1 minimized
+[wm] wm: window 2 restored
+[wdemo] wdemo ember: key 0x7
+[wm] wm: window 2 minimized
+[wm] wm: window 1 restored
+[wdemo] wdemo amber: key 0x8
+[wm] wm: launch demo ok
+[wm] wm: window 3 "Colors"
+[wm] wm: window 3 destroyed
+[wdemo] wdemo amber: key 0x9
+acpi: entering S5
+screen: pixel 400,330 = 0075ff
+screen: pixel 90,150 = f5c518
+screen: pixel 400,330 = ff8a00
+screen: pixel 90,150 = 0a3ae7
+screen: pixel 90,150 = f5c518
