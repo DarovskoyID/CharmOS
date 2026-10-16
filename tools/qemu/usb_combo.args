@@ -1,0 +1,9 @@
+-display none
+-device intel-iommu
+-device qemu-xhci,id=xhci
+-device usb-kbd,bus=xhci.0,port=1
+-device usb-mouse,bus=xhci.0,port=2
+-drive if=none,id=u0,format=raw,file=build/disk-usb-combo.img
+-device usb-storage,bus=xhci.0,port=3,drive=u0
+-nic none
+-monitor unix:/tmp/charmos-mon,server,nowait

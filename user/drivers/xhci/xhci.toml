@@ -1,4 +1,5 @@
 name = "xhci"
+class = "block"
 
 [[match]]
 class_code = 0x0c0330

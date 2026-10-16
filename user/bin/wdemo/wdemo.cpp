@@ -12,6 +12,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <pthread.h>
+#include <fcntl.h>
 
 namespace {
 
@@ -22,6 +24,27 @@ namespace sc = abi::syscall;
 
 uint32_t g_w, g_h;
 bool g_bgrx = true;
+int g_io_state = 0;
+
+void* io_worker(void*) {
+  printf("wdemo: USB I/O started\n");
+  int fd = open("/usb-io.bin", O_CREAT | O_TRUNC | O_RDWR, 0644);
+  bool ok = fd >= 0;
+  uint8_t data[4096], back[4096];
+  for (uint32_t page = 0; ok && page < 512; ++page) {
+    for (uint32_t i = 0; i < sizeof data; ++i) data[i] = static_cast<uint8_t>(page + i * 17);
+    ok = write(fd, data, sizeof data) == sizeof data;
+    if (ok && page % 16 == 15) ok = fsync(fd) == 0;
+  }
+  if (ok) ok = lseek(fd, 0, SEEK_SET) == 0;
+  for (uint32_t page = 0; ok && page < 512; ++page) {
+    ok = read(fd, back, sizeof back) == sizeof back;
+    for (uint32_t i = 0; ok && i < sizeof back; ++i) ok = back[i] == static_cast<uint8_t>(page + i * 17);
+  }
+  if (fd >= 0) (void)close(fd);
+  __atomic_store_n(&g_io_state, ok ? 1 : -1, __ATOMIC_RELEASE);
+  return nullptr;
+}
 
 uint32_t pixel(uint32_t rgb) { return g_bgrx ? rgb : ((rgb & 0xff) << 16 | (rgb & 0xff00) | (rgb >> 16 & 0xff)); }
 
@@ -53,6 +76,13 @@ extern "C" int main(int argc, char** argv) {
   if (charm::syscall2(sc::Number::DeviceInput, charm_wm(), 0).status != Status::WrongType) return 1;
   g_bgrx = window.format() == sc::kDisplayBgrx;
   printf("wdemo %s: window %u at %d,%d\n", title, window.id(), window.x(), window.y());
+  bool io_mode = argc > 6 && strcmp(argv[6], "io") == 0;
+  bool io_key = false, io_reported = false;
+  if (io_mode) {
+    pthread_t worker;
+    if (pthread_create(&worker, nullptr, io_worker, nullptr) != 0) return 1;
+    (void)pthread_detach(worker);
+  }
 
   int cur = 0;
   int32_t sx = 0, dir = 4;
@@ -74,6 +104,7 @@ extern "C" int main(int argc, char** argv) {
           color ^= 0xffffff;
           key_ns = ev.time_ns;
           key_state = 1;
+          io_key = true;
           printf("wdemo %s: key %#x\n", title, ev.code);
         }
       }
@@ -97,6 +128,11 @@ extern "C" int main(int argc, char** argv) {
       draw(window.pixels(static_cast<uint32_t>(cur)), color, sx);
       if (window.present(static_cast<uint32_t>(cur), damage) != Status::Ok) return 1;
       if (key_state == 1) key_state = 2;
+      if (io_mode && !io_reported) {
+        int state = __atomic_load_n(&g_io_state, __ATOMIC_ACQUIRE);
+        if (state < 0) { printf("wdemo: USB I/O failed\n"); return 1; }
+        if (state == 1 && io_key) { printf("wdemo: USB I/O and input verified\n"); io_reported = true; }
+      }
     }
   }
 }

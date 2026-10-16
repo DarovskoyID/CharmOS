@@ -1,8 +1,11 @@
 // Own xHCI driver, Intel xHCI 1.2 sections 4.2, 4.9, 5, 6, 7.1.
 // Root-port enumeration, control transfers and HID boot keyboard/mouse.
-// External hubs, reconnect handling and storage are separate milestones.
+// BOT/SCSI storage shares the controller with HID. External hubs and reconnect
+// handling remain unsupported; see lib/usb/README.md for current limits.
 #include <lib/usb/xhci.hpp>
 #include <lib/usb/hid.hpp>
+#include <lib/usb/storage.hpp>
+#include <abi/block.hpp>
 #include "../../tests/check.hpp"
 
 using namespace charm;
@@ -32,8 +35,18 @@ struct UsbDevice {
   x::Producer control{};
   Hid hid[8]{};
   uint32_t hid_count = 0;
+  bool has_storage = false;
+  lib::usb::StorageInterface storage{};
+  x::Producer bulk_in{}, bulk_out{};
+  uint32_t in_dci = 0, out_dci = 0, tag = 0;
+  uint64_t sectors = 0;
 };
 UsbDevice devices[17];
+UsbDevice* storage_device = nullptr;
+abi::block::RingHeader* block_header = nullptr;
+abi::block::Request* block_sq = nullptr;
+abi::block::Completion* block_cq = nullptr;
+Handle block_note = 0;
 void transfer_event(const x::Trb& event);
 
 void log_value(const char* label, uint64_t value) {
@@ -129,17 +142,20 @@ void transfer_event(const x::Trb& event) {
     return;
   }
 }
-bool wait_transfer(UsbDevice& d, uint64_t pointer) {
+bool wait_transfer(UsbDevice& d, uint64_t pointer, uint32_t endpoint_id = 1, uint32_t* residual = nullptr) {
   uint64_t deadline = now_ns() + 2'000'000'000;
   for (;;) {
     x::Trb event{};
     while (events.pop(&event)) {
       reg<uint64_t>(runtime + 0x38) = events.dequeue() | 8; fence();
       if (((event.control >> 10) & 63) == 32 && (event.control >> 24) == d.slot &&
-          ((event.control >> 16) & 31) == 1) {
+          ((event.control >> 16) & 31) == endpoint_id) {
         uint32_t code = event.status >> 24;
         if (code != 1 && code != 13) { log_value("control transfer failed", code); return false; }
-        if (event.parameter == pointer) return true;
+        if (event.parameter == pointer) {
+          if (residual != nullptr) *residual = event.status & 0xffffff;
+          return true;
+        }
       } else if (((event.control >> 10) & 63) == 32) transfer_event(event);
     }
     PortPacket packet{};
@@ -175,6 +191,116 @@ void endpoint(uint32_t* ctx, uint32_t type, uint16_t packet, uint64_t ring, uint
   ctx[1] = (3u << 1) | (type << 3) | (uint32_t{packet} << 16);
   ctx[2] = static_cast<uint32_t>(ring) | 1; ctx[3] = static_cast<uint32_t>(ring >> 32);
   ctx[4] = payload | (type == 7 ? payload << 16 : 0u);
+}
+
+bool bulk(UsbDevice& d, bool in, const abi::block::Segment* segments, uint32_t count, bool allow_short = false) {
+  if (count == 0 || count > 6) return false;
+  x::Producer& producer = in ? d.bulk_in : d.bulk_out;
+  uint32_t dci = in ? d.in_dci : d.out_dci;
+  uint32_t remaining = 0;
+  for (uint32_t i = 0; i < count; ++i) remaining += segments[i].bytes;
+  uint64_t last = 0;
+  uint32_t packet = in ? d.storage.in_packet : d.storage.out_packet;
+  for (uint32_t i = 0; i < count; ++i) {
+    remaining -= segments[i].bytes;
+    uint32_t packets = (remaining + packet - 1) / packet;
+    if (packets > 31) packets = 31;
+    last = producer.push({segments[i].iova, segments[i].bytes | (packets << 17),
+                          x::type(1) | (i + 1 < count ? 1u << 4 : (1u << 5) | (1u << 2))});
+  }
+  reg<uint32_t>(bells + uint64_t{d.slot} * 4) = dci; fence();
+  uint32_t residual = 0;
+  return wait_transfer(d, last, dci, &residual) && (allow_short || residual == 0);
+}
+bool bot(UsbDevice& d, const uint8_t* cdb, uint8_t cdb_length, bool in,
+         const abi::block::Segment* segments, uint32_t count, uint32_t bytes, bool allow_short = false) {
+  auto* cbw = reinterpret_cast<lib::usb::Cbw*>(d.data_cpu);
+  *cbw = {}; cbw->signature = 0x43425355; cbw->tag = ++d.tag; cbw->bytes = bytes;
+  cbw->flags = in ? 0x80 : 0; cbw->command_length = cdb_length;
+  for (uint8_t i = 0; i < cdb_length; ++i) cbw->command[i] = cdb[i];
+  auto* csw = reinterpret_cast<lib::usb::Csw*>(d.data_cpu + 64); *csw = {};
+  abi::block::Segment command_segment{d.data_iova, 31, 0}, status_segment{d.data_iova + 64, 13, 0}; fence();
+  if (!bulk(d, false, &command_segment, 1) || (bytes != 0 && !bulk(d, in, segments, count, allow_short)) ||
+      !bulk(d, true, &status_segment, 1)) return false;
+  fence();
+  if (csw->signature != 0x53425355 || csw->tag != d.tag || csw->residue > bytes || (!allow_short && csw->residue != 0)) return false;
+  return csw->status == 0;
+}
+bool capacity(UsbDevice& d) {
+  uint8_t cdb[10]{}; cdb[0] = 0x25;
+  abi::block::Segment data{d.data_iova + 128, 8, 0};
+  for (unsigned attempt = 0; attempt < 3; ++attempt) {
+    if (bot(d, cdb, 10, true, &data, 1, 8)) {
+      const auto* bytes = reinterpret_cast<const uint8_t*>(d.data_cpu + 128);
+      uint32_t last = lib::usb::be32_load(bytes), block_size = lib::usb::be32_load(bytes + 4);
+      if (last == 0xffffffff || block_size != 512) return false;
+      d.sectors = uint64_t{last} + 1; return true;
+    }
+    uint8_t sense[6]{3, 0, 0, 0, 18, 0};
+    abi::block::Segment sense_data{d.data_iova + 128, 18, 0};
+    (void)bot(d, sense, 6, true, &sense_data, 1, 18, true);
+    sleep_until(now_ns() + 50'000'000);
+  }
+  return false;
+}
+bool register_disk(Handle kernel) {
+  if (storage_device == nullptr) return true;
+  UsbDevice& d = *storage_device;
+  if (!capacity(d)) return false;
+  abi::block::BlockHello hello{};
+  for (unsigned i = 0; i < 4; ++i) hello.magic[i] = abi::block::kHelloMagic[i];
+  hello.block_size = 512; hello.block_count = d.sectors; hello.max_blocks = 48; hello.flags = abi::block::kHelloFlush;
+  if (channel_write(kernel, &hello, sizeof hello, nullptr, 0) != Status::Ok) return false;
+  char message[16]; Handle hs[2]; uint32_t n, nh;
+  if (read_msg(kernel, message, sizeof message, hs, 2, &n, &nh) != Status::Ok || !same(message, n, "ring") || nh != 2) return false;
+  auto map = vmo_map(hs[0], rights::kRead | rights::kWrite); (void)handle_close(hs[0]);
+  if (!map.ok()) return false;
+  block_header = reinterpret_cast<abi::block::RingHeader*>(map.value);
+  block_sq = reinterpret_cast<abi::block::Request*>(map.value + abi::block::kSqOffset);
+  block_cq = reinterpret_cast<abi::block::Completion*>(map.value + abi::block::kCqOffset);
+  block_note = hs[1]; print("xhci: USB storage ready\n");
+  return true;
+}
+bool service_disk() {
+  if (block_header == nullptr) return true;
+  auto* h = block_header;
+  for (;;) {
+    uint32_t head = __atomic_load_n(&h->sq_head, __ATOMIC_RELAXED);
+    if (head == __atomic_load_n(&h->sq_tail, __ATOMIC_ACQUIRE)) {
+      __atomic_store_n(&h->driver_wants_kick, 1u, __ATOMIC_SEQ_CST);
+      if (__atomic_load_n(&h->sq_tail, __ATOMIC_ACQUIRE) != head) continue;
+      return true;
+    }
+    abi::block::Request r = block_sq[head % abi::block::kRingEntries];
+    __atomic_store_n(&h->sq_head, head + 1, __ATOMIC_RELEASE);
+    UsbDevice& d = *storage_device; Status result = Status::InvalidArgs;
+    uint8_t cdb[10]{};
+    if (r.op == abi::block::kOpFlush && r.segment_count == 0) {
+      cdb[0] = 0x35; if (!bot(d, cdb, 10, false, nullptr, 0, 0)) return false; result = Status::Ok;
+    } else if ((r.op == abi::block::kOpRead || r.op == abi::block::kOpWrite) && r.segment_count > 0 && r.segment_count <= 6 &&
+               r.blocks > 0 && r.blocks <= 48 && r.lba < d.sectors && r.blocks <= d.sectors - r.lba) {
+      uint32_t bytes = 0; bool valid = true;
+      for (uint32_t i = 0; i < r.segment_count; ++i) {
+        const auto& s = r.segments[i];
+        valid &= s.bytes > 0 && s.bytes <= 4096 && s.bytes % 512 == 0 && s.iova % 512 == 0 && (s.iova & 4095) + s.bytes <= 4096;
+        bytes += s.bytes;
+      }
+      if (valid && bytes == r.blocks * 512) {
+        cdb[0] = r.op == abi::block::kOpRead ? 0x28 : 0x2a;
+        lib::usb::be32_store(cdb + 2, static_cast<uint32_t>(r.lba));
+        cdb[7] = static_cast<uint8_t>(r.blocks >> 8); cdb[8] = static_cast<uint8_t>(r.blocks);
+        if (!bot(d, cdb, 10, r.op == abi::block::kOpRead, r.segments, r.segment_count, bytes)) return false;
+        result = Status::Ok;
+      }
+    }
+    uint32_t tail = h->cq_tail;
+    block_cq[tail % abi::block::kRingEntries] = {r.id, static_cast<int32_t>(result), 0};
+    __atomic_store_n(&h->cq_tail, tail + 1, __ATOMIC_RELEASE);
+    if (__atomic_load_n(&h->kernel_wants_kick, __ATOMIC_ACQUIRE) != 0) {
+      __atomic_store_n(&h->kernel_wants_kick, 0u, __ATOMIC_RELAXED);
+      (void)channel_write(block_note, nullptr, 0, nullptr, 0);
+    }
+  }
 }
 bool enumerate(uint32_t root_port) {
   uint64_t portsc = op + 0x400 + uint64_t{root_port - 1} * 16;
@@ -220,7 +346,9 @@ bool enumerate(uint32_t root_port) {
   if (bytes < 9 || bytes > 4096 || !control(d, 0x80, 6, 0x200, 0, bytes)) return false;
   lib::usb::BootInterface interfaces[8]{}; uint8_t config = 0;
   if (!lib::usb::boot_interfaces(data, bytes, interfaces, 8, &d.hid_count, &config)) return false;
-  if (d.hid_count == 0) { log_value("unsupported USB device at port", root_port); return true; }
+  if (!lib::usb::storage_interface(data, bytes, &d.storage, &d.has_storage)) return false;
+  if (d.has_storage && storage_device != nullptr) { log_value("additional USB disk ignored at port", root_port); d.has_storage = false; }
+  if (d.hid_count == 0 && !d.has_storage) { log_value("unsupported USB device at port", root_port); return true; }
   clear_input(d); sc = context(d.input_cpu, 1);
   for (uint32_t i = 0; i < context_size / 4; ++i) sc[i] = context(d.output_cpu, 0)[i];
   sc[3] = 0; uint32_t add = 1, highest = 1;
@@ -235,6 +363,17 @@ bool enumerate(uint32_t root_port) {
     endpoint(context(d.input_cpu, h.dci + 1), 7, h.info.max_packet, ring_iova, interval, h.length);
     add |= 1u << h.dci; if (h.dci > highest) highest = h.dci;
   }
+  if (d.has_storage) {
+    d.in_dci = (d.storage.in & 15u) * 2 + 1; d.out_dci = (d.storage.out & 15u) * 2;
+    for (unsigned i = 0; i < 2; ++i) {
+      bool in = i == 0; uint32_t dci = in ? d.in_dci : d.out_dci;
+      if (!dma(4096, &ring_cpu, &ring_iova)) return false;
+      x::Producer& producer = in ? d.bulk_in : d.bulk_out;
+      producer = {reinterpret_cast<volatile x::Trb*>(ring_cpu), ring_iova, 0, 1};
+      endpoint(context(d.input_cpu, dci + 1), in ? 6u : 2u, in ? d.storage.in_packet : d.storage.out_packet, ring_iova, 0, 512);
+      add |= 1u << dci; if (dci > highest) highest = dci;
+    }
+  }
   sc[0] = (sc[0] & 0x7ffffff) | (highest << 27); context(d.input_cpu, 0)[1] = add; fence();
   if (!command({d.input_iova, 0, x::type(12) | (slot << 24)}, &completion) || !control(d, 0, 9, config, 0, 0)) return false;
   for (uint32_t i = 0; i < d.hid_count; ++i) {
@@ -244,6 +383,7 @@ bool enumerate(uint32_t root_port) {
     print(h.info.protocol == 1 ? "xhci: HID keyboard ready\n" : "xhci: HID mouse ready\n");
     submit_hid(d, h);
   }
+  if (d.has_storage) storage_device = &d;
   return true;
 }
 }
@@ -312,11 +452,17 @@ extern "C" int64_t charm_main(Handle kernel) {
   for (uint32_t p = 1; p <= ports; ++p) {
     if (!enumerate(p)) { log_value("enumeration failed at port", p); return 2; }
   }
+  EXPECT(register_disk(kernel));
   for (;;) {
+    if (!service_disk()) { print("xhci: BOT error, restarting controller\n"); return 2; }
     (void)object_bind(port, kernel, 2);
+    if (block_note != 0) (void)object_bind(port, block_note, 3);
     PortPacket packet{};
     if (port_wait(port, &packet, kForever) != Status::Ok) continue;
     if (packet.key == 2 && packet.type == abi::syscall::kPacketPeerClosed) return 0;
+    if (packet.key == 3) {
+      Handle none[1]; char empty[1]; while (channel_read(block_note, empty, 1, none, 1, 0).ok()) {}
+    }
     if (packet.key == 1) {
       x::Trb event{}; while (events.pop(&event)) if (((event.control >> 10) & 63) == 32) transfer_event(event);
       reg<uint64_t>(runtime + 0x38) = events.dequeue() | 8;

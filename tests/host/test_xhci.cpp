@@ -1,5 +1,6 @@
 #include <lib/usb/xhci.hpp>
 #include <lib/usb/hid.hpp>
+#include <lib/usb/storage.hpp>
 #include <vector>
 #include "test.hpp"
 using namespace lib::usb::xhci;
@@ -32,6 +33,15 @@ TEST(usb_configuration_bounds) {
   CHECK(count == 1 && value == 1 && out[0].endpoint == 0x81 && out[0].max_packet == 8);
   for (size_t n = 0; n < sizeof config; ++n) CHECK(!lib::usb::boot_interfaces(config, n, out, 8, &count, &value));
   config[18] = 0; CHECK(!lib::usb::boot_interfaces(config, sizeof config, out, 8, &count, &value));
+}
+TEST(usb_storage_descriptor_and_wire_layout) {
+  uint8_t data[] = {9,2,32,0,1,1,0,0x80,50, 9,4,0,0,2,8,6,0x50,0, 7,5,0x81,2,0,2,0, 7,5,2,2,0,2,0};
+  lib::usb::StorageInterface s{}; bool found = false;
+  CHECK(lib::usb::storage_interface(data, sizeof data, &s, &found));
+  CHECK(found && s.in == 0x81 && s.out == 2 && s.in_packet == 512 && s.out_packet == 512);
+  for (size_t n = 0; n < sizeof data; ++n) CHECK(!lib::usb::storage_interface(data, n, &s, &found));
+  uint8_t value[4]{}; lib::usb::be32_store(value, 0x12345678);
+  CHECK(value[0] == 0x12 && value[3] == 0x78 && lib::usb::be32_load(value) == 0x12345678);
 }
 TEST(xhci_command_ring_cycle_wrap) {
   Trb ring[256]{};

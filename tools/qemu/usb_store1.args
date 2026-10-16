@@ -1,0 +1,5 @@
+-device intel-iommu
+-device qemu-xhci,id=xhci
+-drive if=none,id=u0,format=raw,file=build/disk-usb-store.img
+-device usb-storage,bus=xhci.0,port=1,drive=u0
+-nic none

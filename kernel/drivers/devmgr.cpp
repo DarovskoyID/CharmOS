@@ -210,6 +210,14 @@ void start(uint64_t initrd_phys, uint64_t initrd_size) {
   load_manifests(archive);
   pci::iommu::set_fault_handler(&on_dma_fault);
   kprint("devmgr: {} driver manifests\n", g_driver_count);
+  // Reserve fixed PCI disks before any USB controller can announce a discovered
+  // peripheral. An empty xHCI controller does not consume a disk number.
+  for (uint32_t i = 0; i < pci::function_count(); ++i) {
+    const auto& f = pci::function(i);
+    const Driver* d = best_driver(f);
+    if (d != nullptr && d->manifest.driver_class == lib::manifest::DriverClass::Block && f.class_code != 0x0c0330)
+      block::reserve_disk(i);
+  }
   for (uint32_t i = 0; i < pci::function_count(); ++i) {
     const Driver* d = best_driver(pci::function(i));
     if (d == nullptr) continue;
@@ -220,7 +228,6 @@ void start(uint64_t initrd_phys, uint64_t initrd_size) {
     const pci::Function& f = pci::function(i);
     kprint("devmgr: {}:{}.{} {x}:{x} -> {}\n", f.bus, f.device, f.function, f.vendor, f.device_id,
            d->manifest.name);
-    if (d->manifest.driver_class == lib::manifest::DriverClass::Block) block::reserve_disk(i);
     if (sched::spawn("devmgr", &supervise, &b).is_err()) {
       kprint("devmgr: cannot start supervisor\n");
     }

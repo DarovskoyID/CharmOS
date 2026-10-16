@@ -1,0 +1,6 @@
+# USB BOT/SCSI, kernel page-cache IOVAs transferred directly via xHCI.
+[xhci] xhci: controller running, command ring ok
+block: disk1 is xhci
+vfs: root is disk1p2 (ext2)
+[fs_test] fs_test: files, directories, rights, sync ok
+ktest: PASS fs

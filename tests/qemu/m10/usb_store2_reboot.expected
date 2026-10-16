@@ -1,0 +1,5 @@
+# Same USB image, second boot: written data persisted through SYNCHRONIZE CACHE.
+block: disk1 is xhci
+vfs: root is disk1p2 (ext2)
+[fs_check] fs_check: data survived reboot
+ktest: PASS fs_check

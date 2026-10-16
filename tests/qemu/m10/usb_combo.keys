@@ -1,0 +1,7 @@
+#wait wdemo ember: 60 frames
+#monitor sendkey a
+#wait wdemo: USB I/O and input verified
+#monitor mouse_move 40 30
+#sleep 1
+#pixel 682 432
+svc poweroff

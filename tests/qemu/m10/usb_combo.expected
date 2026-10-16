@@ -1,0 +1,13 @@
+# Same xHCI: USB root disk + keyboard + mouse, threaded 2 MiB write/sync/readback.
+[xhci] xhci: HID keyboard ready
+[xhci] xhci: HID mouse ready
+block: disk1 is xhci
+vfs: root is disk1p2 (ext2)
+[wdemo] wdemo ember: window
+[wdemo] wdemo: USB I/O started
+[xhci] xhci: HID key 4
+[wdemo] wdemo ember: key 0x4
+[wdemo] wdemo: USB I/O and input verified
+init: poweroff: stopping services
+acpi: entering S5
+screen: pixel 682,432 = ffffff

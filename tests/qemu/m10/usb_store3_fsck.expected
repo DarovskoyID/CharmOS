@@ -1,0 +1,4 @@
+# The host hook requires e2fsck -fn success before QEMU can start.
+vfs: root is disk1p2 (ext2)
+[fs_check] fs_check: data survived reboot
+ktest: PASS fs_check
