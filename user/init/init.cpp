@@ -114,6 +114,25 @@ bool start(int i) {
     roles[n++] = ap::kRoleLog;
   }
   Handle job = 0;
+  if (strcmp(s.name, "wm") == 0) {
+    // display.md §1, input.md §1: экран и ввод — только компоновщику.
+    if (charm_display() != 0) {
+      auto d = charm::handle_duplicate(charm_display(), charm::rights::kDuplicate | charm::rights::kTransfer |
+                                                            charm::rights::kRead | charm::rights::kMap);
+      if (d.ok()) {
+        extra[n] = static_cast<Handle>(d.value);
+        roles[n++] = ap::kRoleDisplay;
+      }
+    }
+    if (charm_input() != 0) {
+      auto d = charm::handle_duplicate(charm_input(), charm::rights::kDuplicate | charm::rights::kTransfer |
+                                                          charm::rights::kRead | charm::rights::kWrite);
+      if (d.ok()) {
+        extra[n] = static_cast<Handle>(d.value);
+        roles[n++] = ap::kRoleInput;
+      }
+    }
+  }
   bool pkgd = strcmp(s.name, "pkgd") == 0;
   if (pkgd) {
     // pkg.md §3: закрытая область — только pkgd; свой Job (передний план для

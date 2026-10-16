@@ -48,3 +48,9 @@
 | `rtl8169s-8110s-1.3.pdf` | Realtek RTL8169S/RTL8110S (MAC+PHY), Rev. 1.3 (2003) | http://www.bitsavers.org/components/realtek/RTL8139/RTL8110S_8169S_DataSheet_1.3_200309.pdf | M9 |
 | `rtl8169sc-8110sc-regs.pdf` | Realtek RTL8169SC/8110SC Registers, Rev. 1.0 | https://people.freebsd.org/~wpaul/RealTek/RTL8169SC_8110SC_reg_1_0.pdf | M9 |
 | `rtl8139-rtl8169-datasheets.md` | **Вторичный:** сводка автора по даташитам RTL8139/8169 (регистры, модели Rx/Tx). Расхождения — прав даташит | автор проекта | M9 |
+| `ibm-ps2-common-1990.pdf` | IBM PS/2 Hardware Interface Technical Reference — Common Interfaces (84F9735, 1990): «Keyboard/Auxiliary Device Controller» (8042), клавиатура и скан-коды | http://www.bitsavers.org/pdf/ibm/pc/ps2/84F9735_PS2_Hardware_Interface_Technical_Reference_Common_Interfaces_Oct90.pdf | M10 |
+| `ibm-ps2-hitr-1988.pdf` | IBM Personal System/2 Hardware Interface Technical Reference (1988): контроллер и клавиатура (наборы скан-кодов 1–3) | http://www.bitsavers.org/pdf/ibm/pc/ps2/Personal_System_2_Hardware_Interface_Technical_Reference_May88.pdf | M10 |
+| `hid-1.11.pdf` | USB Device Class Definition for HID 1.11 | https://www.usb.org/sites/default/files/hid1_11.pdf | M10 |
+| `hid-usage-tables-1.12.pdf` | USB HID Usage Tables 1.12 | https://www.usb.org/sites/default/files/documents/hut1_12v2.pdf | M10 |
+| `usb-2.0.pdf` | Universal Serial Bus Specification 2.0 (из архива usb_20_20211008.zip) | https://www.usb.org/sites/default/files/usb_20_20211008.zip | M10 |
+| `usb-msc-bot-1.0.pdf` | USB Mass Storage Class — Bulk-Only Transport 1.0 | https://www.usb.org/sites/default/files/usbmassbulk_10.pdf | M10 |

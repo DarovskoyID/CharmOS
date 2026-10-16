@@ -18,7 +18,13 @@ inline constexpr uint64_t kMapWrite = 1ull << 1;
 // U/S: доступно из ring 3. SDM §4.6: адрес пользовательский, только если U/S=1
 // во всех записях пути, поэтому флаг ставится и в промежуточные записи.
 inline constexpr uint64_t kMapUser = 1ull << 2;
-inline constexpr uint64_t kMapCacheDisable = 1ull << 4;  // PCD: для MMIO
+inline constexpr uint64_t kMapCacheDisable = 1ull << 4;  // PCD: для MMIO (PAT2 = UC-)
+// PWT без PCD выбирает PAT1, который init_pat делает write-combining (фреймбуфер).
+inline constexpr uint64_t kMapWriteCombine = 1ull << 3;
+
+// IA32_PAT (SDM Vol. 3A §12.12): PAT1 = WC вместо WT, остальное — как после
+// сброса (табл. 12-12). На каждом CPU одинаково, до любых WC-отображений.
+void init_pat();
 inline constexpr uint64_t kMapNoExec = 1ull << 63;
 
 // Выделяет одну страницу 4 КиБ (обнулять не обязан); возвращает её

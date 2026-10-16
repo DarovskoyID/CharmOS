@@ -38,6 +38,8 @@ uint32_t charm_log(void);
 uint32_t charm_job(void);
 uint32_t charm_system(void); /* закрытая область (только pkgd) */
 uint32_t charm_power(void);  /* питание машины (только init, power.md) */
+uint32_t charm_display(void);  /* экран (init и компоновщик, display.md) */
+uint32_t charm_input(void);    /* ввод (init и компоновщик, input.md) */
 /* i-й хендл стартового сообщения без роли (0 — нет). */
 uint32_t charm_extra_handle(int i);
 /* Хендл ядра за файловым дескриптором (0 — нет). */

@@ -105,6 +105,7 @@ void late_init_bsp() {
   c.apic_id = platform::local_apic().id();
   arch::x86_64::set_interrupt_handler(platform::kVectorWakeup, &wakeup_ipi_handler);
   arch::x86_64::set_interrupt_handler(platform::kVectorTlbFlush, &tlb_ipi_handler);
+  arch::x86_64::init_pat();
   proc::init_syscall_this_cpu();
 }
 
@@ -212,6 +213,7 @@ extern "C" void ap_entry(kernel::smp::Cpu* c) {
   arch::x86_64::load_idt();
   smp::install_gs(c);
   platform::init_this_cpu();
+  arch::x86_64::init_pat();
   proc::init_syscall_this_cpu();
   kprint("smp: cpu {} online (apic {})\n", c->index, c->apic_id);
   __atomic_store_n(&c->online, true, __ATOMIC_RELEASE);

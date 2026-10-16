@@ -10,7 +10,7 @@
 namespace abi::syscall {
 
 inline constexpr uint16_t kVersionMajor = 1;
-inline constexpr uint16_t kVersionMinor = 7;
+inline constexpr uint16_t kVersionMinor = 8;
 
 // §5
 enum class Number : uint64_t {
@@ -84,7 +84,24 @@ enum class Number : uint64_t {
   SignalReturn = 62,
   SignalAlarm = 63,
   SystemPower = 64,  // v1.7, power.md §2
+  DisplayInfo = 65,  // v1.8, display.md §2
+  DisplayMap = 66,
+  InputAttach = 67,  // v1.8, input.md §2
 };
+
+// display.md §2.1.
+struct DisplayInfo {
+  uint32_t width;
+  uint32_t height;
+  uint32_t pitch;
+  uint32_t format;
+  uint64_t size;
+  uint64_t reserved;
+};
+static_assert(sizeof(DisplayInfo) == 32);
+static_assert(__builtin_offsetof(DisplayInfo, size) == 16);
+inline constexpr uint32_t kDisplayBgrx = 1;
+inline constexpr uint32_t kDisplayRgbx = 2;
 
 // system_power: действие (power.md §2).
 inline constexpr uint64_t kPowerOff = 1;
@@ -108,6 +125,7 @@ inline constexpr uint32_t kPacketProcessExited = 6;   // process.md §3.3
 inline constexpr uint32_t kPacketConsoleReadable = 7; // console.md §1
 inline constexpr uint32_t kPacketThreadExited = 8;    // process.md §4
 inline constexpr uint32_t kPacketJobEmpty = 9;        // process.md §5
+inline constexpr uint32_t kPacketInputReadable = 10;  // input.md §2
 inline constexpr uint32_t kPortMaxPackets = 64;
 
 // Описание устройства для драйвера (docs/abi/driver.md §6.1).

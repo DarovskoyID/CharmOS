@@ -9,6 +9,7 @@
 // фреймы VMO освобождаются только после сброса — никто не обращается к
 // освобождённой памяти через устаревшую запись TLB.
 
+#include <abi/boot.hpp>
 #include <abi/process.hpp>
 #include <abi/syscall.hpp>
 #include <lib/cap/handle_table.hpp>
@@ -166,6 +167,11 @@ Status get_console(uint32_t h, uint32_t need);
 // --- питание (docs/abi/power.md) --------------------------------------------------------
 Status create_power(uint32_t rights, Cap** out);
 Status get_power(uint32_t h, uint32_t need);
+
+// --- экран (docs/abi/display.md) ---------------------------------------------------------
+Status create_display(const abi::boot::Framebuffer& fb, uint32_t rights, Cap** out);
+Status sys_display_info(uint32_t h, uint64_t user_out);
+Status sys_display_map(uint32_t h, uint64_t* out);
 void set_console_input_probe(bool (*probe)());
 // Из прерывания консоли: пришёл ввод — пакеты подписчикам.
 void console_readable();

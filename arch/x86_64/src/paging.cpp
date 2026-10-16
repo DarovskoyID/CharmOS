@@ -1,4 +1,5 @@
 #include <arch/x86_64/paging.hpp>
+#include <arch/x86_64/cpu.hpp>
 
 namespace arch::x86_64 {
 
@@ -8,7 +9,7 @@ constexpr uint64_t kPresent = 1ull << 0;
 constexpr uint64_t kWritable = 1ull << 1;
 constexpr uint64_t kPageSizeBit = 1ull << 7;           // PS в PDPTE/PDE
 constexpr uint64_t kAddrMask = 0x000ffffffffff000ull;  // биты 51:12
-constexpr uint64_t kLeafFlagMask = kMapWrite | kMapUser | kMapCacheDisable | kMapNoExec;
+constexpr uint64_t kLeafFlagMask = kMapWrite | kMapUser | kMapCacheDisable | kMapWriteCombine | kMapNoExec;
 
 size_t index(uint64_t virt, int level) {  // level: 3 = PML4 … 0 = PT
   return static_cast<size_t>((virt >> (12 + 9 * level)) & 0x1ff);
@@ -157,6 +158,13 @@ void PageTables::destroy_lower_half(PageFree free_page, void* ctx) {
     free_page(ctx, pdpt_phys);
     pml4[i4] = 0;
   }
+}
+
+void init_pat() {
+  // Табл. 12-10: 06 WB, 01 WC, 07 UC-, 00 UC, 04 WT. PA0..PA7 — байты 0..7.
+  constexpr uint64_t kPat = 0x06ull | 0x01ull << 8 | 0x07ull << 16 | 0x00ull << 24 | 0x06ull << 32 |
+                            0x04ull << 40 | 0x07ull << 48 | 0x00ull << 56;
+  wrmsr(0x277, kPat);  // IA32_PAT
 }
 
 }  // namespace arch::x86_64

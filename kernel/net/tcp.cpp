@@ -93,6 +93,16 @@ Tcb g_tcb[kConns];
 constinit uint16_t g_ephemeral = 49152;
 constinit uint32_t g_iss_clock = 0x43480000;
 constinit bool g_timer = false;
+// Отладка (tcp_dump): последние входящие сегменты — что пришло и что с ним стало.
+struct Trace {
+  uint32_t seq, ack, len, rcv_nxt;
+  uint8_t flags;
+  bool dropped;  // потерян нарочно (tcp_set_drop)
+};
+constexpr uint32_t kTrace = 24;
+constinit Trace g_trace[kTrace] = {};
+constinit uint32_t g_trace_next = 0;
+
 constinit uint32_t g_drop_every = 0;
 constinit uint32_t g_drop_count = 0;
 
@@ -409,7 +419,15 @@ void tcp_input(uint32_t src, uint32_t dst, const uint8_t* seg, uint32_t len) {
   uint32_t seg_len = dlen + ((flags & kSyn) != 0 ? 1 : 0) + ((flags & kFin) != 0 ? 1 : 0);
 
   sync::MutexGuard guard(g_lock);
-  if (drop_now()) return;
+  bool dropped = drop_now();
+  {
+    uint32_t nxt = 0;
+    for (Tcb& c : g_tcb) {
+      if (c.used && c.lport == dport && c.rport == sport && c.rip == src) nxt = c.rcv_nxt;
+    }
+    g_trace[g_trace_next++ % kTrace] = {seq, ack, dlen, nxt, flags, dropped};
+  }
+  if (dropped) return;
   // Поиск: точное соединение, затем слушатель.
   Tcb* t = nullptr;
   Tcb* listener = nullptr;
@@ -764,6 +782,16 @@ void tcp_dump(int c) {
          t.snd.size, t.rcv_nxt - t.irs, t.rcv.size, t.rto / kMs,
          t.retx_at > now ? (t.retx_at - now) / kMs : 0, t.retries, t.cwnd, t.ssthresh, t.dup_acks,
          static_cast<uint32_t>(t.fin_sent), t.ooo_count);
+  for (uint32_t i = 0; i < t.ooo_count; ++i) {
+    kprint("tcp:   ooo [{}, {})\n", t.ooo[i].begin - t.irs, t.ooo[i].end - t.irs);
+  }
+  // Входящие (всех соединений), от старых к новым; номера — от irs этого соединения.
+  for (uint32_t k = 0; k < kTrace; ++k) {
+    const Trace& r = g_trace[(g_trace_next + k) % kTrace];
+    if (r.len == 0 && r.flags == 0) continue;
+    kprint("tcp:   in seq {} len {} flags {x} ack {} rcv_nxt {}{}\n", r.seq - t.irs, r.len, r.flags, r.ack - t.iss,
+           r.rcv_nxt - t.irs, r.dropped ? " DROPPED" : "");
+  }
 }
 
 Status tcp_shutdown(int c, bool read, bool write) {

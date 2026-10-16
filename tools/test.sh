@@ -29,10 +29,12 @@ for exp in "$dir"/*.expected; do
   # прошивки: OVMF сам читает serial), затем stdin держится открытым.
   # Ввод держится открытым, пока QEMU не вышел (флаг $done), но не дольше таймаута.
   done="$log.done"
-  rm -f "$done"
+  rm -f "$done" "$log.screen"
   hold() { for _ in $(seq 1 "$timeout_s"); do [[ -f $done ]] && return; sleep 1; done; }
   # <сценарий>.keys — ввод по шагам: строка — набрать и Enter, «^C» — Ctrl-C,
-  # «#sleep N» — пауза, «#wait ТЕКСТ» — ждать ТЕКСТ в serial-выводе.
+  # «#sleep N» — пауза, «#wait ТЕКСТ» — ждать ТЕКСТ в serial-выводе,
+  # «#pixel X Y ...» — снимок экрана (tools/qemu-screen.py): строки
+  # «screen: …» идут в конец проверяемого вывода.
   if [[ -f "$dir/$name.keys" ]]; then
     : >"$log"
     { while IFS= read -r line || [[ -n "$line" ]]; do
@@ -41,6 +43,7 @@ for exp in "$dir"/*.expected; do
           "#sleep "*) sleep "${line#\#sleep }" ;;
           "#wait "*) want=${line#\#wait }
                      for _ in $(seq 1 "$timeout_s"); do grep -qF -- "$want" "$log" && break; sleep 1; done ;;
+          "#pixel "*) python3 "$root/tools/qemu-screen.py" pixel ${line#\#pixel } >>"$log.screen" ;;
           "^C") printf '\003' ;;
           *) printf '%s\n' "$line"; sleep 0.3 ;;
         esac
@@ -66,6 +69,7 @@ for exp in "$dir"/*.expected; do
   # Ожидаемые строки по порядку.
   pos=0
   tr -d '\r' <"$log" >"$log.clean"
+  [[ -f "$log.screen" ]] && cat "$log.screen" >>"$log.clean"
   while IFS= read -r want || [[ -n "$want" ]]; do
     [[ -z "$want" || "$want" == \#* ]] && continue
     line=$(tail -n +"$((pos + 1))" "$log.clean" | grep -nF -m1 -- "$want" | cut -d: -f1)

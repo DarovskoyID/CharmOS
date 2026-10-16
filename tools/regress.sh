@@ -2,7 +2,7 @@
 # Полная регрессия: сборка, хост-тесты, QEMU-сценарии всех закрытых фаз.
 # Ход — в build/regress.state (строка состояния: tools/regress-status.sh).
 cd "$(dirname "$0")/.."
-phases=(m0 m1 m2 m3 m4 m5 m6 m7 m8 m8.5 m9)
+phases=(m0 m1 m2 m3 m4 m5 m6 m7 m8 m8.5 m9 m10)
 total=0
 for p in "${phases[@]}"; do total=$((total + $(ls tests/qemu/$p/*.expected | wc -l))); done
 echo "$(date +%s) $total" >build/regress.state

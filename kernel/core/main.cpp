@@ -48,6 +48,7 @@ using kernel::mm::phys_to_virt;
 
 // Переменная в .bss: загрузчик обязан обнулить хвост сегмента.
 constinit uint64_t g_bss_probe[64];
+constinit abi::boot::Framebuffer g_boot_fb = {};  // для хендла Display (display.md)
 
 // Проверка контракта docs/abi/boot.md (то, что тестировал M1).
 void verify_handoff(const BootInfo& info, uint64_t stack_aligned) {
@@ -82,6 +83,7 @@ void verify_handoff(const BootInfo& info, uint64_t stack_aligned) {
   kprint("boot: memory regions={} usable MiB={}\n", info.memory_map_count, usable >> 20);
 
   const abi::boot::Framebuffer& fb = info.framebuffer;
+  g_boot_fb = fb;
   if (fb.base != 0) {
     kprint("boot: framebuffer {}x{}\n", fb.width, fb.height);
   } else {
@@ -137,8 +139,8 @@ constinit size_t g_init_len = 0;
     auto s = kernel::net::dhcp_configure(kernel::platform::now_ns() + 10'000'000'000ull);
     if (s != kernel::net::Status::Ok) kprint("init: no DHCP lease\n");
   }
-  Cap* caps[6];
-  uint32_t roles[6];
+  Cap* caps[8];
+  uint32_t roles[8];
   uint32_t n = 0;
   if (kernel::fs::mounted() && kernel::fs::root_cap(&caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleRoot;
   if (kernel::fs::system_mounted() && kernel::fs::system_cap(&caps[n]) == kernel::ipc::Status::Ok) {
@@ -148,6 +150,12 @@ constinit size_t g_init_len = 0;
   if (kernel::ipc::create_power(abi::syscall::rights::kDuplicate | abi::syscall::rights::kTransfer | abi::syscall::rights::kWrite, &caps[n]) ==
       kernel::ipc::Status::Ok) {
     roles[n++] = ap::kRolePower;
+  }
+  // display.md §1: экран — только init (дальше — компоновщику).
+  if (kernel::ipc::create_display(g_boot_fb, abi::syscall::rights::kDuplicate | abi::syscall::rights::kTransfer |
+                                                 abi::syscall::rights::kRead | abi::syscall::rights::kMap,
+                                  &caps[n]) == kernel::ipc::Status::Ok) {
+    roles[n++] = ap::kRoleDisplay;
   }
   if (kernel::console::console_cap(&caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleConsole;
   if (kernel::net::net_cap(&caps[n]) == kernel::ipc::Status::Ok) roles[n++] = ap::kRoleNet;

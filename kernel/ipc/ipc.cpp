@@ -30,7 +30,7 @@ using arch::x86_64::kPageSize;
 
 // --- объекты ------------------------------------------------------------------------
 
-enum class Type : uint8_t { Endpoint, Vmo, Port, Device, Interrupt, FsNode, Net, Socket, Console, Thread, Process, Job, Power };
+enum class Type : uint8_t { Endpoint, Vmo, Port, Device, Interrupt, FsNode, Net, Socket, Console, Thread, Process, Job, Power, Display };
 
 struct Object {
   Type type;
@@ -73,6 +73,7 @@ struct Vmo {
   uint64_t pages;
   uint64_t* frames;
   bool mmio;  // BAR устройства: некэшируемо, фреймы не принадлежат VMO (kMmioHole — не отображать)
+  bool wc;    // при mmio: write-combining (фреймбуфер, display.md §2.2)
   struct Device* dma_dev;  // DMA-буфер: устройство (держит ссылку), в чьём домене он виден
   uint64_t iova;           // адрес буфера для устройства
   struct Job* charged;     // Job, которому учтены страницы (держит ссылку), или nullptr
@@ -551,7 +552,7 @@ void release_object(Object* obj) {
     mm::kfree(obj);
     return;
   }
-  if (obj->type == Type::Power) {
+  if (obj->type == Type::Power || obj->type == Type::Display) {
     mm::kfree(obj);
     return;
   }
@@ -1097,7 +1098,7 @@ Status sys_vmo_map(uint32_t h, uint64_t req, uint64_t* out) {
   if (m == nullptr) return Status::NoMemory;
   uint64_t addr = p->ipc.map_next;
   uint64_t flags = arch::x86_64::kMapNoExec | ((req & rights::kWrite) != 0 ? arch::x86_64::kMapWrite : 0);
-  if (v->mmio) flags |= arch::x86_64::kMapCacheDisable;
+  if (v->mmio) flags |= v->wc ? arch::x86_64::kMapWriteCombine : arch::x86_64::kMapCacheDisable;
   for (uint64_t i = 0; i < v->pages; ++i) {
     if (v->frames[i] == kMmioHole) continue;
     if (p->space.map_phys(addr + i * kPageSize, v->frames[i], flags).is_err()) {
@@ -2047,6 +2048,91 @@ Status create_power(uint32_t r, Cap** out) {
   }
   *out = c;
   return Status::Ok;
+}
+
+// --- экран (docs/abi/display.md) ---------------------------------------------------------
+
+constinit abi::boot::Framebuffer g_fb = {};
+
+Status create_display(const abi::boot::Framebuffer& fb, uint32_t r, Cap** out) {
+  if (fb.base == 0) return Status::NotSupported;
+  auto* o = alloc_zeroed<Object>(sizeof(Object));
+  if (o == nullptr) return Status::NoMemory;
+  o->type = Type::Display;
+  sync::SpinGuard guard(g_lock);
+  g_fb = fb;
+  Cap* c = new_cap(o, r, nullptr);
+  if (c == nullptr) {
+    mm::kfree(o);
+    return Status::NoMemory;
+  }
+  *out = c;
+  return Status::Ok;
+}
+
+namespace {
+
+Status display_check(uint32_t h, uint32_t need) {
+  Cap* c = lookup(me(), h);
+  if (c == nullptr) return Status::BadHandle;
+  if (c->obj->type != Type::Display) return Status::WrongType;
+  return (c->rights & need) == need ? Status::Ok : Status::AccessDenied;
+}
+
+bool display_format(uint32_t* out) {
+  if (g_fb.format == abi::boot::PixelFormat::Bgrx8888) {
+    *out = abi::syscall::kDisplayBgrx;
+  } else if (g_fb.format == abi::boot::PixelFormat::Rgbx8888) {
+    *out = abi::syscall::kDisplayRgbx;
+  } else {
+    return false;
+  }
+  return true;
+}
+
+}  // namespace
+
+Status sys_display_info(uint32_t h, uint64_t user_out) {
+  abi::syscall::DisplayInfo info{};
+  {
+    sync::SpinGuard guard(g_lock);
+    if (Status s = display_check(h, rights::kRead); s != Status::Ok) return s;
+    if (!display_format(&info.format)) return Status::NotSupported;
+    info.width = g_fb.width;
+    info.height = g_fb.height;
+    info.pitch = g_fb.pitch;
+    info.size = (uint64_t{g_fb.pitch} * g_fb.height + kPageSize - 1) / kPageSize * kPageSize;
+  }
+  return proc::copy_to_user(user_out, &info, sizeof info) ? Status::Ok : Status::BadAddress;
+}
+
+Status sys_display_map(uint32_t h, uint64_t* out) {
+  uint64_t base, size;
+  {
+    sync::SpinGuard guard(g_lock);
+    if (Status s = display_check(h, rights::kMap); s != Status::Ok) return s;
+    uint32_t fmt;
+    if (!display_format(&fmt) || g_fb.base % kPageSize != 0) return Status::NotSupported;
+    base = g_fb.base;
+    size = (uint64_t{g_fb.pitch} * g_fb.height + kPageSize - 1) / kPageSize * kPageSize;
+  }
+  uint64_t pages = size / kPageSize;
+  auto* v = alloc_zeroed<Vmo>(sizeof(Vmo));
+  auto* frames = alloc_zeroed<uint64_t>(pages * sizeof(uint64_t));
+  if (v == nullptr || frames == nullptr) {
+    if (v != nullptr) mm::kfree(v);
+    if (frames != nullptr) mm::kfree(frames);
+    return Status::NoMemory;
+  }
+  for (uint64_t i = 0; i < pages; ++i) frames[i] = base + i * kPageSize;
+  v->base.type = Type::Vmo;
+  v->size = size;
+  v->pages = pages;
+  v->frames = frames;
+  v->mmio = true;
+  v->wc = true;
+  sync::SpinGuard guard(g_lock);
+  return install_new(&v->base, rights::kRead | rights::kWrite | rights::kMap | rights::kTransfer, out);
 }
 
 Status get_power(uint32_t h, uint32_t need) {
