@@ -21,6 +21,19 @@ BootInfo valid() {
 }  // namespace
 
 TEST(boot_info_valid) { CHECK(check_boot_info(valid()) == nullptr); }
+TEST(boot_info_legacy_and_time_extension) {
+  BootInfo b = valid();
+  b.version_minor = 0;
+  b.size = abi::boot::kV1BaseSize;
+  CHECK(check_boot_info(b) == nullptr);
+  b.version_minor = 1;
+  b.flags |= abi::boot::kFlagRealtime;
+  CHECK(check_boot_info(b) != nullptr);
+  b.size = sizeof(BootInfo);
+  CHECK(check_boot_info(b) == nullptr);
+  b.flags = abi::boot::kFlagRtcAssumedUtc;
+  CHECK(check_boot_info(b) != nullptr);
+}
 
 TEST(boot_info_newer_minor_accepted) {
   BootInfo b = valid();

@@ -19,6 +19,7 @@ charmos_host_test(test_boot_info test_boot_info.cpp ${CMAKE_SOURCE_DIR}/kernel/c
 target_include_directories(test_boot_info PRIVATE ${CMAKE_SOURCE_DIR}/kernel/core)
 target_link_libraries(test_boot_info PRIVATE abi)
 charmos_host_test(test_core test_core.cpp)
+charmos_host_test(test_calendar test_calendar.cpp)
 charmos_host_test(test_mm test_mm.cpp)
 target_link_libraries(test_mm PRIVATE mm)
 charmos_host_test(test_cmdline test_cmdline.cpp ${CMAKE_SOURCE_DIR}/kernel/core/cmdline.cpp)

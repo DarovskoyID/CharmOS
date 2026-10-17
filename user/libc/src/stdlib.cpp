@@ -11,6 +11,9 @@
 #include <unistd.h>
 
 #include "internal.hpp"
+static_assert(sizeof(div_t) == 8 && __builtin_offsetof(div_t, rem) == 4);
+static_assert(sizeof(ldiv_t) == 16 && __builtin_offsetof(ldiv_t, rem) == 8);
+static_assert(sizeof(lldiv_t) == 16 && __builtin_offsetof(lldiv_t, rem) == 8);
 
 namespace libc {
 
@@ -225,6 +228,9 @@ int atoi(const char* s) { return static_cast<int>(strtol(s, nullptr, 10)); }
 long atol(const char* s) { return strtol(s, nullptr, 10); }
 int abs(int v) { return v < 0 ? -v : v; }
 long labs(long v) { return v < 0 ? -v : v; }
+div_t div(int numerator, int denominator) { return {numerator / denominator, numerator % denominator}; }
+ldiv_t ldiv(long numerator, long denominator) { return {numerator / denominator, numerator % denominator}; }
+lldiv_t lldiv(long long numerator, long long denominator) { return {numerator / denominator, numerator % denominator}; }
 
 static unsigned long g_rand = 1;
 int rand(void) {

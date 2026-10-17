@@ -19,7 +19,8 @@ endforeach()
 # точкой входа (_start из libc), без crt0 из rt.
 add_library(c STATIC
   libc/src/start.cpp libc/src/string.cpp libc/src/stdlib.cpp libc/src/stdio.cpp
-  libc/src/fd.cpp libc/src/pthread.cpp libc/src/socket.cpp libc/src/spawn.cpp)
+  libc/src/fd.cpp libc/src/pthread.cpp libc/src/socket.cpp libc/src/spawn.cpp
+  libc/src/random.cpp libc/src/pthread_extra.cpp libc/src/assert.cpp)
 target_include_directories(c PUBLIC libc/include rt/include)
 target_link_libraries(c PUBLIC abi)
 target_compile_options(c PRIVATE -fno-builtin)
@@ -35,6 +36,8 @@ function(charmos_c_program name)
 endfunction()
 
 charmos_c_program(libc_test tests/libc_test.cpp)
+charmos_c_program(runtime_test tests/runtime_test.cpp)
+charmos_c_program(runtime_threads tests/runtime_threads.cpp)
 charmos_c_program(init init/init.cpp)
 foreach(prog logd sh echo cat ls mkdir rm sleep httpd corrupt wm wdemo)
   charmos_c_program(${prog} bin/${prog}/${prog}.cpp)

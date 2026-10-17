@@ -1,6 +1,57 @@
-# Передача работы (2026-10-16): состояние CharmOS для следующего агента
+# Передача работы (2026-10-17): состояние CharmOS для следующего агента
 
 ## Дополнение 2026-10-17: пакет рабочего стола
+
+Обновление: официальный архив получен и полностью импортирован: 1342990
+записей, XZ integrity passed, chrome/VERSION 155.0.8059.84. Итоговый отчёт
+build/chromium/archive-import.json. Исходники внутри ext4-кеша на A:;
+доступ через tools/chromium/with-cache.sh (см. plans/CHROMIUM-PORT.md).
+На C: мало места: туда исходники и сборку не размещать. Git sync не нужен.
+Реализованы boot ABI 1.1 / syscall ABI 1.12: UTC из UEFI и аппаратная
+энтропия RDRAND/TPM; docs/abi/time-random.md. Добавлены libc rwlock/TSD с
+поколениями ключей, очисткой при return/pthread_exit, div/ldiv/lldiv и assert.
+TPM runtime mutex общий с sysarea unlock: драйверы уже работают при mount.
+Новый page cache объединяет чтение/writeback до 6 страниц старого block ABI.
+Первичное шифрование 15 МиБ: 156099 → 22066 мс в TCG (около 7,1×).
+Проверен 200-КиБ файл с записью через границы страниц после перезагрузки,
+SATA/virtio/NVMe/USB, fsck и аварийный перезапуск NVMe.
+
+Финальная сборка прошла: build/browser-cache-build.log. 29/29 host зелёные
+(build/browser-cache-host.log). Финальные 39 QEMU сценариев зелёные, код 0:
+build/browser-cache-regression.log — runtime (4), m6 (10), m8.5/store,
+m8/libc, m9/sysarea1+sysarea2_reboot+sysarea3_notpm, весь m10 (20).
+tools/test.sh теперь принимает [phase] [timeout] [scenario] для адресного
+повтора. Не редактировать исполняемый test.sh во время прогона: shell может
+прочитать новые байты со старого смещения (один промежуточный прогон так
+оборвался; финальный полностью повторён). Не собирать параллельно с QEMU.
+Ранние прогоны M0–M9 сохранены в build/browser-runtime-*.log; первый TCP
+и store упирались в 60 с. Бюджеты tcp/sock теперь 180 с, store 300 с;
+внутренние проверки байтов/подписи/сроков не ослаблены. Весь m7 повторён
+успешно за 144 с. Редкий дефект TCP НЕ объявлен исправленным, TCP-код не менялся.
+Снимки свежего финального прогона опубликованы сразу: build/screenshots/
+runtime-calc-engineering.png, runtime-control.png, runtime-editor-markdown.png.
+Windows input→pixel 35426/32251 мкс, compose около 4,2–6,0 мс; это не
+утверждение об устранении всех задержек виртуалки. Реальное железо не проверялось.
+
+Chromium ещё не собран, реального окна браузера пока нет.
+Реальный getentropy.cc BoringSSL прошёл freestanding syntax probe с bundled
+libc++, без Linux-заголовков. thread_pthread.cc пока заблокирован wchar/
+mbstate_t и неполным stdio. Логи build/chromium/tls-probe. Не маскировать
+это пустыми объявлениями: следующий пакет — Unicode/C++ runtime, затем
+полная сборка/линковка crypto+ssl и HTTPS с проверкой сертификатов.
+Порядок владельца остаётся Chromium → ИИ → магазин. M10 НЕ закрывать.
+Ниже сохранена предыстория; при расхождениях это обновление актуальнее.
+
+6107d39 и f3df793 отправлены в origin/main по явному разрешению владельца.
+Для Chromium закреплены официальный Stable 155.0.8059.84 и depot_tools.
+Git fetch срывался, поэтому владелец передал официальный исходный архив
+4390800948 байт; импорт завершён (см. обновление выше). Git sync остановлен,
+не перезапускать. Прежний лог build/chromium/fetch.log. Весь сторонний код
+и кеш остаются в игнорируемом build/chromium с исходными лицензиями.
+tools/chromium и plans/CHROMIUM-PORT.md — инфраструктура порта, не браузер.
+Исходный baseline имел time()=uptime и недоступный пользователю TPM random;
+новый пакет boot 1.1 / syscall 1.12 исправляет это и проверен выше.
+Следующие реальные зависимости — libc++ и TLS, затем Chromium base/Ozone.
 
 Первый пакет ниже сохранён коммитом 6107d39. Следом реализованы шесть
 профилей калькулятора: инженерный (включая ln/log/exp/tan и 1e-6), графики,

@@ -156,3 +156,22 @@ Windows input→pixel 36456/34057 мкс, compose около 4,4–6,4 мс в �
 9 desktop-случаев ASan/UBSan; QEMU calc_profiles и universal зелёные.
 Снимки calc-*.png опубликованы сразу. Произвольные схемы/механизмы,
 изотопы/реакции и полноценный CAD ещё не реализованы.
+
+## 2026-10-17: системный пакет для Chromium и диска
+
+Браузер ещё не собран, M10 открыт. Официальный архив Chromium импортирован,
+начат настоящий freestanding порт runtime: UTC, аппаратная энтропия,
+getrandom/getentropy, rwlock и данные потоков с деструкторами. Подробности —
+CHROMIUM-PORT.md; BoringSSL getentropy.cc проходит syntax probe, thread TU
+пока требует wchar/mbstate_t/stdio. HTTPS ещё не работает.
+
+Дисковый page cache объединяет до 6 соседних страниц старого block ABI.
+Первичное шифрование 15 МиБ в TCG: 156099 → 22066 мс, около 7,1× быстрее.
+Это не замер отрисовки. Сохранность больших/неполных записей проверена после
+перезагрузки и аварийного перезапуска NVMe; SATA, virtio и USB тоже прошли.
+
+Финальный пакет: 29 host и 39 QEMU зелёные, включая все 20 сценариев M10.
+Лог build/browser-cache-regression.log. Input→pixel windows: 35426/32251 мкс,
+compose около 4,2–6,0 мс. Свежие снимки runtime-calc-engineering.png,
+runtime-control.png, runtime-editor-markdown.png из build/screenshots сразу
+отправлены в чат; графический интерфейс в этом пакете не переделывался.

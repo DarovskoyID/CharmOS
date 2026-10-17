@@ -1,0 +1,4 @@
+runtime: UTC and clock validation ok
+runtime: missing entropy fails safely
+ktest: bin/runtime_test exited with 0
+ktest: PASS runtime_none

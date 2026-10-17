@@ -455,16 +455,24 @@ int charm_fd_from_handle(uint32_t h, int kind) {
 
 // --- время -----------------------------------------------------------------------------------
 
-int clock_gettime(clockid_t, struct timespec* ts) {
-  uint64_t ns = charm::now_ns();
+int clock_gettime(clockid_t id, struct timespec* ts) {
+  if (!ts) return fail_errno(EFAULT);
+  if (id != CLOCK_REALTIME && id != CLOCK_MONOTONIC) return fail_errno(EINVAL);
+  uint64_t ns = 0;
+  if (id == CLOCK_REALTIME) {
+    auto result = charm::realtime();
+    if (!result.ok()) return fail(result.status);
+    ns = result.value;
+  } else ns = charm::now_ns();
   ts->tv_sec = static_cast<time_t>(ns / 1'000'000'000);
   ts->tv_nsec = static_cast<long>(ns % 1'000'000'000);
   return 0;
 }
 
 time_t time(time_t* t) {
-  // Часов реального времени нет (RTC — позже): секунды с загрузки.
-  auto v = static_cast<time_t>(charm::now_ns() / 1'000'000'000);
+  auto result = charm::realtime();
+  if (!result.ok()) return static_cast<time_t>(fail(result.status));
+  auto v = static_cast<time_t>(result.value / 1'000'000'000);
   if (t != nullptr) *t = v;
   return v;
 }

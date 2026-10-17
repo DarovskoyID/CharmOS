@@ -74,6 +74,10 @@ inline SysResult syscall6(Number n, uint64_t a1, uint64_t a2, uint64_t a3, uint6
 inline SysResult raw_syscall(uint64_t number) { return syscall0(static_cast<Number>(number)); }
 
 inline SysResult abi_version() { return syscall0(Number::AbiVersion); }
+inline SysResult realtime() { return syscall0(Number::ClockRealtime); }
+inline SysResult random_read(void* buf, size_t size, uint64_t flags = 0) {
+  return syscall3(Number::RandomRead, reinterpret_cast<uint64_t>(buf), size, flags);
+}
 
 inline SysResult debug_write(const void* buf, uint64_t len) {
   return syscall2(Number::DebugWrite, reinterpret_cast<uint64_t>(buf), len);

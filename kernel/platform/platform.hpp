@@ -4,6 +4,7 @@
 // все I/O APIC (все входы замаскированы), HPET, калибровка TSC и таймера APIC.
 
 #include <abi/boot.hpp>
+#include <abi/syscall.hpp>
 #include <arch/x86_64/apic.hpp>
 #include <arch/x86_64/hpet.hpp>
 #include <arch/x86_64/pm_timer.hpp>
@@ -72,5 +73,7 @@ void free_device_vector(uint8_t vector);
 // Предполагается, что TSC всех CPU идут синхронно (в QEMU это так; проверка
 // invariant TSC — после появления SDM Vol. 3B, см. ROADMAP).
 uint64_t now_ns();
+// UTC since Unix epoch, if provided by firmware; never used for deadlines.
+abi::syscall::Status realtime_ns(uint64_t* out);
 
 }  // namespace kernel::platform

@@ -15,6 +15,7 @@ using arch::x86_64::kPageSize;
 using lib::fs::FsError;
 
 constexpr uint32_t kCachePages = 2048;  // 8 МиБ
+static_assert(kCachePages > block::kMaxPages);
 
 struct Page {
   uint64_t phys;  // 0 — слот ещё без фрейма
@@ -41,6 +42,7 @@ bool page_lba(uint32_t disk, uint64_t index, uint64_t* lba) {
 lib::fs::Status write_back(Page& p) {
   uint64_t lba;
   if (!page_lba(p.disk, p.index, &lba)) return lib::fs::fail(FsError::IoError);
+  ++g_stats.write_requests;
   if (block::transfer(p.disk, true, lba, &p.phys, 1) != block::Status::Ok) {
     return lib::fs::fail(FsError::IoError);
   }
@@ -74,6 +76,7 @@ Page* get(uint32_t disk, uint64_t index, bool fill) {
   }
   if (fill) {
     uint64_t lba;
+    ++g_stats.read_requests;
     if (!page_lba(disk, index, &lba) ||
         block::transfer(disk, false, lba, &victim->phys, 1) != block::Status::Ok) {
       return nullptr;
@@ -83,6 +86,58 @@ Page* get(uint32_t disk, uint64_t index, bool fill) {
   }
   *victim = {victim->phys, disk, index, true, false, ++g_clock};
   return victim;
+}
+
+Page* cached(uint32_t disk, uint64_t index) {
+  for (Page& p : g_pages)
+    if (p.valid && p.disk == disk && p.index == index) return &p;
+  return nullptr;
+}
+
+// Reserve consecutive missing pages under g_lock, then fill them in one existing
+// block-ABI request. A cached page (including a dirty one) ends the batch.
+Page* read_pages(uint32_t disk, uint64_t index, uint32_t wanted) {
+  if (cached(disk, index)) return get(disk, index, true);
+  Page* pages[block::kMaxPages] = {};
+  uint64_t frames[block::kMaxPages] = {};
+  uint32_t count = 0;
+  while (count < wanted && !cached(disk, index + count)) {
+    Page* p = get(disk, index + count, false);
+    if (!p) break;
+    pages[count] = p;
+    frames[count++] = p->phys;
+  }
+  uint64_t lba = 0;
+  bool ok = count != 0 && page_lba(disk, index, &lba);
+  if (ok) {
+    ++g_stats.read_requests;
+    ok = block::transfer(disk, false, lba, frames, count) == block::Status::Ok;
+  }
+  if (!ok) {
+    for (uint32_t i = 0; i < count; ++i) pages[i]->valid = false;
+    return nullptr;
+  }
+  return pages[0];
+}
+
+lib::fs::Status write_pages(Page& first) {
+  Page* pages[block::kMaxPages] = {&first};
+  uint64_t frames[block::kMaxPages] = {first.phys};
+  uint32_t count = 1;
+  while (count < block::kMaxPages) {
+    Page* next = cached(first.disk, first.index + count);
+    if (!next || !next->dirty) break;
+    pages[count] = next;
+    frames[count++] = next->phys;
+  }
+  uint64_t lba;
+  if (!page_lba(first.disk, first.index, &lba)) return lib::fs::fail(FsError::IoError);
+  ++g_stats.write_requests;
+  if (block::transfer(first.disk, true, lba, frames, count) != block::Status::Ok)
+    return lib::fs::fail(FsError::IoError);
+  for (uint32_t i = 0; i < count; ++i) pages[i]->dirty = false;
+  g_stats.writebacks += count;
+  return lib::fs::ok();
 }
 
 }  // namespace
@@ -95,7 +150,10 @@ lib::fs::Status DiskIo::read(uint64_t offset, void* buf, size_t len) {
     uint64_t abs = offset_ + offset + done;
     uint64_t in = abs % kPageSize;
     size_t chunk = kPageSize - in < len - done ? static_cast<size_t>(kPageSize - in) : len - done;
-    Page* p = get(disk_, abs / kPageSize, true);
+    uint64_t available = in == 0 ? (len - done) / kPageSize : 0;
+    uint32_t wanted = available > block::kMaxPages ? block::kMaxPages : static_cast<uint32_t>(available);
+    if (!wanted) wanted = 1;
+    Page* p = read_pages(disk_, abs / kPageSize, wanted);
     if (p == nullptr) return lib::fs::fail(FsError::IoError);
     __builtin_memcpy(out + done, mm::phys_to_virt<uint8_t>(p->phys) + in, chunk);
     done += chunk;
@@ -124,7 +182,7 @@ lib::fs::Status DiskIo::write(uint64_t offset, const void* buf, size_t len) {
 lib::fs::Status DiskIo::flush() {
   sync::MutexGuard guard(g_lock);
   for (Page& p : g_pages) {
-    if (p.valid && p.dirty && p.disk == disk_ && write_back(p).is_err()) {
+    if (p.valid && p.dirty && p.disk == disk_ && write_pages(p).is_err()) {
       return lib::fs::fail(FsError::IoError);
     }
   }

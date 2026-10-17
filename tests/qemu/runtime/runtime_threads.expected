@@ -1,0 +1,4 @@
+threads runtime: isolated keys, reuse and destructors ok
+threads runtime: concurrent readers and writers ok
+ktest: bin/runtime_threads exited with 0
+ktest: PASS runtime_threads

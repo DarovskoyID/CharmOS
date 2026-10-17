@@ -1055,6 +1055,25 @@ void test_libc() {
   run_with_start("bin/libc_test", kArgs, sizeof kArgs, 2, kEnv, sizeof kEnv, 2);
   pass();
 }
+void test_runtime_cpu() {
+  static const char args[] = "runtime_test\0cpu";
+  run_with_start("bin/runtime_test", args, sizeof args, 2);
+  pass();
+}
+void test_runtime_threads() {
+  run_with_start("bin/runtime_threads", "runtime_threads");
+  pass();
+}
+void test_runtime_tpm() {
+  static const char args[] = "runtime_test\0tpm";
+  run_with_start("bin/runtime_test", args, sizeof args, 2);
+  pass();
+}
+void test_runtime_none() {
+  static const char args[] = "runtime_test\0none";
+  run_with_start("bin/runtime_test", args, sizeof args, 2);
+  pass();
+}
 
 void test_spawn() {
   run_with_start("bin/spawn_parent", "spawn_parent");
@@ -1145,6 +1164,10 @@ constexpr Test kTests[] = {
     {"spawn", &test_spawn},
     {"signals", &test_signals},
     {"libc", &test_libc},
+    {"runtime_cpu", &test_runtime_cpu},
+    {"runtime_threads", &test_runtime_threads},
+    {"runtime_tpm", &test_runtime_tpm},
+    {"runtime_none", &test_runtime_none},
     {"fs", &test_fs},
     {"fs_check", &test_fs_check},
     {"fs_crash", &test_fs_crash},
@@ -1165,7 +1188,9 @@ bool needs_drivers() {
          g_selected == StringView("tcp") || g_selected == StringView("sock") ||
          g_selected == StringView("udp") || g_selected == StringView("spawn") ||
          g_selected == StringView("signals") || g_selected == StringView("libc") ||
-         g_selected == StringView("sysarea") || g_selected == StringView("sysarea_locked");
+         g_selected == StringView("sysarea") || g_selected == StringView("sysarea_locked") ||
+         g_selected == StringView("runtime_cpu") || g_selected == StringView("runtime_tpm") ||
+         g_selected == StringView("runtime_none") || g_selected == StringView("runtime_threads");
 }
 StringView selected() { return g_selected; }
 

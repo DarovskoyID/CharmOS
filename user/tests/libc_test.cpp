@@ -43,6 +43,12 @@ void* worker(void* arg) {
 }  // namespace
 
 extern "C" int main(int argc, char** argv) {
+  auto small = div(-17, 5);
+  CHECK(small.quot == -3 && small.rem == -2);
+  auto large = ldiv(9000000007L, -3L);
+  CHECK(large.quot == -3000000002L && large.rem == 1);
+  auto wide = lldiv(-9000000007LL, 3LL);
+  CHECK(wide.quot == -3000000002LL && wide.rem == -1);
   CHECK(argc == 2 && strcmp(argv[0], "libc_test") == 0 && strcmp(argv[1], "arg1") == 0);
   CHECK(strcmp(getenv("HOME"), "/home") == 0 && getenv("NOPE") == nullptr);
   CHECK(setenv("X", "1", 0) == 0 && strcmp(getenv("X"), "1") == 0);

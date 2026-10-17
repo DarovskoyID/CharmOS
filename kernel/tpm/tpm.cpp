@@ -3,11 +3,13 @@
 #include "../core/log.hpp"
 #include "../mm/vmm.hpp"
 #include "../platform/platform.hpp"
+#include "../sync/wait.hpp"
 #include <arch/x86_64/cpu.hpp>
 
 namespace kernel::tpm {
 
 namespace {
+constinit sync::Mutex g_runtime_mutex{"tpm.runtime"};
 
 // TCG PTP 1.07: локальность 0 по 0xFED4_0000 (§5.4, табл. 12), регистры CRB
 // (§6.5.3.x): LOC_STATE 00h, LOC_CTRL 08h, LOC_STS 0Ch, INTF_ID 30h,
@@ -288,6 +290,7 @@ bool init() {
 }
 
 bool present() { return g_present; }
+sync::Mutex& runtime_mutex() { return g_runtime_mutex; }
 uint32_t last_error() { return g_last_error; }
 
 bool get_random(uint8_t* out, size_t n) {

@@ -1,0 +1,4 @@
+runtime: UTC and clock validation ok
+runtime: entropy bounds and parallel clients ok
+ktest: bin/runtime_test exited with 0
+ktest: PASS runtime_cpu

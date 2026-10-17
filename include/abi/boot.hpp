@@ -1,5 +1,5 @@
 #pragma once
-// Boot ABI v1.0: передача управления загрузчик → ядро.
+// Boot ABI v1.1: передача управления загрузчик → ядро.
 // Нормативный документ — docs/abi/boot.md. Любое изменение — сначала там.
 
 #include <stddef.h>
@@ -9,11 +9,14 @@ namespace abi::boot {
 
 inline constexpr uint64_t kMagic = 0x544f4f42534d5243;  // "CRMSBOOT" little-endian
 inline constexpr uint16_t kVersionMajor = 1;
-inline constexpr uint16_t kVersionMinor = 0;
+inline constexpr uint16_t kVersionMinor = 1;
 inline constexpr uint64_t kKernelBase = 0xffffffff80000000;
 inline constexpr uint64_t kHhdmBase = 0xffff800000000000;
 
 inline constexpr uint64_t kFlagIdentityMapLow4G = 1ull << 0;
+inline constexpr uint64_t kFlagRealtime = 1ull << 1;
+inline constexpr uint64_t kFlagRtcAssumedUtc = 1ull << 2;
+inline constexpr uint32_t kV1BaseSize = 216;
 
 enum class MemoryType : uint32_t {
   Usable = 1,
@@ -75,6 +78,8 @@ struct BootInfo {
 
   uint64_t boot_time_tsc;
   uint64_t reserved[8];
+  uint64_t realtime_unix_ns;
+  uint64_t realtime_sample_tsc;
 };
 
 static_assert(sizeof(MemoryRegion) == 24);
@@ -97,6 +102,8 @@ static_assert(offsetof(BootInfo, cmdline) == 112);
 static_assert(offsetof(BootInfo, initrd_base) == 128);
 static_assert(offsetof(BootInfo, boot_time_tsc) == 144);
 static_assert(offsetof(BootInfo, reserved) == 152);
-static_assert(sizeof(BootInfo) == 216);
+static_assert(offsetof(BootInfo, realtime_unix_ns) == 216);
+static_assert(offsetof(BootInfo, realtime_sample_tsc) == 224);
+static_assert(sizeof(BootInfo) == 232);
 
 }  // namespace abi::boot

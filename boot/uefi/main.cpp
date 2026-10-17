@@ -5,6 +5,7 @@
 #include <abi/boot.hpp>
 #include <arch/x86_64/serial.hpp>
 #include <lib/core/format.hpp>
+#include <lib/core/calendar.hpp>
 #include <lib/elf/elf64.hpp>
 
 #include "efi.hpp"
@@ -299,6 +300,19 @@ extern "C" uint64_t efi_main(efi::Handle image_handle, efi::SystemTable* st) {
   g_bs = st->boot_services;
   Serial::init();
   log("CharmOS boot: loader started\n");
+  uint64_t realtime_ns=0, realtime_tsc=0, realtime_flags=0;
+  auto* runtime=static_cast<efi::RuntimeTimeServices*>(st->runtime_services);
+  if(runtime && runtime->hdr.header_size>=sizeof(efi::RuntimeTimeServices) && runtime->get_time) {
+    efi::Time time{};
+    if(!efi::is_error(runtime->get_time(&time,nullptr))) {
+      uint64_t sample=rdtsc();
+      bool assumed=time.time_zone==0x07ff;
+      if((time.daylight&~3u)==0 && lib::core::utc_nanoseconds(time.year,time.month,time.day,
+          time.hour,time.minute,time.second,time.nanosecond,assumed?0:time.time_zone,&realtime_ns)) {
+        realtime_tsc=sample; realtime_flags=abi::boot::kFlagRealtime|(assumed?abi::boot::kFlagRtcAssumedUtc:0);
+      }
+    }
+  }
   g_bs->set_watchdog_timer(0, 0, 0, nullptr);
 
   void* iface = nullptr;
@@ -396,7 +410,9 @@ extern "C" uint64_t efi_main(efi::Handle image_handle, efi::SystemTable* st) {
   info->version_major = abi::boot::kVersionMajor;
   info->version_minor = abi::boot::kVersionMinor;
   info->size = sizeof(abi::boot::BootInfo);
-  info->flags = abi::boot::kFlagIdentityMapLow4G;
+  info->flags = abi::boot::kFlagIdentityMapLow4G | realtime_flags;
+  info->realtime_unix_ns=realtime_ns;
+  info->realtime_sample_tsc=realtime_tsc;
   info->memory_map = regions;
   info->memory_map_count = count;
   info->kernel_phys_base = kernel.phys_base;

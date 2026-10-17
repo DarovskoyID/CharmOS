@@ -77,8 +77,10 @@ struct ThreadBlock {
   volatile uint32_t done;  // 1 — завершён (для join)
   bool detached;
   uint64_t stack_top;
+  struct SpecificValue { void* value; uint32_t generation; } specific[128];
 };
 ThreadBlock* current_thread();
+void thread_specific_cleanup();
 
 void stdio_init();
 void stdio_flush_all();

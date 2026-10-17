@@ -7,11 +7,16 @@
 #include <stddef.h>
 #include <stdint.h>
 
+namespace kernel::sync { class Mutex; }
+
 namespace kernel::tpm {
 
 // Есть ли TPM с активным интерфейсом CRB (FIFO/TIS пока нет — M9b).
 bool init();
 bool present();
+// After the scheduler starts, callers serialize complete transactions with
+// this mutex. init() runs before any user or driver process exists.
+sync::Mutex& runtime_mutex();
 
 // Случайные байты (TPM2_GetRandom).
 bool get_random(uint8_t* out, size_t n);

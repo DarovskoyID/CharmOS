@@ -36,6 +36,7 @@ add_executable(kernel
   acpi/acpi.cpp
   proc/signal.cpp
   platform/platform.cpp
+  platform/entropy.cpp
   proc/process.cpp
   proc/syscall.cpp
   proc/uaccess.cpp

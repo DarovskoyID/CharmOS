@@ -11,6 +11,7 @@
 #include "../core/log.hpp"
 #include "../ipc/ipc.hpp"
 #include "../platform/platform.hpp"
+#include "../platform/entropy.hpp"
 #include "../sched/sched.hpp"
 #include "process.hpp"
 #include "signal.hpp"
@@ -119,6 +120,26 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
     case Number::ClockMonotonic:
       set_result(f, Status::Ok, kernel::platform::now_ns());
       break;
+    case Number::ClockRealtime: {
+      uint64_t ns = 0;
+      auto status = kernel::platform::realtime_ns(&ns);
+      set_result(f, status, ns);
+      break;
+    }
+    case Number::RandomRead: {
+      if (f.rsi > 256 || (f.rdx & ~uint64_t{1})) {
+        set_result(f, Status::InvalidArgs);
+        break;
+      }
+      uint8_t bytes[256] = {};
+      auto status = kernel::platform::random_bytes(bytes, f.rsi, (f.rdx & 1) != 0);
+      if (status == Status::Ok && f.rsi && !copy_to_user(f.rdi, bytes, f.rsi))
+        status = Status::BadAddress;
+      volatile uint8_t* wipe = bytes;
+      for (size_t i = 0; i < sizeof bytes; ++i) wipe[i] = 0;
+      set_result(f, status, status == Status::Ok ? f.rsi : 0);
+      break;
+    }
     case Number::Nanosleep:
       sys_nanosleep(f);
       break;

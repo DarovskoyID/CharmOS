@@ -1,0 +1,10 @@
+# M8: корень ext2 на virtio-blk с /bin/spawn_child (образ — spawn.sh).
+-device intel-iommu
+-drive if=none,id=d0,format=raw,file=build/disk-spawn.img
+-device virtio-blk-pci,drive=d0,disable-legacy=on,iommu_platform=on
+
+-cpu max,-rdrand
+-rtc base=2026-10-17T00:00:00,clock=vm
+-chardev socket,id=chrtpm,path=/tmp/charmos-swtpm/sock
+-tpmdev emulator,id=tm0,chardev=chrtpm
+-device tpm-crb,tpmdev=tm0

@@ -1,0 +1,21 @@
+{
+  "chromium": {
+    "url": "https://chromium.googlesource.com/chromium/src.git",
+    "version": "155.0.8059.84",
+    "revision": "5869fe313571d75152b77813cf0a4ee26a4e6df0",
+    "channel": "Stable",
+    "platform_metadata": "Linux",
+    "source": "https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Linux&num=1",
+    "checked": "2026-10-17",
+    "archive": {
+      "url": "https://commondatastorage.googleapis.com/chromium-browser-official/chromium-155.0.8059.84.tar.xz",
+      "bytes": 4390800948,
+      "publisher_crc32c_base64": "pnTaqA==",
+      "observed_sha256": "e2073b7171d9b8b05f4d024ad84f8ae65c568e7514b3cb7a5e80fb824d761104"
+    }
+  },
+  "depot_tools": {
+    "url": "https://chromium.googlesource.com/chromium/tools/depot_tools.git",
+    "revision": "889099791deff38466d471fa6590951c91a1d8ab"
+  }
+}

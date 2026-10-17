@@ -2,6 +2,9 @@
 
 #include "../core/log.hpp"
 #include "../tpm/tpm.hpp"
+#include "../sync/wait.hpp"
+#include "../platform/platform.hpp"
+#include "cache.hpp"
 
 namespace kernel::fs {
 
@@ -37,45 +40,50 @@ bool sysarea_unlock(lib::fs::Io* part, lib::crypto::Xts256* key, sa::XtsIo* out)
   auto state = static_cast<sa::State>(g_header.f.state);
   uint64_t units = g_header.f.data_units;
   uint8_t k[sa::kKeySize];
-  if (state == sa::State::Plain) {
-    // §4.1: новый ключ, запечатать, затем шифровать на месте.
-    do {
-      if (!tpm::get_random(k, sizeof k)) return locked("TPM GetRandom failed");
-    } while (!key->set_key(k));
-    tpm::Sealed s;
-    bool sealed = tpm::seal(k, sizeof k, g_header.f.pcr_mask, &s) &&
-                  size_t{s.pub_size} + s.priv_size <= sa::kSealedMax;
-    if (!sealed) {
-      wipe(k, sizeof k);
-      kprint("sysarea: TPM error {x}\n", tpm::last_error());
-      return locked("cannot seal key");
-    }
-    for (uint16_t i = 0; i < s.pub_size; ++i) g_header.sealed[i] = s.pub[i];
-    for (uint16_t i = 0; i < s.priv_size; ++i) g_header.sealed[s.pub_size + i] = s.priv[i];
-    g_header.f.public_size = s.pub_size;
-    g_header.f.private_size = s.priv_size;
-    g_header.f.state = static_cast<uint32_t>(sa::State::Encrypting);
-    g_header.f.progress = 0;
-    if (!write_header(part)) {
-      wipe(k, sizeof k);
-      return locked("cannot write header");
-    }
-    kprint("sysarea: key sealed to TPM (PCR mask {x}), encrypting {} KiB\n", g_header.f.pcr_mask, units / 2);
-  } else {
-    // §4.2–4.3: распечатать (политику PCR проверяет TPM).
-    const uint8_t* pub = g_header.sealed;
-    const uint8_t* priv = g_header.sealed + g_header.f.public_size;
-    if (!tpm::unseal(pub, g_header.f.public_size, priv, g_header.f.private_size, g_header.f.pcr_mask, k, sizeof k)) {
-      kprint("sysarea: TPM error {x}\n", tpm::last_error());
-      return locked("cannot unseal key (PCR changed?)");
-    }
-    if (!key->set_key(k)) {
-      wipe(k, sizeof k);
-      return locked("bad key");
+  {
+    sync::MutexGuard tpm_guard(tpm::runtime_mutex());
+    if (state == sa::State::Plain) {
+      // §4.1: новый ключ, запечатать, затем шифровать на месте.
+      do {
+        if (!tpm::get_random(k, sizeof k)) return locked("TPM GetRandom failed");
+      } while (!key->set_key(k));
+      tpm::Sealed s;
+      bool sealed = tpm::seal(k, sizeof k, g_header.f.pcr_mask, &s) &&
+                    size_t{s.pub_size} + s.priv_size <= sa::kSealedMax;
+      if (!sealed) {
+        wipe(k, sizeof k);
+        kprint("sysarea: TPM error {x}\n", tpm::last_error());
+        return locked("cannot seal key");
+      }
+      for (uint16_t i = 0; i < s.pub_size; ++i) g_header.sealed[i] = s.pub[i];
+      for (uint16_t i = 0; i < s.priv_size; ++i) g_header.sealed[s.pub_size + i] = s.priv[i];
+      g_header.f.public_size = s.pub_size;
+      g_header.f.private_size = s.priv_size;
+      g_header.f.state = static_cast<uint32_t>(sa::State::Encrypting);
+      g_header.f.progress = 0;
+      if (!write_header(part)) {
+        wipe(k, sizeof k);
+        return locked("cannot write header");
+      }
+      kprint("sysarea: key sealed to TPM (PCR mask {x}), encrypting {} KiB\n", g_header.f.pcr_mask, units / 2);
+    } else {
+      // §4.2–4.3: распечатать (политику PCR проверяет TPM).
+      const uint8_t* pub = g_header.sealed;
+      const uint8_t* priv = g_header.sealed + g_header.f.public_size;
+      if (!tpm::unseal(pub, g_header.f.public_size, priv, g_header.f.private_size, g_header.f.pcr_mask, k, sizeof k)) {
+        kprint("sysarea: TPM error {x}\n", tpm::last_error());
+        return locked("cannot unseal key (PCR changed?)");
+      }
+      if (!key->set_key(k)) {
+        wipe(k, sizeof k);
+        return locked("bad key");
+      }
     }
   }
   wipe(k, sizeof k);
   if (static_cast<sa::State>(g_header.f.state) == sa::State::Encrypting) {
+    uint64_t started = platform::now_ns();
+    auto before = cache_stats();
     // Кусками с сохранением прогресса: сбой питания не теряет данные (§4.2).
     constexpr uint64_t kStep = 2048;  // единиц (1 МиБ) между записями заголовка
     while (g_header.f.progress < units) {
@@ -88,7 +96,11 @@ bool sysarea_unlock(lib::fs::Io* part, lib::crypto::Xts256* key, sa::XtsIo* out)
     }
     g_header.f.state = static_cast<uint32_t>(sa::State::Encrypted);
     if (!write_header(part)) return locked("cannot write header");
-    kprint("sysarea: encrypted\n");
+    kprint("sysarea: encrypted in {} ms\n", (platform::now_ns() - started) / 1'000'000);
+    auto after = cache_stats();
+    kprint("sysarea: cache I/O {} reads, {} writes ({} misses, {} pages written)\n",
+           after.read_requests - before.read_requests, after.write_requests - before.write_requests,
+           after.misses - before.misses, after.writebacks - before.writebacks);
   }
   out->init(part, key, units, units);
   kprint("sysarea: unlocked (AES-256-XTS)\n");

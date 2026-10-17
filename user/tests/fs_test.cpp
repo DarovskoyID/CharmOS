@@ -97,6 +97,16 @@ extern "C" int64_t charm_main(Handle start) {
   const char note[] = "survives reboot";
   EXPECT(file_write(static_cast<Handle>(p.value), note, sizeof note - 1, 0).ok());
   EXPECT(file_sync(static_cast<Handle>(p.value)) == Status::Ok);
+  auto bulk = fs_open(root, "persist-bulk.bin", fsabi::kOpenCreate | fsabi::kOpenWrite | fsabi::kOpenTruncate);
+  EXPECT(bulk.ok());
+  Handle bh = static_cast<Handle>(bulk.value);
+  auto bulk_write = file_write(bh, g_big, sizeof g_big, 0);
+  EXPECT(bulk_write.ok() && bulk_write.value == sizeof g_big);
+  // Cross page boundaries and leave mixed dirty/cached contents before sync.
+  auto patch = file_write(bh, g_big + 7, 8001, 4093);
+  EXPECT(patch.ok() && patch.value == 8001);
+  EXPECT(file_sync(bh) == Status::Ok);
+  EXPECT(handle_close(bh) == Status::Ok);
   print("fs_test: files, directories, rights, sync ok\n");
   return 0;
 }

@@ -36,6 +36,8 @@ constinit bool g_have_hpet = false;
 constinit arch::x86_64::PmTimer g_pmt;
 constinit RefClock g_ref;
 constinit uint64_t g_tsc_hz = 0;
+constinit bool g_realtime_valid=false;
+constinit uint64_t g_realtime_base=0, g_realtime_monotonic=0;
 constinit uint64_t g_apic_timer_hz = 0;
 constinit volatile uint64_t g_ticks = 0;
 constinit bool g_dump_acpi = false;
@@ -256,6 +258,12 @@ void platform_init(const abi::boot::BootInfo& info, const Cmdline& cmdline) {
   init_acpi(info);
   init_interrupt_controllers(cmdline.get("lapic") == lib::core::StringView("xapic"));
   calibrate();
+  if(info.version_minor>=1 && info.size>=sizeof(abi::boot::BootInfo) && (info.flags&abi::boot::kFlagRealtime)) {
+    g_realtime_base=info.realtime_unix_ns;
+    g_realtime_monotonic=lib::core::mul_div(info.realtime_sample_tsc,1000000000,g_tsc_hz);
+    g_realtime_valid=true;
+    kprint("clock: firmware UTC available\n");
+  }
 }
 
 const MadtInfo& madt() { return g_madt; }
@@ -337,5 +345,14 @@ uint64_t ticks() { return g_ticks; }
 uint32_t tick_hz() { return g_tick_hz; }
 
 uint64_t now_ns() { return lib::core::mul_div(arch::x86_64::rdtsc(), 1'000'000'000, g_tsc_hz); }
+abi::syscall::Status realtime_ns(uint64_t* out) {
+  using abi::syscall::Status;
+  if (!out) return Status::InvalidArgs;
+  if (!g_realtime_valid) return Status::NotSupported;
+  uint64_t now=now_ns(); if(now<g_realtime_monotonic) return Status::OutOfRange;
+  uint64_t elapsed=now-g_realtime_monotonic;
+  if(elapsed>UINT64_MAX-g_realtime_base) return Status::OutOfRange;
+  *out=g_realtime_base+elapsed; return Status::Ok;
+}
 
 }  // namespace kernel::platform

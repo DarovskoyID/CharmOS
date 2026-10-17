@@ -4,6 +4,9 @@
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
 #define RAND_MAX 0x7fffffff
+typedef struct { int quot, rem; } div_t;
+typedef struct { long quot, rem; } ldiv_t;
+typedef struct { long long quot, rem; } lldiv_t;
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -27,6 +30,9 @@ int unsetenv(const char* name);
 void qsort(void* base, size_t n, size_t size, int (*cmp)(const void*, const void*));
 int abs(int v);
 long labs(long v);
+div_t div(int numerator, int denominator);
+ldiv_t ldiv(long numerator, long denominator);
+lldiv_t lldiv(long long numerator, long long denominator);
 int rand(void);
 void srand(unsigned seed);
 #ifdef __cplusplus

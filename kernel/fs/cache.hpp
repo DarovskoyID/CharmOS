@@ -1,7 +1,8 @@
 #pragma once
 // Page cache: страницы дисков по 4 КиБ поверх блочного слоя. Запись
 // отложенная: на диск — при вытеснении и при flush. Одна блокировка на весь
-// кэш и поиск перебором (правило 9: устройство кэша — после замеров).
+// кэш и поиск перебором. После замера холодного шифрования 15 МиБ = 156 с
+// соседние промахи/грязные страницы объединяются до block::kMaxPages.
 
 #include <lib/fs/fs.hpp>
 #include <stdint.h>
@@ -33,6 +34,8 @@ struct CacheStats {
   uint64_t hits;
   uint64_t misses;
   uint64_t writebacks;
+  uint64_t read_requests;
+  uint64_t write_requests;
 };
 CacheStats cache_stats();
 

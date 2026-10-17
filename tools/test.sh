@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# QEMU-тесты фазы: tools/test.sh <фаза> [таймаут_сек]
+# QEMU-тесты фазы: tools/test.sh <фаза> [таймаут_сек] [сценарий]
 # Для каждого сценария tests/qemu/<фаза>/<сценарий>.expected:
 #   - QEMU запускается headless (с tools/qemu/<сценарий>.args и командной
 #     строкой ядра из <сценарий>.cmdline, если они есть);
@@ -14,9 +14,18 @@ phase="${1:?usage: test.sh <phase> [timeout]}"
 default_timeout="${2:-60}"
 dir="$root/tests/qemu/$phase"
 [[ -d "$dir" ]] || { echo "test.sh: no tests in $dir" >&2; exit 2; }
+scenario="${3:-}"
+if [[ -n "$scenario" ]]; then
+  [[ "$scenario" =~ ^[A-Za-z0-9_]+$ && -f "$dir/$scenario.expected" ]] || {
+    echo "test.sh: invalid scenario: $scenario" >&2; exit 2;
+  }
+  expectations=("$dir/$scenario.expected")
+else
+  expectations=("$dir"/*.expected)
+fi
 
 failed=0
-for exp in "$dir"/*.expected; do
+for exp in "${expectations[@]}"; do
   name=$(basename "$exp" .expected)
   log="$build/test-$phase-$name.serial"
   timeout_s=$default_timeout
@@ -40,10 +49,15 @@ for exp in "$dir"/*.expected; do
     : >"$log"
     { while IFS= read -r line || [[ -n "$line" ]]; do
         line=${line%$'\r'}
+        [[ -f "$done" ]] && break
         case "$line" in
           "#sleep "*) sleep "${line#\#sleep }" ;;
           "#wait "*) want=${line#\#wait }
-                     for _ in $(seq 1 "$timeout_s"); do grep -qF -- "$want" "$log" && break; sleep 1; done ;;
+                     for _ in $(seq 1 "$timeout_s"); do
+                       [[ -f "$done" ]] && break
+                       grep -qF -- "$want" "$log" && break
+                       sleep 1
+                     done ;;
           "#monitor "*) python3 "$root/tools/qemu-screen.py" monitor ${line#\#monitor } >>"$log.screen" ;;
           "#pixel "*) python3 "$root/tools/qemu-screen.py" pixel ${line#\#pixel } >>"$log.screen" ;;
           "^C") printf '\003' ;;

@@ -17,6 +17,7 @@ __attribute__((force_align_arg_pointer)) void thread_entry(uint64_t arg) {
   auto* t = reinterpret_cast<ThreadBlock*>(arg);
   (void)charm::thread_set_fs(arg);
   t->ret = t->fn(t->arg);
+  thread_specific_cleanup();
   __atomic_store_n(&t->done, 1u, __ATOMIC_RELEASE);
   charm::thread_exit(0);
 }
@@ -85,6 +86,7 @@ pthread_t pthread_self(void) { return static_cast<pthread_t>(current_thread()); 
 void pthread_exit(void* ret) {
   ThreadBlock* t = current_thread();
   t->ret = ret;
+  thread_specific_cleanup();
   __atomic_store_n(&t->done, 1u, __ATOMIC_RELEASE);
   charm::thread_exit(0);
 }

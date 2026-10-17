@@ -4,7 +4,7 @@ CharmOS boot: kernel.elf bytes=
 CharmOS boot: kernel entry=0xffffffff8
 CharmOS boot: exiting boot services
 CharmOS kernel: entry
-boot: BootInfo v1.0
+boot: BootInfo v1.1
 boot: kernel_main=0xffffffff8
 boot: memory regions=
 boot: framebuffer

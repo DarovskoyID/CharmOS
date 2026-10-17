@@ -267,6 +267,14 @@ struct Time {
 };
 static_assert(sizeof(Time) == 16);
 
+// §4.5 / §8.3: only the RuntimeServices prefix used by this loader.
+struct RuntimeTimeServices {
+  TableHeader hdr;
+  Status (*get_time)(Time* time, void* optional_capabilities);
+};
+static_assert(offsetof(RuntimeTimeServices, get_time) == 24);
+static_assert(sizeof(RuntimeTimeServices) == 32);
+
 struct FileInfo {
   uint64_t size;
   uint64_t file_size;
