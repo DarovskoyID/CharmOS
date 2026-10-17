@@ -11,6 +11,8 @@ typedef struct { long long quot, rem; } lldiv_t;
 extern "C" {
 #endif
 void* malloc(size_t size);
+void* aligned_alloc(size_t alignment, size_t size);
+int posix_memalign(void** memptr, size_t alignment, size_t size);
 void* calloc(size_t n, size_t size);
 void* realloc(void* p, size_t size);
 void free(void* p);

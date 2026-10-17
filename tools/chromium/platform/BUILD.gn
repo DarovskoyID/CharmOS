@@ -1,0 +1,59 @@
+import("//build/toolchain/gcc_toolchain.gni")
+import("toolchain-revision.gni")
+
+declare_args() {
+  charmos_repo = ""
+  charmos_build_base = false
+}
+assert(charmos_repo != "", "Set charmos_repo to the native CharmOS checkout")
+
+gcc_toolchain("clang_x64") {
+  cc = rebase_path("cc-" + charmos_toolchain_revision, root_build_dir)
+  cxx = rebase_path("cxx-" + charmos_toolchain_revision, root_build_dir)
+  ld = rebase_path("link-" + charmos_toolchain_revision, root_build_dir)
+  ar = rebase_path("ar-" + charmos_toolchain_revision, root_build_dir)
+  nm = rebase_path("//third_party/llvm-build/Release+Asserts/bin/llvm-nm", root_build_dir)
+  readelf = rebase_path("//third_party/llvm-build/Release+Asserts/bin/llvm-readelf", root_build_dir)
+  toolchain_args = {
+    current_cpu = "x64"
+    current_os = "charmos"
+    use_remoteexec = false
+  }
+  executable_extension = ".elf"
+}
+
+source_set("bootstrap_runtime") {
+  sources = [
+    "//third_party/libc++/src/src/algorithm.cpp",
+    "//third_party/libc++/src/src/verbose_abort.cpp",
+  ]
+  configs -= [ "//build/config/compiler:chromium_code" ]
+  configs += [
+    "//build/config/compiler:no_chromium_code",
+    "//buildtools/third_party/libc++:config",
+  ]
+}
+
+executable("platform_smoke") {
+  # Bootstrap probe: explicit upstream units, not a claim that full libc++ or
+  # //base already links. The normal runtime target below keeps all missing
+  # libc/locale/filesystem dependencies visible during porting.
+  no_default_deps = true
+  sources = [ "platform_smoke.cc" ]
+  libs = [ "$charmos_repo/build/user/user/libc.a" ]
+  deps = [ ":bootstrap_runtime" ]
+}
+
+executable("full_runtime") {
+  # Normal executable dependencies pull in the complete upstream runtime.
+  sources = [ "platform_smoke.cc" ]
+  libs = [ "$charmos_repo/build/user/user/libc.a" ]
+}
+
+group("base_port") {
+  if (charmos_build_base) {
+    deps = [ "//base" ]
+  } else {
+    deps = [ ":platform_smoke", ":full_runtime" ]
+  }
+}

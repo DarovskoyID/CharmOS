@@ -143,3 +143,34 @@ HTTP request/response через memory BIO; hostname/trust/expired/future
 
 Источники: [Chromium build](https://chromium.googlesource.com/chromium/src/+/main/docs/linux/build_instructions.md),
 [Chromium Dash](https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Linux&num=1).
+
+### Нативная GN-платформа (2026-10-17)
+
+tools/chromium/prepare-platform.py применяет пять проверяемых по SHA-256
+изменений закреплённого дерева: platform dispatch GN/C++, путь compiler-rt,
+no-exception конфигурации libc++/abi. Неизвестные vendor edits отклоняются;
+оригиналы сохраняются в ext4-кеше. Повторная подготовка не трогает одинаковые
+файлы. Версия wrapper/audit входит в имена инструментов GN, C headers входят
+в depfiles, native libc.a — в явные зависимости link. Это сохраняет корректную
+инкрементальную сборку без постоянной пересборки ОС.
+
+Запуск: with-cache.sh 1000 1000 bash tools/chromium/build-platform.sh.
+Обычный upstream .gn/BUILDCONFIG используется с root target build/charmos.
+platform_smoke связывается для Generic ELF и копируется без debug sections
+в build/user/user; browser/platform запускает именно этот ELF в QEMU.
+Код проверяет flags, vector из 4096 элементов, sort/copy/unique_ptr, atomics
+и сохранность UTF-8 bytes. Он намеренно включает только два upstream units,
+как прежний TLS smoke, и не доказывает работу полной стандартной библиотеки.
+
+--full-runtime дополнительно собирает штатные libc++/abi зависимости.
+No-exception ABI units уже компилируются; исключения/RTTI приложений не
+включаются ради обхода ошибок. Остались настоящие недостающие интерфейсы:
+locale backend, math/fenv, числовые преобразования, далее filesystem/stdio.
+Их нельзя подменять пустыми реализациями или Linux ABI.
+
+В архиве clang 24.0.0git (86922d51225db089fffb99475eefc4904f79e3c8),
+release stamp пустой. Компилятор регистрируется через clang_base_path как
+custom; официальный ожидаемый stamp не подделывается. Актуальная версия,
+GN args, hash и размер ELF сохраняются в build/chromium/platform-report.json.
+Post-link audit отвергает compiler TLS/dynamic loader, пока loader их не
+поддерживает. Отрицательные проверки — tools/chromium/test-elf-audit.sh.

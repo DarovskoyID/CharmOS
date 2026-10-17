@@ -7,6 +7,7 @@
 #define CHECK(c) do { if (!(c)) { printf("threads runtime: FAILED line %d\n", __LINE__); exit(1); } } while (0)
 #include "unicode_checks.hpp"
 #include "cxx_checks.hpp"
+#include "allocation_checks.hpp"
 namespace {
 pthread_key_t g_key, g_repeat;
 unsigned g_destroyed = 0, g_repeated = 0;
@@ -75,6 +76,7 @@ void* reader(void*) {
 extern "C" int main() {
   cxx_prepare();
   unicode_checks();
+  allocation_checks();
   struct CalendarCase { time_t seconds; int year, month, day, weekday, yearday; };
   const CalendarCase dates[] = {{0,1970,1,1,4,0}, {-1,1969,12,31,3,364},
     {951782400,2000,2,29,2,59}, {4107542400LL,2100,3,1,1,59},

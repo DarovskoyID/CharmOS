@@ -1,5 +1,7 @@
 threads runtime: C++ preinit and global constructors ok
 threads runtime: exhaustive UTF-8 scalars and streaming ok
+threads runtime: aligned allocation, realloc preservation and overflow ok
+threads runtime: XSI error buffers and errno preservation ok
 threads runtime: isolated keys, reuse and destructors ok
 threads runtime: concurrent readers and writers ok
 threads runtime: C++ local destructor and atexit order ok

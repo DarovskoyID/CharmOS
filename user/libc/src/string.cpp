@@ -179,11 +179,14 @@ char* strndup(const char* s, size_t n) {
   return d;
 }
 
-char* strerror(int e) {
+static const char* error_message(int e) {
   switch (e) {
     case 0: return const_cast<char*>("Success");
     case EPERM: return const_cast<char*>("Operation not permitted");
     case ENOENT: return const_cast<char*>("No such file or directory");
+    case ESRCH: return "No such process";
+    case E2BIG: return "Argument list too long";
+    case ECHILD: return "No child processes";
     case EINTR: return const_cast<char*>("Interrupted");
     case EIO: return const_cast<char*>("I/O error");
     case ENOEXEC: return const_cast<char*>("Exec format error");
@@ -198,16 +201,41 @@ char* strerror(int e) {
     case EISDIR: return const_cast<char*>("Is a directory");
     case EINVAL: return const_cast<char*>("Invalid argument");
     case EMFILE: return const_cast<char*>("Too many open files");
+    case ENOTTY: return "Inappropriate ioctl for device";
     case ENOSPC: return const_cast<char*>("No space left");
+    case ESPIPE: return "Illegal seek";
     case EPIPE: return const_cast<char*>("Broken pipe");
+    case ERANGE: return "Result out of range";
     case ENOSYS: return const_cast<char*>("Not supported");
+    case ENOTEMPTY: return "Directory not empty";
+    case ENOTSOCK: return "Not a socket";
+    case EILSEQ: return "Invalid byte sequence";
+    case EOVERFLOW: return "Value too large";
     case ETIMEDOUT: return const_cast<char*>("Timed out");
     case ECONNREFUSED: return const_cast<char*>("Connection refused");
     case ECONNRESET: return const_cast<char*>("Connection reset");
     case EADDRINUSE: return const_cast<char*>("Address in use");
     case ENETUNREACH: return const_cast<char*>("Network unreachable");
-    default: return const_cast<char*>("Unknown error");
+    default: return nullptr;
   }
+}
+
+char* strerror(int e) {
+  const char* text = error_message(e);
+  return const_cast<char*>(text == nullptr ? "Unknown error" : text);
+}
+
+int strerror_r(int e, char* buffer, size_t size) {
+  const char* text = error_message(e);
+  int result = text == nullptr ? EINVAL : 0;
+  if (text == nullptr) text = "Unknown error";
+  if (size == 0) return ERANGE;
+  if (buffer == nullptr) return EINVAL;
+  size_t length = strlen(text);
+  size_t copied = length < size ? length : size - 1;
+  memcpy(buffer, text, copied);
+  buffer[copied] = '\0';
+  return length < size ? result : ERANGE;
 }
 
 int isdigit(int c) { return c >= '0' && c <= '9'; }

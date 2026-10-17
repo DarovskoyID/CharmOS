@@ -72,6 +72,7 @@ constexpr uint32_t kMinShift = 4;    // 16 байт
 constexpr uint32_t kMaxShift = 16;   // 64 КиБ
 constexpr uint64_t kChunk = 1u << 20;
 constexpr uint64_t kBigMagic = 0x42494721u;
+constexpr uint32_t kAlignedMagic = 0x414c474eu;
 
 // Заголовок перед каждым блоком (16 байт: выравнивание данных на 16).
 struct Header {
@@ -155,12 +156,49 @@ void free(void* p) {
   auto* h = static_cast<Header*>(p) - 1;
   if (h->shift == 0) {
     if (h->magic == kBigMagic) (void)charm::vmo_unmap(reinterpret_cast<uint64_t>(h));
+    else if (h->magic == kAlignedMagic) free(reinterpret_cast<void**>(h)[-1]);
     return;
   }
   Guard g(g_heap_lock);
   auto* b = static_cast<FreeBlock*>(p);
   b->next = g_free[h->shift];
   g_free[h->shift] = b;
+}
+
+void* aligned_alloc(size_t alignment, size_t n) {
+  if (!alignment || (alignment & (alignment - 1)) || n % alignment) {
+    errno = EINVAL;
+    return nullptr;
+  }
+  if (alignment <= sizeof(Header)) return malloc(n);
+  // malloc itself is 16-byte aligned. Larger alignments use a second header
+  // and retain the original allocation immediately before that header.
+  constexpr size_t metadata = sizeof(Header) + sizeof(void*);
+  if (alignment - 1 > SIZE_MAX - metadata || n > SIZE_MAX - metadata - (alignment - 1)) {
+    errno = ENOMEM;
+    return nullptr;
+  }
+  void* raw = malloc(n + metadata + alignment - 1);
+  if (raw == nullptr) return nullptr;
+  uintptr_t address = (reinterpret_cast<uintptr_t>(raw) + metadata + alignment - 1) & ~(alignment - 1);
+  auto* h = reinterpret_cast<Header*>(address) - 1;
+  *h = {0, kAlignedMagic, n};
+  reinterpret_cast<void**>(h)[-1] = raw;
+  return reinterpret_cast<void*>(address);
+}
+
+int posix_memalign(void** output, size_t alignment, size_t n) {
+  if (output == nullptr || alignment < sizeof(void*) || (alignment & (alignment - 1))) return EINVAL;
+  int saved_errno = errno;
+  // POSIX does not require size to be a multiple of alignment. The internal
+  // allocation is rounded up, with overflow rejected before any allocation.
+  if (n > SIZE_MAX - (alignment - 1)) return ENOMEM;
+  size_t rounded = (n + alignment - 1) & ~(alignment - 1);
+  void* p = aligned_alloc(alignment, rounded);
+  int result = p == nullptr ? errno : 0;
+  errno = saved_errno;
+  if (result == 0) *output = p;
+  return result;
 }
 
 void* calloc(size_t n, size_t size) {
@@ -180,7 +218,7 @@ void* realloc(void* p, size_t n) {
     return nullptr;
   }
   auto* h = static_cast<Header*>(p) - 1;
-  size_t have = h->size - sizeof(Header);
+  size_t have = h->shift == 0 && h->magic == kAlignedMagic ? h->size : h->size - sizeof(Header);
   if (n <= have) return p;
   void* q = malloc(n);
   if (q == nullptr) return nullptr;

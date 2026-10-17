@@ -1071,6 +1071,10 @@ void test_runtime_tls() {
   run_with_start("bin/runtime_tls", "runtime_tls");
   pass();
 }
+void test_runtime_platform() {
+  run_with_start("bin/platform_smoke", "platform_smoke");
+  pass();
+}
 void test_runtime_https() {
   uint64_t deadline = platform::now_ns() + 20'000'000'000ull;
   while (!net::link_up()) {
@@ -1185,6 +1189,7 @@ constexpr Test kTests[] = {
     {"runtime_cpu", &test_runtime_cpu},
     {"runtime_threads", &test_runtime_threads},
     {"runtime_tls", &test_runtime_tls},
+    {"runtime_platform", &test_runtime_platform},
     {"runtime_https", &test_runtime_https},
     {"runtime_tpm", &test_runtime_tpm},
     {"runtime_none", &test_runtime_none},
@@ -1211,7 +1216,8 @@ bool needs_drivers() {
          g_selected == StringView("sysarea") || g_selected == StringView("sysarea_locked") ||
          g_selected == StringView("runtime_cpu") || g_selected == StringView("runtime_tpm") ||
          g_selected == StringView("runtime_none") || g_selected == StringView("runtime_threads") ||
-         g_selected == StringView("runtime_tls") || g_selected == StringView("runtime_https");
+         g_selected == StringView("runtime_tls") || g_selected == StringView("runtime_https") ||
+         g_selected == StringView("runtime_platform");
 }
 StringView selected() { return g_selected; }
 

@@ -1,5 +1,53 @@
 # Передача работы (2026-10-17): состояние CharmOS для следующего агента
 
+## Текущий пакет: Chromium GN bootstrap (2026-10-17)
+
+Завершён связный пакет tools/chromium/platform, prepare-platform.py, toolchain.py,
+build-platform.sh, audit-elf.py, лицензии и дополнения libc v1.1:
+aligned_alloc/posix_memalign, free/realloc для aligned allocations,
+strerror_r (XSI), сообщения для всех errno и ELAST. Контракты описаны.
+В runtime_threads добавлены настоящие guest проверки границ/переполнений,
+сохранности realloc, ошибки буфера, errno; они уже прошли.
+
+GN использует настоящий upstream .gn/BUILDCONFIG, target_os=charmos и свой
+Generic ELF wrapper. Пять SHA-256 checked patches; оригиналы в ext4 cache
+platform-originals. Новые точные лицензии в tools/chromium/licenses проверяются
+по manifest, .gitattributes сохраняет байты. Compiler stamp в архиве пустой;
+реальный bundled clang24 регистрируется custom через clang_base_path.
+Не подделывать expected official stamp. IS_CHARMOS/IS_POSIX true, Linux false.
+
+platform_smoke с двумя upstream units (algorithm/verbose_abort) уже собран
+через GN и прошёл в QEMU: vector 4096, sort/copy, unique_ptr, atomics, UTF-8
+bytes. НЕ полный libc++ и НЕ браузер. --full-runtime сохраняет настоящую
+попытку сборки обычных upstream runtime deps. Все no-exception ABI units
+компилируются; полный runtime пока падает на locale.h, fenv/math и числовых
+преобразованиях. build/chromium/platform-build.log (ожидаемый exit 1).
+Исключены exception storage/personality и дубли своих guard/virtual handlers;
+ABI internals сохраняют RTTI. Не маскировать недостающие функции заглушками.
+Audit отвергает ET_DYN, dynamic/interpreter/compiler TLS segments/sections.
+
+Пакет проверен, активных прогонов нет. build/platform-os-build.log — общая
+сборка; platform-tls-build.log — повторная native TLS link с новой libc.
+build/platform-host.log: 29/29 host. build/platform-regression.log: exit 0,
+14/14 QEMU — runtime (4), browser (3), m8/libc, calc_profiles, control,
+editor, files_nav, universal, windows. Лишь после завершения QEMU проверены
+финальные GN tooling изменения: build/chromium/platform-final-build.log,
+platform-audit.log и platform-incremental.log. No-op ninja подтверждён;
+platform-header-deps.log / platform-link-deps.log подтверждают свои заголовки
+и libc.a среди зависимостей. platform-final-guest.log: повторный platform
+на финальном ELF зелёный, exit 0. build/platform-final-audit.sh завершился 0.
+Два промежуточных запуска audit fixture исправлены: родной linker script
+сам отвергает compiler TLS, поэтому отрицательный образ создаётся штатным
+linker script; shared fixture требует driver -shared, чтобы убрать default PIE.
+Проверяются настоящие native/shared/TLS ELF, не придуманные заглушки.
+Новый GN toolchain revision входит в имена wrappers, libc.a в явные link deps,
+system headers попадают в depfiles. Одинаковые подготовленные файлы не трогаются.
+Финальная проверка завершена. Следующий шаг — реальные locale/
+math/fenv/stdio runtime функции и затем //base. M10 остаётся открытым.
+Свежие снимки опубликованы: build/screenshots/platform-calc-engineering.png,
+platform-editor.png; дополнительно сохранён platform-control.png.
+Итоговый native GN ELF — 62368 байт; receipt platform-report.json.
+
 ## Пакет C++ / Unicode / native HTTPS (2026-10-17)
 
 Unicode/wchar, Gregorian UTC, gettimeofday, pthread v2, C++ new/delete,

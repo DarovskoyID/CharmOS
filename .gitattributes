@@ -6,3 +6,4 @@
 # recorded SHA-256 values remain valid on Windows and Linux checkouts.
 docs/specs/opentype/*.html -text
 assets/fonts/*/OFL.txt -text
+tools/chromium/licenses/*.txt -text

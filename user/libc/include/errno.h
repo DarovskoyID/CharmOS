@@ -45,4 +45,5 @@ int* __errno_location(void);
 #define ECONNRESET 104
 #define ETIMEDOUT 110
 #define ECONNREFUSED 111
+#define ELAST ECONNREFUSED
 #endif

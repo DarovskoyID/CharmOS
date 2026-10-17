@@ -1,0 +1,7 @@
+{
+  "chromium.txt": {"source": "LICENSE", "sha256": "368cca1106be99d39ecd32a38d8305585d802a475effb66380b91ffc9bcf709b"},
+  "libcxx.txt": {"source": "third_party/libc++/src/LICENSE.TXT", "sha256": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b"},
+  "libcxxabi.txt": {"source": "third_party/libc++abi/src/LICENSE.TXT", "sha256": "e2b35be49f7284a45b7baca8fc7b3ab7440e7902392b2528a457816b5bb2a15c"},
+  "compiler-rt.txt": {"source": "third_party/llvm/compiler-rt/LICENSE.TXT", "sha256": "1a8f1058753f1ba890de984e48f0242a3a5c29a6a8f2ed9fd813f36985387e8d"},
+  "boringssl.txt": {"source": "third_party/boringssl/src/LICENSE", "sha256": "827c8d8fc207c2392794eef9e00fe246f9f61fdcc132556c275be3dd8c3cd97f"}
+}

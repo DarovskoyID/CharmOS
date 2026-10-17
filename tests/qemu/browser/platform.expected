@@ -1,0 +1,4 @@
+platform runtime: CharmOS flags and native GN executable ok
+platform runtime: libc++ vector, sort, ownership, atomics and UTF-8 bytes ok
+ktest: bin/platform_smoke exited with 0
+ktest: PASS runtime_platform

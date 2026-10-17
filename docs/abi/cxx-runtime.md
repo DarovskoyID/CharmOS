@@ -25,5 +25,22 @@ operator new/new[] и delete/delete[] используют собственну�
 Поддерживаются sized delete. new_handler и dynamic loader не реализуются.
 pure/deleted virtual вызов завершает процесс через abort.
 
+## GN bootstrap profile (2026-10-17)
+
+Для Chromium target_os=charmos, target_cpu=x64, __charmos__ и IS_CHARMOS /
+IS_POSIX. IS_LINUX/IS_ANDROID выключены. Компилятор Generic ELF, собственные
+C-заголовки, bundled libc++ с namespace __Cr. Ядро/loader не меняют ABI.
+Для upstream runtime выбирается штатный no-exception профиль libc++abi,
+исключаются exception storage/personality и дубли собственных guard/virtual
+handlers. RTTI разрешён внутри upstream ABI runtime; приложения остаются
+без RTTI/исключений. Compiler TLS, dynamic/interpreter segments/sections и
+ET_DYN отвергаются post-link проверкой, а не загружаются как будто поддержаны.
+
+platform_smoke использует только два upstream units (algorithm, verbose_abort)
+и native libc. Его vector/sort/ownership/atomics тест не является проверкой
+полного libc++, std::locale, filesystem, Chromium base или браузерного окна.
+full_runtime — отдельная обычная executable target со штатными зависимостями
+Chromium: недостающие locale/math/fenv интерфейсы остаются ошибками сборки.
+
 Ссылки на контракт upstream:
 [Itanium C++ ABI](https://itanium-cxx-abi.github.io/cxx-abi/abi.html).
