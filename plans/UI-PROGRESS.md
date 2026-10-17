@@ -1,5 +1,10 @@
 # M10: состояние интерфейса относительно макета
 
+2026-10-17: пакет Unicode/C++ runtime не меняет макет. Свежие native QEMU
+снимки после пересборки: build/screenshots/unicode-calc-engineering.png,
+unicode-control.png, unicode-editor.png; опубликованы в чат сразу.
+Это существующие приложения, не окно Chromium. M10 остаётся открытым.
+
 Источник: `charm-os-design.zip`, страницы Main, Launcher, Window, Control,
 Kit. Владелец 2026-10-16 указал, что интерфейс ещё не доработан; M10 не
 считать завершённым только по наличию панели и двух тестовых окон.

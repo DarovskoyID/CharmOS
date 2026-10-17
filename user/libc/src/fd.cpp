@@ -358,6 +358,7 @@ int unlink(const char* path) {
 }
 
 int rmdir(const char* path) { return unlink(path); }
+int remove(const char* path) { return unlink(path); }
 
 int chdir(const char* path) {
   struct stat st;

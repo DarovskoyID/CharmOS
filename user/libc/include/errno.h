@@ -38,6 +38,8 @@ int* __errno_location(void);
 #define ENOSYS 38
 #define ENOTEMPTY 39
 #define ENOTSOCK 88
+#define EILSEQ 84
+#define EOVERFLOW 75
 #define EADDRINUSE 98
 #define ENETUNREACH 101
 #define ECONNRESET 104

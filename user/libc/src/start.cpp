@@ -34,10 +34,6 @@ char* g_argv[ap::kMaxArgs + 1];
 StartInfo g_start = {};
 ThreadBlock g_main_thread = {};
 
-constexpr int kMaxAtexit = 32;
-void (*g_atexit[kMaxAtexit])(void);
-int g_atexit_count = 0;
-
 }  // namespace
 
 StartInfo& start_info() { return g_start; }
@@ -97,19 +93,19 @@ extern "C" [[noreturn]] void __libc_start(uint64_t boot) {
   }
   if (const char* pwd = getenv("PWD")) set_cwd(pwd);
   stdio_init();
+  run_initializers();
   exit(main(argc, g_argv, environ));
 }
 
 extern "C" {
 
 int atexit(void (*fn)(void)) {
-  if (g_atexit_count == kMaxAtexit) return -1;
-  g_atexit[g_atexit_count++] = fn;
-  return 0;
+  return register_exit(fn);
 }
 
 void exit(int code) {
-  while (g_atexit_count > 0) g_atexit[--g_atexit_count]();
+  run_exit_handlers();
+  run_finalizers();
   stdio_flush_all();
   charm::process_exit(code);
 }

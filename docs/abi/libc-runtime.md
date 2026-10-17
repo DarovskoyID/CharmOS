@@ -1,6 +1,6 @@
 # Дополнения статической libc для Chromium (2026-10-17)
 
-Старые функции/типы libc не меняются; новых динамически загружаемых библиотек
+Новых динамически загружаемых библиотек
 нет. Новые вызовы ядра — только syscall ABI 1.12, см. time-random.md.
 Потоки — libc-threads.md. Стандартные C-типы ниже нужны настоящему
 third_party/libc++/src/include/stdlib.h из закреплённого Chromium.
@@ -17,6 +17,37 @@ __charm_assert_fail с текстом, файлом, строкой, функц�
 ISO C/POSIX для всей libc не заявляется.
 
 Реальный syntax probe getentropy.cc BoringSSL прошёл с bundled libc++,
-Generic ELF target, без Linux-заголовков. Следующий thread_pthread.cc пока
-не проходит: нет полноценного wchar/mbstate_t и части C stdio интерфейсов.
-Это конкретный следующий блок runtime; TLS/HTTPS пока не собраны.
+Generic ELF target, без Linux-заголовков. thread_pthread.cc также проходит
+после UTF-8 и pthread v2 дополнений. TLS/HTTPS пока не собраны.
+
+## UTF-8 / wchar дополнение
+
+Кодировка новых multibyte функций фиксирована UTF-8; wchar_t на x86-64 —
+32-битный Unicode scalar. mbstate_t: u32 value, u32 minimum, u8 remaining,
+u8 total, u16 reserved, 12 байт; нулевая инициализация означает начало.
+Суррогаты, overlong, значения выше U+10FFFF и неверные продолжения дают
+EILSEQ. Частичный символ сохраняется между вызовами; mbrtowc возвращает
+число байтов текущего вызова, -2 при неполном вводе, -1 при ошибке, 0 для NUL.
+Неявные состояния принадлежат потоку. Ошибка сбрасывает состояние.
+При dst=nullptr строковые преобразования считают длину без изменения src
+и состояния; ограниченный вывод не разрывает UTF-8 символ.
+Добавляются реальные wide string/memory операции, преобразования и remove;
+полная локализация, wide formatted I/O и filesystem rename не заявляются.
+
+Источники: [RFC 3629](https://www.rfc-editor.org/rfc/rfc3629.html),
+[mbrtowc](https://man7.org/linux/man-pages/man3/mbrtowc.3.html),
+[wcsrtombs](https://man7.org/linux/man-pages/man3/wcsrtombs.3.html).
+
+## Календарь и C runtime
+
+tm содержит девять int полей ISO C (36 байт). gmtime_r переводит signed
+Unix seconds в UTC Gregorian, годы 1..9999 включительно; за границами
+EOVERFLOW и nullptr, выход не изменяется. gmtime хранит результат в блоке
+текущего потока. tm_isdst=0, tm_wday=0 для воскресенья, tm_yday с нуля.
+Часовые зоны, localtime, mktime, strftime пока не реализованы.
+timeval: time_t seconds + long microseconds, 16 байт. gettimeofday берёт
+CLOCK_REALTIME, tv_usec 0..999999; nullptr output — EFAULT, ненулевой
+устаревший timezone argument — EINVAL. При ошибке output не меняется.
+bsearch выполняет бинарный поиск в сортированном массиве; пустой массив
+возвращает nullptr. inttypes.h предоставляет PRI format macros для LP64;
+SCN и strtoimax пока не заявляются. remove использует существующий VFS unlink.

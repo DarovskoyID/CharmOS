@@ -116,6 +116,7 @@ int* __errno_location(void) { return &current_thread()->err; }
 
 void* malloc(size_t n) {
   if (n == 0) n = 1;
+  if (n > SIZE_MAX - sizeof(Header) - 4095) { errno = ENOMEM; return nullptr; }
   if (n > (size_t{1} << kMaxShift) - sizeof(Header)) {
     uint64_t size = (n + sizeof(Header) + 4095) & ~uint64_t{4095};
     auto* h = static_cast<Header*>(map_vmo(size));
@@ -221,6 +222,19 @@ unsigned long long strtoull(const char* s, char** end, int base) {
   return neg ? 0 - v : v;
 }
 
+void* bsearch(const void* key, const void* base, size_t n, size_t size, int (*cmp)(const void*, const void*)) {
+  const auto* bytes = static_cast<const unsigned char*>(base);
+  if (!size || n > static_cast<size_t>(-1) / size) return nullptr;
+  while (n) {
+    size_t middle = n / 2;
+    const void* item = bytes + middle * size;
+    int order = cmp(key, item);
+    if (!order) return const_cast<void*>(item);
+    if (order < 0) n = middle;
+    else { bytes += (middle + 1) * size; n -= middle + 1; }
+  }
+  return nullptr;
+}
 long long strtoll(const char* s, char** end, int base) { return static_cast<long long>(strtoull(s, end, base)); }
 long strtol(const char* s, char** end, int base) { return static_cast<long>(strtoull(s, end, base)); }
 unsigned long strtoul(const char* s, char** end, int base) { return strtoull(s, end, base); }

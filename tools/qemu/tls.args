@@ -1,0 +1,5 @@
+-device intel-iommu
+-drive if=none,id=d0,format=raw,file=build/disk-tls.img
+-device virtio-blk-pci,drive=d0,disable-legacy=on,iommu_platform=on
+-cpu max,+rdrand
+-rtc base=2030-01-01T00:00:00,clock=vm

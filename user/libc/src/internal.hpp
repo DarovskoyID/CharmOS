@@ -6,8 +6,14 @@
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <bits/mbstate_t.h>
+#include <time.h>
 
 namespace libc {
+void run_initializers();
+void run_finalizers();
+void run_exit_handlers();
+int register_exit(void (*fn)());
 
 using charm::Handle;
 using charm::Status;
@@ -78,6 +84,8 @@ struct ThreadBlock {
   bool detached;
   uint64_t stack_top;
   struct SpecificValue { void* value; uint32_t generation; } specific[128];
+  mbstate_t mb_decode, mb_length, mb_string, mb_encode;
+  struct tm utc_time;
 };
 ThreadBlock* current_thread();
 void thread_specific_cleanup();

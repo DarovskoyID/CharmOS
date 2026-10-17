@@ -1,5 +1,43 @@
 # Передача работы (2026-10-17): состояние CharmOS для следующего агента
 
+## Пакет C++ / Unicode / native HTTPS (2026-10-17)
+
+Unicode/wchar, Gregorian UTC, gettimeofday, pthread v2, C++ new/delete,
+init/fini arrays, guard и LIFO destructors реализованы. docs/abi/cxx-runtime.md,
+libc-runtime.md, libc-threads.md. Все scalar Unicode перебираются в госте.
+Реальные BoringSSL crypto/ssl полностью собраны в ext4-кеше; runtime_tls.elf
+связан без host libc/libstdc++/libgcc. Используются две upstream libc++ units
+и три compiler-rt units из того же архива. tools/chromium/build-tls*.sh.
+Гостевой browser/tls прошёл: TLS1.2/1.3 HTTP через memory BIO, SHA-256,
+аппаратная энтропия, отказы неверному имени, issuer, expired/future.
+Runtime C++ ctor/guard/dtor/fini и UTF-8 также прошли. Логи cxx-final-*.
+После перезапуска ПК cache image смонтирован заново, исходники и код целы.
+HTTPS через настоящий guest TCP/virtio-net также прошёл: runtime_https.cpp,
+kernel test с optional Net cap, host fixture. Два HTTP-ответа (TLS1.3/1.2),
+hostname/trust/expired/future отклоняются. Хост независимо проверил SNI,
+версии протокола, два запроса и четыре отказа. Публичные сайты не проверены.
+Fini reentrancy guard и C++ constructors/guard/aligned array new/delete,
+destructors/atexit/fini, Unicode также прошли на финальной сборке.
+
+Финальная сборка: build/https-final-build.log. 29/29 host зелёные:
+build/https-final-host.log. После перезапуска все 15 QEMU сценариев зелёные,
+код 0: build/https-final-regression.log — browser (2), runtime (4), m8/libc,
+universal, usb_combo, usb_hid, usb_store1/2/3, windows, xhci.
+Первые 12 из 20 M10 до перезапуска прошли в build/cxx-final-regression.log;
+оставшиеся восемь завершены после перезапуска выше. До добавления C++ startup
+полный проход M10 сохранён также в build/unicode-regression.log.
+Не собирать параллельно с QEMU; активных прогонов больше нет.
+
+Debug ELF остаются в ext4-кеше, в initrd — копии без debug sections:
+runtime_tls.elf 11490472 → 2247224 байт; HTTPS ELF 2252400 байт.
+Общий test.sh не редактировался во время исполнения. Работать крупными
+пакетами, не отчитываться о каждом подтесте; минимум текста, снимки сразу.
+PNG unicode-calc-engineering/control/editor опубликованы в чат.
+Следующее: Chromium GN platform/toolchain, полный libc++/base, публичные
+trust roots/DNS, процессы/IPC и software Ozone для настоящего окна браузера.
+M10 открыт; Chromium окна пока нет. Редкий TCP дефект не объявлен исправленным.
+Ниже — предыдущий завершённый пакет.
+
 ## Дополнение 2026-10-17: пакет рабочего стола
 
 Обновление: официальный архив получен и полностью импортирован: 1342990

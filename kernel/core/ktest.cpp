@@ -1010,17 +1010,18 @@ void test_threads() {
 // стартовое сообщение "strt" с ролями Root и Job; тот запускает ребёнка с диска.
 // args/env — строки с \0 подряд (process.md §2).
 void run_with_start(const char* file, const char* args, uint32_t args_bytes, uint32_t argc, const char* env = "",
-                    uint32_t env_bytes = 0, uint32_t envc = 0) {
+                    uint32_t env_bytes = 0, uint32_t envc = 0, bool with_net = false) {
   namespace ap = abi::process;
   if (!fs::mounted()) fail("root not mounted");
   lib::initrd::Archive archive;
   if (archive.open(mm::phys_to_virt<const void>(g_initrd_phys), g_initrd_size).is_err()) fail("bad initrd");
   lib::initrd::File f;
   if (!archive.find(StringView(file), &f)) fail("program missing from initrd");
-  ipc::Cap *mine, *theirs, *caps[2];
+  ipc::Cap *mine, *theirs, *caps[3];
   if (ipc::create_channel(&mine, &theirs) != ipc::Status::Ok) fail("create_channel");
   if (fs::root_cap(&caps[0]) != ipc::Status::Ok) fail("root_cap");
   if (ipc::create_job_cap(ipc::root_job(), &caps[1]) != ipc::Status::Ok) fail("job cap");
+  if (with_net && net::net_cap(&caps[2]) != ipc::Status::Ok) fail("net cap");
   struct {
     ap::StartHeader h;
     char data[512];
@@ -1031,12 +1032,14 @@ void run_with_start(const char* file, const char* args, uint32_t args_bytes, uin
   msg.h.args_bytes = args_bytes;
   msg.h.envc = envc;
   msg.h.env_bytes = env_bytes;
-  msg.h.handle_count = 2;
+  msg.h.handle_count = with_net ? 3u : 2u;
   msg.h.roles[0] = ap::kRoleRoot;
   msg.h.roles[1] = ap::kRoleJob;
+  if (with_net) msg.h.roles[2] = ap::kRoleNet;
   __builtin_memcpy(msg.data, args, args_bytes);
   __builtin_memcpy(msg.data + args_bytes, env, env_bytes);
-  if (ipc::kernel_send(mine, &msg, sizeof msg.h + args_bytes + env_bytes, caps, 2) != ipc::Status::Ok) fail("kernel_send");
+  if (ipc::kernel_send(mine, &msg, sizeof msg.h + args_bytes + env_bytes, caps, msg.h.handle_count) != ipc::Status::Ok)
+    fail("kernel_send");
   auto p = proc::spawn_process(f.name.substr(4), f.data, f.size, sched::kAnyCpu, theirs);
   if (p.is_err()) fail("spawn_process failed");
   int64_t code = proc::wait_process(p.value());
@@ -1062,6 +1065,21 @@ void test_runtime_cpu() {
 }
 void test_runtime_threads() {
   run_with_start("bin/runtime_threads", "runtime_threads");
+  pass();
+}
+void test_runtime_tls() {
+  run_with_start("bin/runtime_tls", "runtime_tls");
+  pass();
+}
+void test_runtime_https() {
+  uint64_t deadline = platform::now_ns() + 20'000'000'000ull;
+  while (!net::link_up()) {
+    if (platform::now_ns() > deadline) fail("no link");
+    sched::sleep_ns(10'000'000);
+  }
+  if (net::dhcp_configure(platform::now_ns() + 10'000'000'000ull) != net::Status::Ok) fail("dhcp");
+  static const char args[] = "runtime_https";
+  run_with_start("bin/runtime_https", args, sizeof args, 1, "", 0, 0, true);
   pass();
 }
 void test_runtime_tpm() {
@@ -1166,6 +1184,8 @@ constexpr Test kTests[] = {
     {"libc", &test_libc},
     {"runtime_cpu", &test_runtime_cpu},
     {"runtime_threads", &test_runtime_threads},
+    {"runtime_tls", &test_runtime_tls},
+    {"runtime_https", &test_runtime_https},
     {"runtime_tpm", &test_runtime_tpm},
     {"runtime_none", &test_runtime_none},
     {"fs", &test_fs},
@@ -1190,7 +1210,8 @@ bool needs_drivers() {
          g_selected == StringView("signals") || g_selected == StringView("libc") ||
          g_selected == StringView("sysarea") || g_selected == StringView("sysarea_locked") ||
          g_selected == StringView("runtime_cpu") || g_selected == StringView("runtime_tpm") ||
-         g_selected == StringView("runtime_none") || g_selected == StringView("runtime_threads");
+         g_selected == StringView("runtime_none") || g_selected == StringView("runtime_threads") ||
+         g_selected == StringView("runtime_tls") || g_selected == StringView("runtime_https");
 }
 StringView selected() { return g_selected; }
 

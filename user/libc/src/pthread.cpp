@@ -7,6 +7,7 @@
 #include "internal.hpp"
 
 struct __pthread : libc::ThreadBlock {};
+static_assert(sizeof(pthread_mutex_t) == 24 && __builtin_offsetof(pthread_mutex_t, owner) == 8);
 
 namespace libc {
 namespace {
@@ -91,22 +92,53 @@ void pthread_exit(void* ret) {
   charm::thread_exit(0);
 }
 
-int pthread_mutex_init(pthread_mutex_t* m, const pthread_mutexattr_t*) {
-  m->state = 0;
+int sched_yield(void) { charm::yield(); return 0; }
+int pthread_mutexattr_init(pthread_mutexattr_t* a) { a->type = PTHREAD_MUTEX_NORMAL; return 0; }
+int pthread_mutexattr_destroy(pthread_mutexattr_t*) { return 0; }
+int pthread_mutexattr_settype(pthread_mutexattr_t* a, int type) {
+  if (type != PTHREAD_MUTEX_NORMAL && type != PTHREAD_MUTEX_RECURSIVE) return EINVAL;
+  a->type = type; return 0;
+}
+int pthread_mutex_init(pthread_mutex_t* m, const pthread_mutexattr_t* a) {
+  *m = {0, a ? a->type : PTHREAD_MUTEX_NORMAL, 0, 0};
   return 0;
 }
-int pthread_mutex_destroy(pthread_mutex_t*) { return 0; }
+int pthread_mutex_destroy(pthread_mutex_t* m) {
+  return __atomic_load_n(&m->state, __ATOMIC_ACQUIRE) ? EBUSY : 0;
+}
 
 int pthread_mutex_lock(pthread_mutex_t* m) {
+  if (m->type == PTHREAD_MUTEX_RECURSIVE &&
+      __atomic_load_n(&m->owner, __ATOMIC_ACQUIRE) == reinterpret_cast<uintptr_t>(pthread_self())) {
+    if (m->depth == UINT32_MAX) return EAGAIN;
+    ++m->depth; return 0;
+  }
   reinterpret_cast<Lock*>(m)->lock();
+  if (m->type == PTHREAD_MUTEX_RECURSIVE) {
+    m->depth = 1;
+    __atomic_store_n(&m->owner, reinterpret_cast<uintptr_t>(pthread_self()), __ATOMIC_RELEASE);
+  }
   return 0;
 }
 
 int pthread_mutex_trylock(pthread_mutex_t* m) {
-  return __sync_val_compare_and_swap(&m->state, 0u, 1u) == 0 ? 0 : EBUSY;
+  if (m->type == PTHREAD_MUTEX_RECURSIVE &&
+      __atomic_load_n(&m->owner, __ATOMIC_ACQUIRE) == reinterpret_cast<uintptr_t>(pthread_self()))
+    return pthread_mutex_lock(m);
+  if (__sync_val_compare_and_swap(&m->state, 0u, 1u) != 0) return EBUSY;
+  if (m->type == PTHREAD_MUTEX_RECURSIVE) {
+    m->depth = 1;
+    __atomic_store_n(&m->owner, reinterpret_cast<uintptr_t>(pthread_self()), __ATOMIC_RELEASE);
+  }
+  return 0;
 }
 
 int pthread_mutex_unlock(pthread_mutex_t* m) {
+  if (m->type == PTHREAD_MUTEX_RECURSIVE) {
+    if (__atomic_load_n(&m->owner, __ATOMIC_ACQUIRE) != reinterpret_cast<uintptr_t>(pthread_self())) return EPERM;
+    if (--m->depth) return 0;
+    __atomic_store_n(&m->owner, uintptr_t{0}, __ATOMIC_RELEASE);
+  }
   reinterpret_cast<Lock*>(m)->unlock();
   return 0;
 }
@@ -123,6 +155,25 @@ int pthread_cond_wait(pthread_cond_t* c, pthread_mutex_t* m) {
   (void)charm::futex_wait(&c->seq, seq, charm::kForever);
   pthread_mutex_lock(m);
   return 0;
+}
+
+int pthread_cond_timedwait(pthread_cond_t* c, pthread_mutex_t* m, const struct timespec* deadline) {
+  if (!deadline || deadline->tv_sec < 0 || deadline->tv_nsec < 0 || deadline->tv_nsec >= 1000000000) return EINVAL;
+  auto real = charm::realtime();
+  if (!real.ok()) return errno_from(real.status);
+  uint64_t seconds = static_cast<uint64_t>(deadline->tv_sec);
+  if (seconds > (UINT64_MAX - static_cast<uint64_t>(deadline->tv_nsec)) / 1000000000) return EINVAL;
+  uint64_t target = seconds * 1000000000 + static_cast<uint64_t>(deadline->tv_nsec);
+  uint64_t now = charm::now_ns();
+  uint64_t left = target > real.value ? target - real.value : 0;
+  uint64_t until = left > UINT64_MAX - now ? UINT64_MAX : now + left;
+  uint32_t seq = __atomic_load_n(&c->seq, __ATOMIC_ACQUIRE);
+  int result = pthread_mutex_unlock(m);
+  if (result) return result;
+  auto status = charm::futex_wait(&c->seq, seq, until);
+  result = pthread_mutex_lock(m);
+  if (result) return result;
+  return status == Status::TimedOut ? ETIMEDOUT : 0;
 }
 
 int pthread_cond_signal(pthread_cond_t* c) {

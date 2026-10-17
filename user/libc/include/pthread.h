@@ -4,8 +4,8 @@
 #include <time.h>
 typedef struct __pthread* pthread_t;
 typedef struct { int unused; } pthread_attr_t;
-typedef struct { volatile uint32_t state; } pthread_mutex_t;
-typedef struct { int unused; } pthread_mutexattr_t;
+typedef struct { volatile uint32_t state; int type; uintptr_t owner; uint32_t depth; } pthread_mutex_t;
+typedef struct { int type; } pthread_mutexattr_t;
 typedef struct { volatile uint32_t seq; } pthread_cond_t;
 typedef struct { int unused; } pthread_condattr_t;
 typedef struct { volatile uint32_t state; } pthread_once_t;
@@ -19,8 +19,10 @@ typedef struct { int unused; } pthread_rwlockattr_t;
 typedef uint32_t pthread_key_t;
 #define PTHREAD_KEYS_MAX 128
 #define PTHREAD_DESTRUCTOR_ITERATIONS 4
-#define PTHREAD_RWLOCK_INITIALIZER {{0}, {0}, 0, 0}
-#define PTHREAD_MUTEX_INITIALIZER {0}
+#define PTHREAD_RWLOCK_INITIALIZER {PTHREAD_MUTEX_INITIALIZER, {0}, 0, 0}
+#define PTHREAD_MUTEX_INITIALIZER {0, 0, 0, 0}
+#define PTHREAD_MUTEX_NORMAL 0
+#define PTHREAD_MUTEX_RECURSIVE 1
 #define PTHREAD_COND_INITIALIZER {0}
 #define PTHREAD_ONCE_INIT {0}
 #ifdef __cplusplus
@@ -32,6 +34,10 @@ int pthread_detach(pthread_t t);
 pthread_t pthread_self(void);
 __attribute__((noreturn)) void pthread_exit(void* ret);
 int pthread_mutex_init(pthread_mutex_t* m, const pthread_mutexattr_t* a);
+int pthread_mutexattr_init(pthread_mutexattr_t* a);
+int pthread_mutexattr_settype(pthread_mutexattr_t* a, int type);
+int pthread_mutexattr_destroy(pthread_mutexattr_t* a);
+int pthread_cond_timedwait(pthread_cond_t* c, pthread_mutex_t* m, const struct timespec* deadline);
 int pthread_mutex_destroy(pthread_mutex_t* m);
 int pthread_mutex_lock(pthread_mutex_t* m);
 int pthread_mutex_trylock(pthread_mutex_t* m);

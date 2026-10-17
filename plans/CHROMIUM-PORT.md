@@ -87,13 +87,12 @@ BoringSSL. Он включает неактивные ветки других О
 tools/chromium/probe-tls.sh проверяет реальную единицу трансляции с комплектной
 libc++, своими C-заголовками и без заголовков Linux. Даже успешный syntax probe
 не равен собранной TLS-библиотеке, проверке сертификатов или HTTPS-соединению.
-Фактический результат: crypto/rand/getentropy.cc проходит; следующий
-crypto/thread_pthread.cc останавливается на mbstate_t/wchar и неполной
-поверхности stdio (FILE/remove). Логи build/chromium/tls-probe/*.log.
+Обе единицы crypto/rand/getentropy.cc и crypto/thread_pthread.cc проходят.
+Исходный блокер wchar/mbstate_t/stdio устранён рабочими реализациями.
+Логи build/chromium/tls-probe/*.log.
 Порядок include исправлен: libc++ wrappers идут перед своими C-заголовками,
 hardening FAST задан явно. Добавлены настоящие div/ldiv/lldiv и assert.
-Следующий пакет — рабочий UTF-8/wchar runtime и конфигурация libc++, затем
-компиляция/линковка crypto+ssl; пустыми объявлениями ошибок не маскировать.
+Полная сборка crypto+ssl и native memory-TLS smoke также прошли (ниже).
 
 Дисковая зависимость браузера: исходный замер первичного шифрования 15 МиБ
 в TCG — 156099 мс. После объединения соседних промахов/грязных страниц по
@@ -107,9 +106,33 @@ AES также собирается с -O2; алгоритм/формат/гра
 
 ### Следующие результаты, которые ещё необходимо получить
 
-1. Исходники и toolchain, base/runtime, время/энтропия/TLS: smoke-программа
-   CharmOS устанавливает реальное HTTPS-соединение; невалидное имя, срок и
-   недоверенный сертификат отклоняются. Не добавлять обход проверки сертификатов.
+Обновление Unicode/runtime 2026-10-17: собственные UTF-8/wchar функции,
+потоковые implicit mbstate, Gregorian gmtime_r/gmtime, bsearch и PRI macros.
+Mutex/rwlock статической libc v2 требуют общей пересборки; recursive mutex,
+condition absolute timeout и sched_yield нужны bundled libc++. Оба реальных
+BoringSSL translation units (getentropy.cc и thread_pthread.cc) проходят
+tools/chromium/probe-tls.sh без Linux defines/headers.
+
+tools/chromium/build-tls.sh конфигурирует upstream CMake для Generic ELF,
+сборка идёт внутри ext4-кеша на A:. Оба архива собраны полностью. Используется
+штатный memory BIO / OPENSSL_NO_SOCK; Chrome сам владеет сетевым транспортом.
+Старый BSD setsockopt stub не используется. Лог tls-build.log.
+build-tls-smoke.sh связывает native ELF с libc CharmOS, двумя исходными
+libc++ units (algorithm, verbose_abort) и тремя compiler-rt units
+(udivti3, umodti3, udivmodti4). Никаких host libc/libstdc++/libgcc.
+Гостевой browser/tls прошёл SHA-256 known vector, RAND_bytes, TLS1.2/1.3
+HTTP request/response через memory BIO; hostname/trust/expired/future
+отказы проверены. browser/https также прошёл настоящий TCP через virtio-net
+к контролируемому host TLS server: два HTTP-ответа (TLS1.3/1.2), четыре
+отказа по сертификатам. Хост отдельно подтвердил версии TLS, SNI, запросы
+и отсутствие HTTP при ошибках проверки. Это не окно браузера и не Яндекс.
+Итог общей регрессии фиксируется в HANDOFF.md.
+Полные debug ELF сохраняются внутри ext4-кеша, в initrd идут stripped-debug
+копии: runtime_tls.elf 11490472 → 2247224 байт при сохранении кода/данных.
+
+1. Native TLS/HTTPS с отрицательными проверками уже работает. Дальше:
+   полноценный libc++/Chromium base, GN platform/toolchain, public trust
+   roots и DNS. Локальный HTTPS smoke не доказывает работу публичных сайтов.
 2. Процессы/IPC и software platform backend: настоящее окно Chromium в QEMU,
    локальные HTML/JS/CSS, ввод, прокрутка, перезапуск упавшего renderer.
 3. Полная оболочка: Яндекс по умолчанию, адресная строка, вкладки, история,

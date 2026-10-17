@@ -20,7 +20,8 @@ endforeach()
 add_library(c STATIC
   libc/src/start.cpp libc/src/string.cpp libc/src/stdlib.cpp libc/src/stdio.cpp
   libc/src/fd.cpp libc/src/pthread.cpp libc/src/socket.cpp libc/src/spawn.cpp
-  libc/src/random.cpp libc/src/pthread_extra.cpp libc/src/assert.cpp)
+  libc/src/random.cpp libc/src/pthread_extra.cpp libc/src/assert.cpp libc/src/wchar.cpp libc/src/calendar.cpp
+  libc/src/cxx.cpp)
 target_include_directories(c PUBLIC libc/include rt/include)
 target_link_libraries(c PUBLIC abi)
 target_compile_options(c PRIVATE -fno-builtin)
@@ -38,6 +39,7 @@ endfunction()
 charmos_c_program(libc_test tests/libc_test.cpp)
 charmos_c_program(runtime_test tests/runtime_test.cpp)
 charmos_c_program(runtime_threads tests/runtime_threads.cpp)
+target_compile_options(runtime_threads PRIVATE -fthreadsafe-statics)
 charmos_c_program(init init/init.cpp)
 foreach(prog logd sh echo cat ls mkdir rm sleep httpd corrupt wm wdemo)
   charmos_c_program(${prog} bin/${prog}/${prog}.cpp)

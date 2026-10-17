@@ -1,7 +1,7 @@
 #include <pthread.h>
 #include "internal.hpp"
 
-static_assert(sizeof(pthread_rwlock_t) == 16);
+static_assert(sizeof(pthread_rwlock_t) == 40);
 static_assert(sizeof(pthread_key_t) == 4);
 namespace {
 struct Key { uint32_t generation; bool active; void (*destructor)(void*); };

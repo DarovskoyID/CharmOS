@@ -49,6 +49,7 @@ int ferror(FILE* f);
 void clearerr(FILE* f);
 int fileno(FILE* f);
 void perror(const char* s);
+int remove(const char* path);
 int setvbuf(FILE* f, char* buf, int mode, size_t size);
 #ifdef __cplusplus
 }
