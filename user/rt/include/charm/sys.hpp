@@ -75,6 +75,7 @@ inline SysResult raw_syscall(uint64_t number) { return syscall0(static_cast<Numb
 
 inline SysResult abi_version() { return syscall0(Number::AbiVersion); }
 inline SysResult realtime() { return syscall0(Number::ClockRealtime); }
+inline SysResult runtime_query(uint64_t selector) { return syscall1(Number::RuntimeQuery, selector); }
 inline SysResult random_read(void* buf, size_t size, uint64_t flags = 0) {
   return syscall3(Number::RandomRead, reinterpret_cast<uint64_t>(buf), size, flags);
 }

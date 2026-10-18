@@ -633,6 +633,8 @@ Status sys_thread_set_priority(uint32_t h, uint64_t priority) {
 void init_accounting() {
   sched::set_cpu_charge_hook([](sched::Thread* t, uint64_t ns) {
     auto* p = static_cast<Process*>(t->process);
+    __atomic_fetch_add(&t->cpu_ns, ns, __ATOMIC_RELAXED);
+    __atomic_fetch_add(&p->cpu_ns, ns, __ATOMIC_RELAXED);
     if (ipc::Job* over = ipc::job_charge_cpu(p->job, ns)) {
       sync::SpinGuard guard(g_procs_lock);
       terminate_job_locked(over, kExitKilled);  // лимит cpu_ns: job_kill (§7)

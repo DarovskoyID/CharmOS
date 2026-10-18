@@ -120,6 +120,28 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
     case Number::ClockMonotonic:
       set_result(f, Status::Ok, kernel::platform::now_ns());
       break;
+    case Number::RuntimeQuery: {
+      if (f.rdi > 4) {
+        set_result(f, Status::InvalidArgs);
+        break;
+      }
+      auto* thread = kernel::sched::current();
+      auto* process = current_process();
+      uint64_t value = 0;
+      if (f.rdi == 0) value = process->pid;
+      else if (f.rdi == 1) value = thread->id;
+      else if (f.rdi == 4) {
+        uint64_t hz = kernel::platform::tick_hz();
+        if (!hz) { set_result(f, Status::NotSupported); break; }
+        value = (1000000000ull + hz - 1) / hz;
+      } else {
+        kernel::sched::account_current_cpu_time();
+        value = f.rdi == 2 ? __atomic_load_n(&process->cpu_ns, __ATOMIC_RELAXED)
+                          : __atomic_load_n(&thread->cpu_ns, __ATOMIC_RELAXED);
+      }
+      set_result(f, Status::Ok, value);
+      break;
+    }
     case Number::ClockRealtime: {
       uint64_t ns = 0;
       auto status = kernel::platform::realtime_ns(&ns);

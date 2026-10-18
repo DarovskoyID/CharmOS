@@ -32,15 +32,15 @@ void from_abi(const charm::SockAddr& s, struct sockaddr* a, socklen_t* len) {
   *len = sizeof(sockaddr_in);
 }
 
-Fd* sock(int fd) {
-  Fd* f = fd_get(fd);
-  if (f == nullptr) {
+FdLease sock(int fd) {
+  FdLease f(fd);
+  if (!f) {
     errno = EBADF;
-    return nullptr;
+    return {};
   }
   if (f->kind != Kind::Socket) {
     errno = ENOTSOCK;
-    return nullptr;
+    return {};
   }
   return f;
 }
@@ -61,27 +61,28 @@ int socket(int domain, int type, int) {
 }
 
 int bind(int fd, const struct sockaddr* a, socklen_t len) {
-  Fd* f = sock(fd);
+  auto f = sock(fd);
   charm::SockAddr s;
-  if (f == nullptr) return -1;
+  if (!f) return -1;
   if (!to_abi(a, len, &s)) return fail_errno(EINVAL);
   Status st = charm::socket_bind(f->handle, &s);
   return st == Status::Ok ? 0 : fail(st);
 }
 
 int listen(int fd, int backlog) {
-  Fd* f = sock(fd);
-  if (f == nullptr) return -1;
+  auto f = sock(fd);
+  if (!f) return -1;
   Status st = charm::socket_listen(f->handle, static_cast<uint64_t>(backlog > 0 ? backlog : 1));
   return st == Status::Ok ? 0 : fail(st);
 }
 
 int accept(int fd, struct sockaddr* a, socklen_t* len) {
-  Fd* f = sock(fd);
-  if (f == nullptr) return -1;
+  auto f = sock(fd);
+  if (!f) return -1;
   charm::SockAddr peer{};
-  auto r = charm::socket_accept(f->handle, &peer, charm::kForever);
-  if (!r.ok()) return fail(r.status);
+  bool nonblock = __atomic_load_n(&f->nonblock, __ATOMIC_RELAXED);
+  auto r = charm::socket_accept(f->handle, &peer, nonblock ? 0 : charm::kForever);
+  if (!r.ok()) return nonblock && r.status == Status::TimedOut ? fail_errno(EAGAIN) : fail(r.status);
   from_abi(peer, a, len);
   int nfd = fd_alloc(Kind::Socket, static_cast<Handle>(r.value), true, true);
   if (nfd < 0) (void)charm::handle_close(static_cast<Handle>(r.value));
@@ -89,26 +90,39 @@ int accept(int fd, struct sockaddr* a, socklen_t* len) {
 }
 
 int connect(int fd, const struct sockaddr* a, socklen_t len) {
-  Fd* f = sock(fd);
+  auto f = sock(fd);
   charm::SockAddr s;
-  if (f == nullptr) return -1;
+  if (!f) return -1;
+  if (__atomic_load_n(&f->nonblock, __ATOMIC_RELAXED)) return fail_errno(ENOTSUP);
   if (!to_abi(a, len, &s)) return fail_errno(EINVAL);
   Status st = charm::socket_connect(f->handle, &s, charm::now_ns() + 30'000'000'000ull);
   return st == Status::Ok ? 0 : fail(st);
 }
 
-ssize_t send(int fd, const void* buf, size_t n, int) { return sock(fd) != nullptr ? write(fd, buf, n) : -1; }
-ssize_t recv(int fd, void* buf, size_t n, int) { return sock(fd) != nullptr ? read(fd, buf, n) : -1; }
+ssize_t send(int fd, const void* buf, size_t n, int flags) {
+  auto f = sock(fd);
+  if (!f) return -1;
+  return flags ? fail_errno(ENOTSUP) : write(fd, buf, n);
+}
+ssize_t recv(int fd, void* buf, size_t n, int flags) {
+  auto f = sock(fd);
+  if (!f) return -1;
+  return flags ? fail_errno(ENOTSUP) : read(fd, buf, n);
+}
 
 int shutdown(int fd, int how) {
-  Fd* f = sock(fd);
-  if (f == nullptr) return -1;
+  auto f = sock(fd);
+  if (!f) return -1;
+  if (how < SHUT_RD || how > SHUT_RDWR) return fail_errno(EINVAL);
   uint64_t h = how == SHUT_RD ? 1 : how == SHUT_WR ? 2 : 3;
   Status st = charm::socket_shutdown(f->handle, h);
   return st == Status::Ok ? 0 : fail(st);
 }
 
-int setsockopt(int, int, int, const void*, socklen_t) { return 0; }
+int setsockopt(int fd, int, int, const void*, socklen_t) {
+  auto f = sock(fd);
+  return f ? fail_errno(ENOTSUP) : -1;
+}
 
 int inet_pton(int af, const char* src, void* dst) {
   if (af != AF_INET) return -1;

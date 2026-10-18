@@ -4,6 +4,7 @@
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
 #define RAND_MAX 0x7fffffff
+#define MB_CUR_MAX 4
 typedef struct { int quot, rem; } div_t;
 typedef struct { long quot, rem; } ldiv_t;
 typedef struct { long long quot, rem; } lldiv_t;
@@ -22,6 +23,15 @@ __attribute__((noreturn)) void abort(void);
 int atexit(void (*fn)(void));
 int atoi(const char* s);
 long atol(const char* s);
+double atof(const char* s);
+float strtof(const char* s, char** end);
+double strtod(const char* s, char** end);
+long double strtold(const char* s, char** end);
+int mblen(const char*, size_t);
+int mbtowc(wchar_t*, const char*, size_t);
+int wctomb(char*, wchar_t);
+size_t mbstowcs(wchar_t*, const char*, size_t);
+size_t wcstombs(char*, const wchar_t*, size_t);
 long strtol(const char* s, char** end, int base);
 unsigned long strtoul(const char* s, char** end, int base);
 long long strtoll(const char* s, char** end, int base);

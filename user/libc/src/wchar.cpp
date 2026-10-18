@@ -142,5 +142,55 @@ size_t wcsrtombs(char* out, const wchar_t** source, size_t n, mbstate_t* supplie
   *source=s; return count;
 }
 wint_t btowc(int c) { return c>=0 && c<128?static_cast<wint_t>(c):WEOF; }
+size_t mbsnrtowcs(wchar_t* out, const char** source, size_t bytes, size_t capacity, mbstate_t* supplied) {
+  auto* original=supplied?supplied:&libc::current_thread()->mb_string;
+  mbstate_t local=*original; auto* state=out?original:&local;
+  const char* s=*source; size_t count=0;
+  while (bytes && (!out || count<capacity)) {
+    wchar_t wc;
+    size_t used=mbrtowc(&wc,s,bytes,state);
+    if (used==static_cast<size_t>(-1)) { if(out) *source=s; return used; }
+    if (used==static_cast<size_t>(-2)) { s+=bytes; bytes=0; break; }
+    if (!used) { if(out) { out[count]=0; *source=nullptr; } return count; }
+    if(out) out[count]=wc;
+    ++count; s+=used; bytes-=used;
+  }
+  if(out) *source=s;
+  return count;
+}
+size_t wcsnrtombs(char* out, const wchar_t** source, size_t characters, size_t capacity, mbstate_t* supplied) {
+  auto* original=supplied?supplied:&libc::current_thread()->mb_encode;
+  mbstate_t local=*original; auto* state=out?original:&local;
+  const wchar_t* s=*source; size_t count=0;
+  while(characters && (!out || count<capacity)) {
+    char bytes[4]; size_t used=wcrtomb(bytes,*s,state);
+    if(used==static_cast<size_t>(-1)) { if(out) *source=s; return used; }
+    if(out && used>capacity-count) break;
+    if(!*s) { if(out) { out[count]=0; *source=nullptr; } return count; }
+    if(out) for(size_t i=0;i<used;++i) out[count+i]=bytes[i];
+    count+=used; ++s; --characters;
+  }
+  if(out) *source=s;
+  return count;
+}
+int mbtowc(wchar_t* out, const char* text, size_t n) {
+  if(!text) return 0;
+  mbstate_t state{};
+  size_t used=mbrtowc(out,text,n,&state);
+  if(used==static_cast<size_t>(-2)) { errno=EILSEQ; return -1; }
+  return used==static_cast<size_t>(-1) ? -1 : static_cast<int>(used);
+}
+int mblen(const char* text, size_t n) { return mbtowc(nullptr,text,n); }
+int wctomb(char* out,wchar_t c) {
+  if(!out) return 0;
+  mbstate_t state{}; size_t used=wcrtomb(out,c,&state);
+  return used==static_cast<size_t>(-1) ? -1 : static_cast<int>(used);
+}
+size_t mbstowcs(wchar_t* out,const char* text,size_t n) {
+  mbstate_t state{}; return mbsrtowcs(out,&text,n,&state);
+}
+size_t wcstombs(char* out,const wchar_t* text,size_t n) {
+  mbstate_t state{}; return wcsrtombs(out,&text,n,&state);
+}
 int wctob(wint_t c) { return c<128?static_cast<int>(c):EOF; }
 }

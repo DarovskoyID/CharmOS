@@ -480,6 +480,13 @@ void on_timer_tick() {
 uint64_t context_switches(uint32_t cpu) { return g_rq[cpu].switches; }
 uint64_t threads_created() { return g_created; }
 
+void account_current_cpu_time() {
+  bool irq = (arch::x86_64::read_rflags() & arch::x86_64::kRflagsIf) != 0;
+  arch::x86_64::cli();
+  charge_current(local_rq(), platform::now_ns());
+  if (irq) arch::x86_64::sti();
+}
+
 }  // namespace kernel::sched
 
 extern "C" void thread_main() {

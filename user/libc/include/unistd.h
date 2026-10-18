@@ -26,6 +26,7 @@ int ftruncate(int fd, off_t size);
 unsigned sleep(unsigned seconds);
 int usleep(unsigned usec);
 pid_t getpid(void);
+pid_t gettid(void);
 int getentropy(void* buffer, size_t size);
 extern char** environ;
 __attribute__((noreturn)) void _exit(int code);

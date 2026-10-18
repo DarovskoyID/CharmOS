@@ -1,5 +1,5 @@
 #pragma once
-// Syscall ABI v1.12. Нормативные документы — docs/abi/syscalls.md (v1.0),
+// Syscall ABI v1.13. Нормативные документы — docs/abi/syscalls.md (v1.0),
 // docs/abi/ipc.md (v1.1), docs/abi/driver.md (v1.2), docs/abi/block.md и
 // docs/abi/fs.md (v1.3), docs/abi/net.md и docs/abi/socket.md (v1.4),
 // docs/abi/process.md и docs/abi/console.md (v1.5), docs/abi/pkg.md (v1.6).
@@ -10,7 +10,7 @@
 namespace abi::syscall {
 
 inline constexpr uint16_t kVersionMajor = 1;
-inline constexpr uint16_t kVersionMinor = 12;
+inline constexpr uint16_t kVersionMinor = 13;
 
 // §5
 enum class Number : uint64_t {
@@ -91,6 +91,7 @@ enum class Number : uint64_t {
   AudioOpen = 69,  // v1.11, audio.md
   ClockRealtime = 70,  // v1.12, time-random.md
   RandomRead = 71,
+  RuntimeQuery = 72,  // v1.13, runtime-query.md
 };
 
 // display.md §2.1.

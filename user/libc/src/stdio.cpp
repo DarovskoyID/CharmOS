@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <wchar.h>
+#include <limits.h>
 
 #include "internal.hpp"
 
@@ -19,8 +21,14 @@ struct __file {
   size_t wlen;
   char rbuf[BUFSIZ];
   size_t rpos, rlen;
-  int unget;
+  unsigned char unget[8];
+  size_t unget_count;
+  int orientation;
+  mbstate_t wide_state;
 };
+static_assert(sizeof(fpos_t)==24 && __builtin_offsetof(fpos_t,state)==8);
+extern "C" int __charm_numeric_vsnprintf(char*,size_t,const char*,va_list) __attribute__((weak));
+extern "C" int __charm_numeric_vswprintf(wchar_t*,size_t,const wchar_t*,va_list) __attribute__((weak));
 
 namespace libc {
 namespace {
@@ -67,7 +75,6 @@ __file* new_file(int fd, int mode) {
       f.used = true;
       f.fd = fd;
       f.mode = mode;
-      f.unget = -1;
       return &f;
     }
   }
@@ -293,6 +300,7 @@ FILE* stderr = nullptr;
 extern "C" {
 
 int vsnprintf(char* buf, size_t n, const char* fmt, va_list ap) {
+  if(__charm_numeric_vsnprintf) return __charm_numeric_vsnprintf(buf,n,fmt,ap);
   Out o{};
   o.emit = &emit_buf;
   o.buf = buf;
@@ -319,6 +327,15 @@ int sprintf(char* buf, const char* fmt, ...) {
 }
 
 int vfprintf(FILE* f, const char* fmt, va_list ap) {
+  if(fwide(f,-1)>0) { errno=EINVAL; f->err=true; return -1; }
+  if(__charm_numeric_vsnprintf) {
+    char* buffer=nullptr;
+    int length=vasprintf(&buffer,fmt,ap);
+    if(length<0) return -1;
+    size_t written=fwrite(buffer,1,static_cast<size_t>(length),f);
+    free(buffer);
+    return written==static_cast<size_t>(length) ? length : -1;
+  }
   Out o{};
   o.emit = &emit_file;
   o.file = f;
@@ -345,6 +362,18 @@ int printf(const char* fmt, ...) {
 }
 
 int vdprintf(int fd, const char* fmt, va_list ap) {
+  if(__charm_numeric_vsnprintf) {
+    char* buffer=nullptr;
+    int length=vasprintf(&buffer,fmt,ap);
+    if(length<0) return -1;
+    size_t done=0;
+    while(done<static_cast<size_t>(length)) {
+      ssize_t n=::write(fd,buffer+done,static_cast<size_t>(length)-done);
+      if(n<=0) { free(buffer); return -1; }
+      done+=static_cast<size_t>(n);
+    }
+    free(buffer); return length;
+  }
   Out o{};
   o.emit = &emit_fd;
   o.fd = fd;
@@ -361,11 +390,15 @@ int dprintf(int fd, const char* fmt, ...) {
   return r;
 }
 
-int fputc(int c, FILE* f) { return put(f, static_cast<char>(c)); }
-int putc(int c, FILE* f) { return put(f, static_cast<char>(c)); }
-int putchar(int c) { return put(stdout, static_cast<char>(c)); }
+int fputc(int c, FILE* f) {
+  if(fwide(f,-1)>0) { errno=EINVAL; f->err=true; return EOF; }
+  return put(f,static_cast<char>(c));
+}
+int putc(int c, FILE* f) { return fputc(c,f); }
+int putchar(int c) { return fputc(c,stdout); }
 
 int fputs(const char* s, FILE* f) {
+  if(fwide(f,-1)>0) { errno=EINVAL; f->err=true; return EOF; }
   for (; *s != '\0'; ++s) {
     if (put(f, *s) == EOF) return EOF;
   }
@@ -385,12 +418,8 @@ int fflush(FILE* f) {
   return flush(f);
 }
 
-int fgetc(FILE* f) {
-  if (f->unget >= 0) {
-    int c = f->unget;
-    f->unget = -1;
-    return c;
-  }
+static int get_byte(FILE* f) {
+  if(f->unget_count) return f->unget[--f->unget_count];
   if (f == stdin) fflush(stdout);  // приглашение до чтения
   if (f->rpos == f->rlen) {
     ssize_t n = ::read(f->fd, f->rbuf, sizeof f->rbuf);
@@ -402,6 +431,15 @@ int fgetc(FILE* f) {
     f->rlen = static_cast<size_t>(n);
   }
   return static_cast<unsigned char>(f->rbuf[f->rpos++]);
+}
+int fgetc(FILE* f) {
+  if(fwide(f,-1)>0) { errno=EINVAL; f->err=true; return EOF; }
+  return get_byte(f);
+}
+int ungetc(int c,FILE* f) {
+  if(c==EOF || f->unget_count==sizeof f->unget || fwide(f,-1)>0) return EOF;
+  f->unget[f->unget_count++]=static_cast<unsigned char>(c); f->eof=false;
+  return static_cast<unsigned char>(c);
 }
 
 int getc(FILE* f) { return fgetc(f); }
@@ -421,6 +459,8 @@ char* fgets(char* buf, int n, FILE* f) {
 }
 
 size_t fread(void* buf, size_t size, size_t n, FILE* f) {
+  if(!size || !n) return 0;
+  if(size && n>SIZE_MAX/size) { errno=EOVERFLOW; f->err=true; return 0; }
   auto* p = static_cast<char*>(buf);
   size_t total = size * n, got = 0;
   while (got < total) {
@@ -432,6 +472,9 @@ size_t fread(void* buf, size_t size, size_t n, FILE* f) {
 }
 
 size_t fwrite(const void* buf, size_t size, size_t n, FILE* f) {
+  if(!size || !n) return 0;
+  if(size && n>SIZE_MAX/size) { errno=EOVERFLOW; f->err=true; return 0; }
+  if(fwide(f,-1)>0) { errno=EINVAL; f->err=true; return 0; }
   const auto* p = static_cast<const char*>(buf);
   size_t total = size * n, done = 0;
   for (; done < total; ++done) {
@@ -469,18 +512,100 @@ int fclose(FILE* f) {
 }
 
 int fseek(FILE* f, long off, int whence) {
-  flush(f);
-  if (whence == SEEK_CUR) off -= static_cast<long>(f->rlen - f->rpos);
+  if(flush(f)) return -1;
+  if (whence == SEEK_CUR && __builtin_sub_overflow(off,static_cast<long>(f->rlen-f->rpos+f->unget_count),&off)) {
+    errno=EOVERFLOW; return -1;
+  }
+  if(lseek(f->fd,off,whence)<0) return -1;
   f->rpos = f->rlen = 0;
-  f->unget = -1;
+  f->unget_count = 0;
+  f->wide_state = {};
   f->eof = false;
-  return lseek(f->fd, off, whence) < 0 ? -1 : 0;
+  return 0;
 }
 
 long ftell(FILE* f) {
   off_t pos = lseek(f->fd, 0, SEEK_CUR);
   if (pos < 0) return -1;
-  return static_cast<long>(pos) - static_cast<long>(f->rlen - f->rpos) + static_cast<long>(f->wlen);
+  long result;
+  if(__builtin_sub_overflow(static_cast<long>(pos),static_cast<long>(f->rlen-f->rpos+f->unget_count),&result) ||
+     __builtin_add_overflow(result,static_cast<long>(f->wlen),&result)) { errno=EOVERFLOW; return -1; }
+  return result;
+}
+
+int fseeko(FILE* f,off_t off,int whence) { return fseek(f,off,whence); }
+off_t ftello(FILE* f) { return ftell(f); }
+int fgetpos(FILE* f,fpos_t* out) {
+  if(!out) { errno=EINVAL; return -1; }
+  off_t offset=ftello(f); if(offset<0) return -1;
+  *out={offset,f->wide_state}; return 0;
+}
+int fsetpos(FILE* f,const fpos_t* position) {
+  if(!position) { errno=EINVAL; return -1; }
+  if(fseeko(f,position->offset,SEEK_SET)) return -1;
+  f->wide_state=position->state; return 0;
+}
+void rewind(FILE* f) { (void)fseek(f,0,SEEK_SET); clearerr(f); }
+void setbuf(FILE* f,char* buffer) { (void)setvbuf(f,buffer,buffer?_IOFBF:_IONBF,BUFSIZ); }
+int fwide(FILE* f,int mode) {
+  if(!f->orientation && mode) f->orientation=mode>0?1:-1;
+  return f->orientation;
+}
+wint_t fgetwc(FILE* f) {
+  if(fwide(f,1)<0) { errno=EINVAL; f->err=true; return WEOF; }
+  for(;;) {
+    int c=get_byte(f);
+    if(c==EOF) {
+      if(!mbsinit(&f->wide_state)) { f->wide_state={}; errno=EILSEQ; f->err=true; }
+      return WEOF;
+    }
+    char byte=static_cast<char>(c); wchar_t value;
+    size_t result=mbrtowc(&value,&byte,1,&f->wide_state);
+    if(result==static_cast<size_t>(-1)) { f->err=true; return WEOF; }
+    if(result!=static_cast<size_t>(-2)) return static_cast<wint_t>(value);
+  }
+}
+wint_t getwc(FILE* f) { return fgetwc(f); }
+wint_t getwchar(void) { return fgetwc(stdin); }
+wint_t fputwc(wchar_t c,FILE* f) {
+  if(fwide(f,1)<0) { errno=EINVAL; f->err=true; return WEOF; }
+  char bytes[4]; size_t n=wcrtomb(bytes,c,&f->wide_state);
+  if(n==static_cast<size_t>(-1)) { f->err=true; return WEOF; }
+  for(size_t i=0;i<n;++i) if(put(f,bytes[i])==EOF) return WEOF;
+  return static_cast<wint_t>(c);
+}
+wint_t putwc(wchar_t c,FILE* f) { return fputwc(c,f); }
+wint_t putwchar(wchar_t c) { return fputwc(c,stdout); }
+wint_t ungetwc(wint_t c,FILE* f) {
+  if(c==WEOF || fwide(f,1)<0) return WEOF;
+  char bytes[4]; mbstate_t state{}; size_t n=wcrtomb(bytes,static_cast<wchar_t>(c),&state);
+  if(n==static_cast<size_t>(-1) || n>sizeof f->unget-f->unget_count) return WEOF;
+  while(n) f->unget[f->unget_count++]=static_cast<unsigned char>(bytes[--n]);
+  f->wide_state={}; f->eof=false; return c;
+}
+int vasprintf(char** out,const char* format_string,va_list args) {
+  if(!out) { errno=EINVAL; return -1; }
+  *out=nullptr; va_list count_args; va_copy(count_args,args);
+  int count=vsnprintf(nullptr,0,format_string,count_args); va_end(count_args);
+  if(count<0) return -1;
+  auto* buffer=static_cast<char*>(malloc(static_cast<size_t>(count)+1));
+  if(!buffer) return -1;
+  va_list write_args; va_copy(write_args,args);
+  int written=vsnprintf(buffer,static_cast<size_t>(count)+1,format_string,write_args); va_end(write_args);
+  if(written!=count) { free(buffer); errno=EOVERFLOW; return -1; }
+  *out=buffer; return count;
+}
+int asprintf(char** out,const char* format_string,...) {
+  va_list args; va_start(args,format_string);
+  int result=vasprintf(out,format_string,args); va_end(args); return result;
+}
+int vswprintf(wchar_t* out,size_t n,const wchar_t* format_string,va_list args) {
+  if(__charm_numeric_vswprintf) return __charm_numeric_vswprintf(out,n,format_string,args);
+  errno=ENOSYS; return -1;
+}
+int swprintf(wchar_t* out,size_t n,const wchar_t* format_string,...) {
+  va_list args; va_start(args,format_string);
+  int result=vswprintf(out,n,format_string,args); va_end(args); return result;
 }
 
 int feof(FILE* f) { return f->eof ? 1 : 0; }

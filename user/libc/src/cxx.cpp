@@ -7,6 +7,9 @@ namespace std {
 struct nothrow_t { explicit nothrow_t() = default; };
 extern const nothrow_t nothrow;
 const nothrow_t nothrow{};
+using new_handler = void (*)();
+new_handler get_new_handler() noexcept;
+new_handler set_new_handler(new_handler) noexcept;
 enum class align_val_t : size_t {};
 }
 
@@ -32,6 +35,7 @@ constinit libc::Lock exit_lock{};
 ExitEntry* exit_head = nullptr;
 size_t exit_count = 0;
 uint32_t finalizers_started = 0;
+std::new_handler current_new_handler = nullptr;
 int register_handler(void (*plain)(), void (*object)(void*), void* argument, void* dso) {
   if (!plain && !object) return -1;
   auto* entry = static_cast<ExitEntry*>(malloc(sizeof(ExitEntry)));
@@ -45,6 +49,12 @@ int register_handler(void (*plain)(), void (*object)(void*), void* argument, voi
 }
 void* allocate(size_t size, bool fatal) {
   void* memory = malloc(size ? size : 1);
+  while (!memory) {
+    auto handler = std::get_new_handler();
+    if (!handler) break;
+    handler();
+    memory = malloc(size ? size : 1);
+  }
   if (!memory && fatal) abort();
   return memory;
 }
@@ -55,8 +65,7 @@ void* allocate_aligned(size_t size, size_t alignment, bool fatal) {
   }
   if (alignment < alignof(void*)) alignment = alignof(void*);
   if (size > SIZE_MAX - sizeof(void*) - (alignment - 1)) {
-    if (fatal) abort();
-    return nullptr;
+    return allocate(SIZE_MAX, fatal);
   }
   void* base = allocate((size ? size : 1) + sizeof(void*) + alignment - 1, fatal);
   if (!base) return nullptr;
@@ -66,6 +75,12 @@ void* allocate_aligned(size_t size, size_t alignment, bool fatal) {
   return aligned;
 }
 void free_aligned(void* memory) { if (memory) free(static_cast<void**>(memory)[-1]); }
+}
+namespace std {
+new_handler get_new_handler() noexcept { return __atomic_load_n(&current_new_handler, __ATOMIC_SEQ_CST); }
+new_handler set_new_handler(new_handler handler) noexcept {
+  return __atomic_exchange_n(&current_new_handler, handler, __ATOMIC_SEQ_CST);
+}
 }
 extern "C" int __cxa_atexit(void (*fn)(void*), void* object, void* dso) {
   return register_handler(nullptr, fn, object, dso);

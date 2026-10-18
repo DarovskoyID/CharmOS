@@ -22,7 +22,7 @@ if mode != "link":
     # These are system headers for diagnostics, but remain native port inputs.
     flags += ["-MD"]
 if mode != "cc":
-    flags += ["-nostdinc++",
+    flags += ["-nostdinc++", "-D_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE=1", "-D_LIBCPP_HAS_CLOCK_GETTIME=1",
               "-isystem", str(source / "buildtools/third_party/libc++"),
               "-isystem", str(source / "third_party/libc++/src/include"),
               "-isystem", str(source / "third_party/libc++abi/src/include")]

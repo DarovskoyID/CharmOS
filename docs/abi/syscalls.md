@@ -126,3 +126,6 @@
 ClockRealtime (70) и RandomRead (71) определены в [time-random.md](time-random.md).
 Прежние номера и монотонные сроки сохраняются. BootInfo 1.1 приносит
 снимок UTC из UEFI; BootInfo 1.0 по-прежнему принимается без часов UTC.
+
+Дополнение 1.13 (2026-10-18): readonly RuntimeQuery=72 — docs/abi/runtime-query.md.
+

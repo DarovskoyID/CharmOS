@@ -394,3 +394,20 @@ scanout панели              5–16 мс
 - 2026-10-17 — Пакет runtime для Chromium: фиксированная UTF-8, 32-битные Unicode scalar, потоковый mbstate_t; собственные wchar/string/memory и Gregorian UTC gmtime. Mutex/rwlock статической libc v2 пересобираются вместе со всеми приложениями; добавлены recursive mutex и абсолютный condition timeout. Все Unicode scalar проверяются в гостевой системе. Для BoringSSL выбран штатный memory BIO (OPENSSL_NO_SOCK), транспорт будет предоставлять CharmOS; старый BSD setsockopt stub не использовать для TLS. Это рабочие решения в рамках поручения владельца; M10 остаётся открытым.
 - 2026-10-17 — Полная сборка BoringSSL crypto/ssl для Generic ELF завершена. Native TLS/HTTPS smoke использует штатный memory BIO поверх собственных TCP socket syscalls, не Linux BIO/host libc. В QEMU проверены TLS1.2/1.3, реальные HTTP-ответы контролируемого хоста и отказы по hostname/trust/expired/future; хост независимо подтвердил версии, SNI и отсутствие HTTP в отрицательных случаях. Для линковки взяты два исходных libc++ units и три compiler-rt units из того же закреплённого архива с сохранением лицензий. Это зависимость Chromium, не браузерное окно и не завершение M10. Debug ELF остаются в ext4-кеше, в initrd — копии без debug sections (TLS ELF 11490472 → 2247224 байт).
 - 2026-10-17 — Chromium GN: отдельный target_os=charmos / Generic ELF, без Linux ABI. Пять hash-checked downstream patches и небольшой overlay вместо копии vendor tree в Git. Для ABI библиотеки штатный upstream no-exception профиль; собственные libc guard/virtual handlers сохраняются, исключения и compiler TLS не включаются. Bootstrap с двумя upstream units проверяется настоящим ELF в QEMU; full libc++/base остаются отдельной незавершённой целью. libc v1.1 дополнена совместимыми с free/realloc aligned_alloc/posix_memalign и XSI strerror_r; контракт в docs/abi/libc-runtime.md. Это рабочий пакет M10, не завершение браузера или M10.
+
+## Уточнение владельца 2026-10-17: только C++
+
+Новый код CharmOS и адаптация браузера — только C++. Эксперимент с native
+Rust отменён: собственные runtime.rs, сборщик и проба удалены. Не включать
+Rust ради обязательных зависимостей Chromium: JSONReader заменить настоящим
+C++ парсером с контрактом upstream (Unicode, глубина, расширения и ошибки),
+Rust logging bridge исключить вместе с Rust-кодом, сохранив C++ logging.
+Для следующих компонентов выбирать C++ backend и проверять фактический
+граф зависимостей. Нельзя заменять JSON или другие функции заглушками.
+Полный C++ runtime уже прошёл browser/runtime_cpp в QEMU, включая locale,
+math/fenv, потоки и UTF-8; полный браузер пока не собран, окна браузера нет.
+Текущий незакоммиченный пакет содержит эти runtime-изменения и работу над base.
+
+- 2026-10-18 — Для C++ Chromium добавляется readonly RuntimeQuery (ABI 1.13): настоящие kernel PID/TID и CPU counters на существующем scheduler charge hook. Старый getpid=1 убирается. Process CPU — учтённые интервалы всех потоков с тиковой видимостью других CPU; сон не считается CPU. Контракт — docs/abi/runtime-query.md. Рабочее решение в рамках автономного нативного порта, без изменения существующих номеров и layouts.
+
+- 2026-10-18 — libc fd v2 (внутреннее расширение статической libc, ABI ядра не меняется): дескрипторы ссылаются на общие open descriptions; dup/dup2/F_DUPFD делят смещение и O_APPEND/O_NONBLOCK, FD_CLOEXEC — флаг дескриптора. Операции в процессе удерживают description через lease, блокирующий I/O идёт без замка таблицы. Нехватка descriptions — ENFILE. setsockopt, флаги send/recv, неблокирующий connect и advisory locks честно возвращают ENOTSUP вместо прежнего ложного успеха. Контракт — docs/abi/libc-fd.md.

@@ -5,6 +5,8 @@ function(charmos_host_test name)
   add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
+charmos_host_test(test_chromium_json test_chromium_json.cpp)
+
 charmos_host_test(test_format test_format.cpp)
 charmos_host_test(test_abi_boot test_abi_boot.cpp)
 target_link_libraries(test_abi_boot PRIVATE abi)

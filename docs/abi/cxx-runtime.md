@@ -22,7 +22,12 @@ operator new/new[] и delete/delete[] используют собственну�
 (сборка без exceptions), nothrow формы возвращают nullptr. Aligned формы
 проверяют power-of-two alignment и переполнение, хранят исходный allocation
 перед выровненным указателем; освобождать его нужно matching aligned delete.
-Поддерживаются sized delete. new_handler и dynamic loader не реализуются.
+Поддерживаются sized delete. Dynamic loader не реализуется.
+Дополнение v1.1: собственные std::set_new_handler/get_new_handler атомарны;
+при OOM все формы new вызывают текущий callback и повторяют allocation.
+Если handler отсутствует, throwing формы abort, nothrow — nullptr.
+Handler вызывается без heap lock; исключения из callback не поддерживаются.
+std::nothrow и new-handler принадлежат своей libc; дубли upstream исключены.
 pure/deleted virtual вызов завершает процесс через abort.
 
 ## GN bootstrap profile (2026-10-17)

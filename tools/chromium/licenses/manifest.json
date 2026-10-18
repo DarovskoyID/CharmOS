@@ -1,7 +1,74 @@
 {
-  "chromium.txt": {"source": "LICENSE", "sha256": "368cca1106be99d39ecd32a38d8305585d802a475effb66380b91ffc9bcf709b"},
-  "libcxx.txt": {"source": "third_party/libc++/src/LICENSE.TXT", "sha256": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b"},
-  "libcxxabi.txt": {"source": "third_party/libc++abi/src/LICENSE.TXT", "sha256": "e2b35be49f7284a45b7baca8fc7b3ab7440e7902392b2528a457816b5bb2a15c"},
-  "compiler-rt.txt": {"source": "third_party/llvm/compiler-rt/LICENSE.TXT", "sha256": "1a8f1058753f1ba890de984e48f0242a3a5c29a6a8f2ed9fd813f36985387e8d"},
-  "boringssl.txt": {"source": "third_party/boringssl/src/LICENSE", "sha256": "827c8d8fc207c2392794eef9e00fe246f9f61fdcc132556c275be3dd8c3cd97f"}
+  "llvm-libc.txt": {
+    "source": "third_party/llvm-libc/src/LICENSE.TXT",
+    "sha256": "ebcd9bbf783a73d05c53ba4d586b8d5813dcdf3bbec50265860ccc885e606f47"
+  },
+  "chromium.txt": {
+    "source": "LICENSE",
+    "sha256": "368cca1106be99d39ecd32a38d8305585d802a475effb66380b91ffc9bcf709b"
+  },
+  "libcxx.txt": {
+    "source": "third_party/libc++/src/LICENSE.TXT",
+    "sha256": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b"
+  },
+  "libcxxabi.txt": {
+    "source": "third_party/libc++abi/src/LICENSE.TXT",
+    "sha256": "e2b35be49f7284a45b7baca8fc7b3ab7440e7902392b2528a457816b5bb2a15c"
+  },
+  "compiler-rt.txt": {
+    "source": "third_party/llvm/compiler-rt/LICENSE.TXT",
+    "sha256": "1a8f1058753f1ba890de984e48f0242a3a5c29a6a8f2ed9fd813f36985387e8d"
+  },
+  "boringssl.txt": {
+    "source": "third_party/boringssl/src/LICENSE",
+    "sha256": "827c8d8fc207c2392794eef9e00fe246f9f61fdcc132556c275be3dd8c3cd97f"
+  },
+  "perfetto.txt": {
+    "source": "third_party/perfetto/LICENSE",
+    "sha256": "9b569417be9f195f8ffa709a23836c4e0f880b2752b09653baa8a98d3b02db3a"
+  },
+  "icu.txt": {
+    "source": "third_party/icu/LICENSE",
+    "sha256": "e55522d81edc687a341a4411e0776e54ca654e90147f354a90458aaced4116af"
+  },
+  "icu-notices.html": {
+    "source": "third_party/icu/license.html",
+    "sha256": "c62d7697c03979f5056d28b338fafc7a1152820f7b379adf4a9d88cd37160f96"
+  },
+  "abseil.txt": {
+    "source": "third_party/abseil-cpp/LICENSE",
+    "sha256": "c79a7fea0e3cac04cd43f20e7b648e5a0ff8fa5344e644b0ee09ca1162b62747"
+  },
+  "protobuf.txt": {
+    "source": "third_party/protobuf/LICENSE",
+    "sha256": "6e5e117324afd944dcf67f36cf329843bc1a92229a8cd9bb573d7a83130fea7d"
+  },
+  "zlib.txt": {
+    "source": "third_party/zlib/LICENSE",
+    "sha256": "e32ff4e00d9d94930537635291da39e7e612703334bf6fde8c7f1686fe8a45a2"
+  },
+  "simdutf.txt": {
+    "source": "third_party/simdutf/LICENSE",
+    "sha256": "fc8dbc04e03ad4efc08a647ffe7f995b811a95bc04c0e85a56d5277c6593fa5f"
+  },
+  "double-conversion.txt": {
+    "source": "base/third_party/double_conversion/LICENSE",
+    "sha256": "4af93c12062c58058378de2397dc1c92bbff9ddfb1d583a01c84127557ce97ca"
+  },
+  "cityhash.txt": {
+    "source": "base/third_party/cityhash/COPYING",
+    "sha256": "3ed00dd93c75655599456c83cba2f69c6824fd53f24fc24206ba27b65057709d"
+  },
+  "cityhash-v103.txt": {
+    "source": "base/third_party/cityhash_v103/COPYING",
+    "sha256": "3ed00dd93c75655599456c83cba2f69c6824fd53f24fc24206ba27b65057709d"
+  },
+  "superfasthash.txt": {
+    "source": "base/third_party/superfasthash/LICENSE",
+    "sha256": "90b2201c340cee36b40a443f949d9eb416f0a0d204c32d350aff87fedeb67ae8"
+  },
+  "modp-b64.txt": {
+    "source": "third_party/modp_b64/LICENSE",
+    "sha256": "d47e8390fb0d7ad4a18f26aedd6283c7ab6b5b4fabab536ccb4db7f9f6d90c08"
+  }
 }

@@ -6,6 +6,8 @@ typedef int64_t ssize_t;
 typedef int64_t off_t;
 typedef int pid_t;
 typedef uint32_t mode_t;
+typedef uint32_t uid_t;
+typedef uint32_t gid_t;
 typedef int64_t time_t;
 typedef uint32_t socklen_t;
 #endif

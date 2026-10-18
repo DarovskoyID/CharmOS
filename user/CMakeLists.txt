@@ -21,7 +21,7 @@ add_library(c STATIC
   libc/src/start.cpp libc/src/string.cpp libc/src/stdlib.cpp libc/src/stdio.cpp
   libc/src/fd.cpp libc/src/pthread.cpp libc/src/socket.cpp libc/src/spawn.cpp
   libc/src/random.cpp libc/src/pthread_extra.cpp libc/src/assert.cpp libc/src/wchar.cpp libc/src/calendar.cpp
-  libc/src/cxx.cpp)
+  libc/src/cxx.cpp libc/src/locale.cpp libc/src/strftime.cpp)
 target_include_directories(c PUBLIC libc/include rt/include)
 target_link_libraries(c PUBLIC abi)
 target_compile_options(c PRIVATE -fno-builtin)

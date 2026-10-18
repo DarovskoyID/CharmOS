@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <bits/mbstate_t.h>
 #include <time.h>
+#include <fenv.h>
 
 namespace libc {
 void run_initializers();
@@ -49,14 +50,30 @@ struct Fd {
   bool append;
   bool readable;
   bool writable;
+  bool nonblock;
   Handle handle;
   uint64_t offset;
   uint32_t refs;  // dup делит запись
+  Lock position_lock;
 };
 constexpr int kMaxFds = 256;
 Fd* fd_get(int fd);
-int fd_alloc(Kind kind, Handle h, bool readable, bool writable);
+int fd_alloc(Kind kind, Handle h, bool readable, bool writable, int flags = 0);
 Lock& fd_lock();
+class FdLease {
+ public:
+  FdLease() = default;
+  explicit FdLease(int fd);
+  FdLease(const FdLease&) = delete;
+  FdLease& operator=(const FdLease&) = delete;
+  FdLease(FdLease&& other) : value_(other.value_) { other.value_ = nullptr; }
+  ~FdLease();
+  Fd* get() const { return value_; }
+  Fd* operator->() const { return value_; }
+  explicit operator bool() const { return value_ != nullptr; }
+ private:
+  Fd* value_ = nullptr;
+};
 
 // --- пути ----------------------------------------------------------------------------------
 // Абсолютный нормализованный путь без начального «/» (пустой — корень) в out.
@@ -86,6 +103,9 @@ struct ThreadBlock {
   struct SpecificValue { void* value; uint32_t generation; } specific[128];
   mbstate_t mb_decode, mb_length, mb_string, mb_encode;
   struct tm utc_time;
+  void* locale_selection; // nullptr means the fixed global locale.
+  fenv_t initial_fenv;
+  bool has_initial_fenv;
 };
 ThreadBlock* current_thread();
 void thread_specific_cleanup();

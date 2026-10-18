@@ -1,5 +1,6 @@
 import("//build/toolchain/gcc_toolchain.gni")
 import("toolchain-revision.gni")
+import("numeric-sources.gni")
 
 declare_args() {
   charmos_repo = ""
@@ -46,14 +47,63 @@ executable("platform_smoke") {
 
 executable("full_runtime") {
   # Normal executable dependencies pull in the complete upstream runtime.
-  sources = [ "platform_smoke.cc" ]
+  sources = [ "runtime_checks.cc" ]
   libs = [ "$charmos_repo/build/user/user/libc.a" ]
+  deps = [ ":numeric_runtime" ]
+}
+
+executable("json_runtime") {
+  sources = [ "json_checks.cc" ]
+  libs = [ "$charmos_repo/build/user/user/libc.a" ]
+  deps = [ ":numeric_runtime" ]
+  configs -= [ "//build/config/compiler:chromium_code" ]
+  configs += [ "//build/config/compiler:no_chromium_code" ]
+}
+
+static_library("numeric_runtime") {
+  sources = charmos_numeric_sources
+  include_dirs = [ "//third_party/llvm-libc/src" ]
+  defines = [
+    "LIBC_NAMESPACE=__llvm_libc_cr",
+    "LIBC_COPT_PUBLIC_PACKAGING",
+    "__CHARMOS_NUMERIC_RUNTIME__=1",
+    "LIBC_ERRNO_MODE=LIBC_ERRNO_MODE_SYSTEM_INLINE",
+  ]
+  cflags = [ "-fno-builtin" ]
+  configs -= [ "//build/config/compiler:chromium_code" ]
+  configs += [ "//build/config/compiler:no_chromium_code" ]
+  public_deps = [ ":stdio_engine" ]
+}
+
+config("stdio_engine_link") {
+  # A weak reference in native libc alone does not extract archive members.
+  ldflags = [ "-Wl,-u,__charm_numeric_vsnprintf", "-Wl,-u,fegetenv", "-Wl,-u,fesetenv" ]
+}
+
+static_library("stdio_engine") {
+  sources = charmos_stdio_sources + [ "numeric_stdio.cc", "math_errno.cc" ]
+  include_dirs = [ "//third_party/llvm-libc/src" ]
+  defines = [
+    "LIBC_NAMESPACE=__llvm_libc_cr",
+    "LIBC_ERRNO_MODE=LIBC_ERRNO_MODE_SYSTEM_INLINE",
+  ]
+  cflags = [ "-fno-builtin" ]
+  configs -= [ "//build/config/compiler:chromium_code" ]
+  configs += [ "//build/config/compiler:no_chromium_code" ]
+  all_dependent_configs = [ ":stdio_engine_link" ]
 }
 
 group("base_port") {
+  deps = [ ":platform_smoke", ":full_runtime" ]
   if (charmos_build_base) {
-    deps = [ "//base" ]
-  } else {
-    deps = [ ":platform_smoke", ":full_runtime" ]
+    deps += [ ":base_runtime" ]
+  }
+}
+
+if (charmos_build_base) {
+  executable("base_runtime") {
+    sources = [ "base_checks.cc" ]
+    libs = [ "$charmos_repo/build/user/user/libc.a" ]
+    deps = [ "//base", ":numeric_runtime" ]
   }
 }

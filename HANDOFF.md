@@ -1,3 +1,18 @@
+# Актуальное уточнение 2026-10-17
+
+## Уточнение владельца 2026-10-17: только C++
+
+Новый код CharmOS и адаптация браузера — только C++. Эксперимент с native
+Rust отменён: собственные runtime.rs, сборщик и проба удалены. Не включать
+Rust ради обязательных зависимостей Chromium: JSONReader заменить настоящим
+C++ парсером с контрактом upstream (Unicode, глубина, расширения и ошибки),
+Rust logging bridge исключить вместе с Rust-кодом, сохранив C++ logging.
+Для следующих компонентов выбирать C++ backend и проверять фактический
+граф зависимостей. Нельзя заменять JSON или другие функции заглушками.
+Полный C++ runtime уже прошёл browser/runtime_cpp в QEMU, включая locale,
+math/fenv, потоки и UTF-8; полный браузер пока не собран, окна браузера нет.
+Текущий незакоммиченный пакет содержит эти runtime-изменения и работу над base.
+
 # Передача работы (2026-10-17): состояние CharmOS для следующего агента
 
 ## Текущий пакет: Chromium GN bootstrap (2026-10-17)
@@ -375,3 +390,46 @@ GDB в зависшем QEMU показал ready=2 при пустой очер
   Продолжать по дорожной карте самостоятельно (CLAUDE.md, «Автономность»);
   ABI сначала описывать, затем реализовывать новой версией. Лицензию выбирает автор.
 - Коммиты завершать строкой `Co-Authored-By: …` по правилам вашего окружения.
+
+## Проверенный пакет 2026-10-18 (C++-only)
+Свой Rust runtime/сборщик/проба удалены по указанию владельца. Написан
+C++ JSON parser + adapter upstream JSONReader; общий корпус тестов проходит
+на хосте и в настоящем native ELF в QEMU. cpp-only-runtime-guest.log и
+cpp-only-json-guest.log: оба exit 0. Новые UTC localtime/mktime/difftime,
+pthread_sigmask/sigfillset проверены в госте, tm layout остаётся 36 байт.
+Полная ОС пересобрана, активных QEMU/сборок после validate-cpp-only.sh нет.
+Новый kernel test runtime_json; новый режим build-platform.sh --json-runtime.
+
+GN --base-graph наконец прошёл без Rust. audit-cpp-graph.py подтвердил
+909 зависимостей/2996 команд без Rust. Профиль отключает optional Rust bindings,
+Rust logging bridge, зависящие от них upstream test suites и пока недоступный
+ICU4X //base:i18n. Это НЕ stub i18n: цель отсутствует и её потребители должны
+получить C++ ICU4C backend перед включением. Native //base до линковки не дошёл.
+Первый полный native build -k0 выполнил 2210/2824 доступных шагов и закончил 1
+из-за платформенных ошибок, оставшиеся шаги заблокированы зависимостями.
+build/chromium/base-cpp-build.log содержит полный список. При окончании WSL
+штатно размонтировала cache и позже перезапустила дистрибутив; это не OOM.
+
+Следующие исправления уже записаны в prepare-platform.py, но полный base после
+них НЕ пересобран: честные Perfetto OS_CHARMOS flags; PA_IS_CHARMOS/PA_IS_POSIX;
+ICU U_HAVE_MMAP=0 (upstream stdio backend); BoringSSL OPENSSL_NO_SOCK (свой
+ранее проверенный transport). --base теперь отключает Perfetto system IPC и
+платформенные daemons, запускает audit-cpp-graph.py. Исходные лицензии/уведомления
+ещё 12 base-зависимостей сохранены, проверяются через licenses/manifest.json.
+
+Оставшиеся группы ошибок: Perfetto uid_t и CPU/boot/raw clocks, файловые fd flags,
+Abseil native TID (pthread_t здесь указатель), ELF dynamic-symbolize/signal APIs,
+native base files/threads/process backend. getpid() в старой libc пока возвращает
+1 — исправить реальным readonly self identity API, не выдавать его за настоящий
+идентификатор. Учёт CPU сейчас есть только в Job, личные thread/process counters
+нужно добавить в scheduler charge hook, не подменять wall time.
+Документ docs/abi/chromium-platform.md описывает ограничения/следующий backend.
+M10 открыт, браузерного окна нет, не присылать старые GUI снимки как результат.
+
+## Проверено 2026-10-18 (вечер): RuntimeQuery + libc fd v2
+Полная пересборка и build/validate-fd-v2.sh: 30/30 host; QEMU зелёные —
+browser runtime_cpp/runtime_json/tls/https, runtime (4), m3/preempt,
+m8 libc/threads/signals/spawn, m10 editor/files_nav/windows (libc общая).
+Логи build/chromium/native-platform-*.log, fd-v2-m10.log. Пакет закоммичен.
+Следующее: пересобрать //base (--base) с уже записанными исправлениями
+prepare-platform.py и закрывать оставшиеся группы ошибок настоящим кодом.

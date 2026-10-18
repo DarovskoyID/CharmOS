@@ -57,6 +57,7 @@ struct Process {
   Process* next_proc;  // общий список процессов
   Process* parent;     // запустивший процесс (ссылка) — ему сигнал Child
   uint64_t charged_pages;  // образ и стек, учтённые в Job (§7)
+  uint64_t cpu_ns;         // atomic sum; retains CPU time from exited threads
 
   // Сигналы (process.md §9).
   uint64_t sig_entry;  // 0 — обработчика нет

@@ -5,6 +5,7 @@
 #include <string.h>
 
 extern "C" {
+int bcmp(const void* a,const void* b,size_t n) { return memcmp(a,b,n); }
 
 void* memcpy(void* dst, const void* src, size_t n) {
   auto* d = static_cast<unsigned char*>(dst);
@@ -201,11 +202,14 @@ static const char* error_message(int e) {
     case EISDIR: return const_cast<char*>("Is a directory");
     case EINVAL: return const_cast<char*>("Invalid argument");
     case EMFILE: return const_cast<char*>("Too many open files");
+    case ENFILE: return const_cast<char*>("Open description table full");
+    case ENOTSUP: return const_cast<char*>("Operation not supported");
     case ENOTTY: return "Inappropriate ioctl for device";
     case ENOSPC: return const_cast<char*>("No space left");
     case ESPIPE: return "Illegal seek";
     case EPIPE: return const_cast<char*>("Broken pipe");
     case ERANGE: return "Result out of range";
+    case EDOM: return "Numerical argument out of domain";
     case ENOSYS: return const_cast<char*>("Not supported");
     case ENOTEMPTY: return "Directory not empty";
     case ENOTSOCK: return "Not a socket";

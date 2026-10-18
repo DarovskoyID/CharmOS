@@ -5,6 +5,8 @@
 #include <string.h>
 
 #include "internal.hpp"
+extern "C" int fegetenv(fenv_t*) __attribute__((weak));
+extern "C" int fesetenv(const fenv_t*) __attribute__((weak));
 
 struct __pthread : libc::ThreadBlock {};
 static_assert(sizeof(pthread_mutex_t) == 24 && __builtin_offsetof(pthread_mutex_t, owner) == 8);
@@ -17,6 +19,7 @@ constexpr uint64_t kStack = 256 * 1024;
 __attribute__((force_align_arg_pointer)) void thread_entry(uint64_t arg) {
   auto* t = reinterpret_cast<ThreadBlock*>(arg);
   (void)charm::thread_set_fs(arg);
+  if(t->has_initial_fenv) (void)fesetenv(&t->initial_fenv);
   t->ret = t->fn(t->arg);
   thread_specific_cleanup();
   __atomic_store_n(&t->done, 1u, __ATOMIC_RELEASE);
@@ -48,6 +51,7 @@ int pthread_create(pthread_t* out, const pthread_attr_t*, void* (*fn)(void*), vo
   t->fn = fn;
   t->arg = arg;
   t->stack_top = m.value + kStack;
+  t->has_initial_fenv=fegetenv && fesetenv && fegetenv(&t->initial_fenv)==0;
   auto r = charm::thread_create(&thread_entry, t->stack_top, reinterpret_cast<uint64_t>(t));
   if (!r.ok()) {
     (void)charm::vmo_unmap(m.value);

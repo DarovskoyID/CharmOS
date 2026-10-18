@@ -1,0 +1,9 @@
+cxx runtime: parsing, range, rounding, fenv and numeric functions ok
+cxx runtime: strings, locale, streams, formatting and new-handler ok
+cxx runtime: C++ threads, fenv inheritance, locale isolation, clocks and entropy ok
+cxx runtime: wide file I/O, positions, UTF-8 bytes and UTC formatting ok
+cxx runtime: UTC normalization, numeric time differences and per-thread signal masks ok
+cxx runtime: kernel process/thread IDs and CPU accounting excluding sleep ok
+cxx runtime: shared file descriptions, descriptor flags and concurrent offsets ok
+ktest: bin/runtime_cpp exited with 0
+ktest: PASS runtime_cpp

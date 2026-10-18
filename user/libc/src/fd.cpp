@@ -19,7 +19,9 @@ namespace fsabi = abi::fs;
 
 namespace {
 
-Fd g_fds[kMaxFds] = {};
+struct FdEntry { Fd* description; bool cloexec; };
+FdEntry g_fds[kMaxFds] = {};
+Fd g_descriptions[kMaxFds] = {};
 Lock g_fd_lock;
 char g_cwd[fsabi::kMaxPath] = "";  // без начального «/»
 
@@ -28,16 +30,56 @@ char g_cwd[fsabi::kMaxPath] = "";  // без начального «/»
 Lock& fd_lock() { return g_fd_lock; }
 
 Fd* fd_get(int fd) {
-  if (fd < 0 || fd >= kMaxFds || g_fds[fd].kind == Kind::Free) return nullptr;
-  return &g_fds[fd];
+  if (fd < 0 || fd >= kMaxFds) return nullptr;
+  return g_fds[fd].description;
 }
 
-int fd_alloc(Kind kind, Handle h, bool readable, bool writable) {
+namespace {
+// Caller holds the descriptor table lock, including for I/O lease releases.
+void release_description(Fd* value) {
+  if (--value->refs != 0) return;
+  bool shared = false;
+  for (auto& other : g_descriptions)
+    if (&other != value && other.kind != Kind::Free && other.handle == value->handle)
+      shared = true;
+  if (!shared && value->kind != Kind::Debug && value->handle)
+    (void)charm::handle_close(value->handle);
+  value->kind = Kind::Free;
+}
+int duplicate_description(Fd* value, int minimum, bool cloexec) {
+  if (minimum < 0 || minimum >= kMaxFds) return fail_errno(EINVAL);
+  for (int i = minimum; i < kMaxFds; ++i) {
+    if (!g_fds[i].description) {
+      ++value->refs;
+      g_fds[i] = {value, cloexec};
+      return i;
+    }
+  }
+  return fail_errno(EMFILE);
+}
+}
+FdLease::FdLease(int fd) {
+  Guard guard(fd_lock());
+  value_ = fd_get(fd);
+  if (value_) ++value_->refs;
+}
+FdLease::~FdLease() {
+  if (value_) { Guard guard(fd_lock()); release_description(value_); }
+}
+
+int fd_alloc(Kind kind, Handle h, bool readable, bool writable, int flags) {
   Guard g(g_fd_lock);
   for (int i = 0; i < kMaxFds; ++i) {
-    if (g_fds[i].kind == Kind::Free) {
-      g_fds[i] = {kind, false, readable, writable, h, 0, 1};
-      return i;
+    if (!g_fds[i].description) {
+      for (auto& description : g_descriptions) {
+        if (description.kind == Kind::Free) {
+          description = {kind, (flags & O_APPEND) != 0, readable, writable,
+                         (flags & O_NONBLOCK) != 0, h, 0, 1, {}};
+          g_fds[i] = {&description, (flags & O_CLOEXEC) != 0};
+          return i;
+        }
+      }
+      return fail_errno(ENFILE);  // descriptions kept alive by in-progress I/O
     }
   }
   return fail_errno(EMFILE);
@@ -122,11 +164,35 @@ struct __dir {
   dirent ent;
 };
 
+namespace {
+ssize_t read_description(Fd* f, void* buf, size_t n, off_t off) {
+  if (off < 0) return fail_errno(EINVAL);
+  if (n > fsabi::kMaxTransfer) n = fsabi::kMaxTransfer;
+  auto result = charm::file_read(f->handle, buf, n, static_cast<uint64_t>(off));
+  return result.ok() ? static_cast<ssize_t>(result.value) : fail(result.status);
+}
+ssize_t write_description(Fd* f, const void* buf, size_t n, off_t off) {
+  if (off < 0) return fail_errno(EINVAL);
+  if (n > fsabi::kMaxTransfer) n = fsabi::kMaxTransfer;
+  if (n > static_cast<uint64_t>(INT64_MAX - off)) return fail_errno(EOVERFLOW);
+  auto result = charm::file_write(f->handle, buf, n, static_cast<uint64_t>(off));
+  return result.ok() ? static_cast<ssize_t>(result.value) : fail(result.status);
+}
+uint64_t read_deadline(Fd* value) {
+  return __atomic_load_n(&value->nonblock, __ATOMIC_RELAXED) ? 0 : charm::kForever;
+}
+int read_error(Fd* value, Status status) {
+  return status == Status::TimedOut && __atomic_load_n(&value->nonblock, __ATOMIC_RELAXED)
+      ? fail_errno(EAGAIN) : fail(status);
+}
+}
+
 extern "C" {
 
 int open(const char* path, int flags, ...) {
   uint64_t f = 0;
   int acc = flags & O_ACCMODE;
+  if (acc == O_ACCMODE) return fail_errno(EINVAL);
   if (acc != O_RDONLY) f |= fsabi::kOpenWrite;
   if ((flags & O_CREAT) != 0) f |= fsabi::kOpenCreate;
   if ((flags & O_EXCL) != 0) f |= fsabi::kOpenExclusive;
@@ -137,56 +203,54 @@ int open(const char* path, int flags, ...) {
   Status s = open_node(path, f, &h, &dir);
   if (s == Status::WrongType) return fail_errno((flags & O_DIRECTORY) != 0 ? ENOTDIR : EISDIR);
   if (s != Status::Ok) return fail(s);
-  int fd = fd_alloc(dir ? Kind::Dir : Kind::File, h, acc != O_WRONLY, acc != O_RDONLY);
+  int fd = fd_alloc(dir ? Kind::Dir : Kind::File, h, acc != O_WRONLY, acc != O_RDONLY, flags);
   if (fd < 0) {
     (void)charm::handle_close(h);
     return -1;
   }
-  fd_get(fd)->append = (flags & O_APPEND) != 0;
   return fd;
 }
 
 int creat(const char* path, mode_t) { return open(path, O_WRONLY | O_CREAT | O_TRUNC); }
 
 ssize_t pread(int fd, void* buf, size_t n, off_t off) {
-  Fd* f = fd_get(fd);
+  FdLease lease(fd);
+  Fd* f = lease.get();
   if (f == nullptr || !f->readable) return fail_errno(EBADF);
   if (f->kind == Kind::Dir) return fail_errno(EISDIR);
   if (f->kind != Kind::File) return fail_errno(ESPIPE);
-  if (n > fsabi::kMaxTransfer) n = fsabi::kMaxTransfer;
-  auto r = charm::file_read(f->handle, buf, n, static_cast<uint64_t>(off));
-  if (!r.ok()) return fail(r.status);
-  return static_cast<ssize_t>(r.value);
+  return read_description(f, buf, n, off);
 }
 
 ssize_t pwrite(int fd, const void* buf, size_t n, off_t off) {
-  Fd* f = fd_get(fd);
+  FdLease lease(fd);
+  Fd* f = lease.get();
   if (f == nullptr || !f->writable) return fail_errno(EBADF);
   if (f->kind != Kind::File) return fail_errno(ESPIPE);
-  if (n > fsabi::kMaxTransfer) n = fsabi::kMaxTransfer;
-  auto r = charm::file_write(f->handle, buf, n, static_cast<uint64_t>(off));
-  if (!r.ok()) return fail(r.status);
-  return static_cast<ssize_t>(r.value);
+  return write_description(f, buf, n, off);
 }
 
 ssize_t read(int fd, void* buf, size_t n) {
-  Fd* f = fd_get(fd);
+  FdLease lease(fd);
+  Fd* f = lease.get();
   if (f == nullptr || !f->readable) return fail_errno(EBADF);
   if (n == 0) return 0;
   switch (f->kind) {
     case Kind::File: {
-      ssize_t got = pread(fd, buf, n, static_cast<off_t>(f->offset));
+      Guard guard(f->position_lock);
+      if (f->offset > INT64_MAX) return fail_errno(EOVERFLOW);
+      ssize_t got = read_description(f, buf, n, static_cast<off_t>(f->offset));
       if (got > 0) f->offset += static_cast<uint64_t>(got);
       return got;
     }
     case Kind::Console: {
-      auto r = charm::console_read(f->handle, buf, n, charm::kForever);
-      if (!r.ok()) return fail(r.status);
+      auto r = charm::console_read(f->handle, buf, n, read_deadline(f));
+      if (!r.ok()) return read_error(f, r.status);
       return static_cast<ssize_t>(r.value);
     }
     case Kind::Socket: {
-      auto r = charm::socket_recv(f->handle, buf, n, charm::kForever);
-      if (!r.ok()) return r.status == Status::PeerClosed ? 0 : fail(r.status);
+      auto r = charm::socket_recv(f->handle, buf, n, read_deadline(f));
+      if (!r.ok()) return r.status == Status::PeerClosed ? 0 : read_error(f, r.status);
       return static_cast<ssize_t>(r.value);
     }
     case Kind::Debug:
@@ -200,15 +264,20 @@ ssize_t read(int fd, void* buf, size_t n) {
 }
 
 ssize_t write(int fd, const void* buf, size_t n) {
-  Fd* f = fd_get(fd);
+  FdLease lease(fd);
+  Fd* f = lease.get();
   if (f == nullptr || !f->writable) return fail_errno(EBADF);
   switch (f->kind) {
     case Kind::File: {
-      if (f->append) {
+      Guard guard(f->position_lock);
+      if (__atomic_load_n(&f->append, __ATOMIC_RELAXED)) {
         abi::fs::Stat st;
-        if (charm::fs_stat(f->handle, &st) == Status::Ok) f->offset = st.size;
+        Status status = charm::fs_stat(f->handle, &st);
+        if (status != Status::Ok) return fail(status);
+        f->offset = st.size;
       }
-      ssize_t done = pwrite(fd, buf, n, static_cast<off_t>(f->offset));
+      if (f->offset > INT64_MAX) return fail_errno(EOVERFLOW);
+      ssize_t done = write_description(f, buf, n, static_cast<off_t>(f->offset));
       if (done > 0) f->offset += static_cast<uint64_t>(done);
       return done;
     }
@@ -246,30 +315,32 @@ int close(int fd) {
   Guard g(fd_lock());
   Fd* f = fd_get(fd);
   if (f == nullptr) return fail_errno(EBADF);
-  if (--f->refs == 0) {
-    bool shared = false;
-    for (int i = 0; i < kMaxFds; ++i) {
-      if (i != fd && g_fds[i].kind != Kind::Free && g_fds[i].handle == f->handle) shared = true;
-    }
-    if (!shared && f->kind != Kind::Debug && f->handle != 0) (void)charm::handle_close(f->handle);
-  }
-  f->kind = Kind::Free;
+  g_fds[fd] = {};
+  release_description(f);
   return 0;
 }
 
 off_t lseek(int fd, off_t off, int whence) {
-  Fd* f = fd_get(fd);
+  FdLease lease(fd);
+  Fd* f = lease.get();
   if (f == nullptr) return fail_errno(EBADF);
   if (f->kind != Kind::File) return fail_errno(ESPIPE);
+  if (whence < 0 || whence > 2) return fail_errno(EINVAL);
+  Guard position_guard(f->position_lock);
   int64_t base = 0;
-  if (whence == 1) base = static_cast<int64_t>(f->offset);
+  if (whence == 1) {
+    if (f->offset > INT64_MAX) return fail_errno(EOVERFLOW);
+    base = static_cast<int64_t>(f->offset);
+  }
   if (whence == 2) {
     abi::fs::Stat st;
     Status s = charm::fs_stat(f->handle, &st);
     if (s != Status::Ok) return fail(s);
+    if (st.size > INT64_MAX) return fail_errno(EOVERFLOW);
     base = static_cast<int64_t>(st.size);
   }
-  if (base + off < 0) return fail_errno(EINVAL);
+  if (off < -base) return fail_errno(EINVAL);
+  if (off > 0 && base > INT64_MAX - off) return fail_errno(EOVERFLOW);
   f->offset = static_cast<uint64_t>(base + off);
   return static_cast<off_t>(f->offset);
 }
@@ -279,38 +350,53 @@ int dup2(int fd, int to) {
   Fd* f = fd_get(fd);
   if (f == nullptr || to < 0 || to >= kMaxFds) return fail_errno(EBADF);
   if (fd == to) return to;
-  if (g_fds[to].kind != Kind::Free) {
-    // Закрыть старый без повторного захвата блокировки.
-    Fd& o = g_fds[to];
-    bool shared = false;
-    for (int i = 0; i < kMaxFds; ++i) {
-      if (i != to && g_fds[i].kind != Kind::Free && g_fds[i].handle == o.handle) shared = true;
-    }
-    if (!shared && o.kind != Kind::Debug && o.handle != 0) (void)charm::handle_close(o.handle);
-  }
-  g_fds[to] = *f;
-  g_fds[to].refs = 1;
+  if (g_fds[to].description) release_description(g_fds[to].description);
+  g_fds[to] = {f, false};
   ++f->refs;
   return to;
 }
 
 int dup(int fd) {
-  int to = -1;
-  {
-    Guard g(fd_lock());
-    for (int i = 0; i < kMaxFds; ++i) {
-      if (g_fds[i].kind == Kind::Free) {
-        to = i;
-        break;
-      }
-    }
+  Guard guard(fd_lock());
+  Fd* value = fd_get(fd);
+  return value ? duplicate_description(value, 0, false) : fail_errno(EBADF);
+}
+
+int fcntl(int fd, int command, ...) {
+  Guard guard(fd_lock());
+  Fd* value = fd_get(fd);
+  if (!value) return fail_errno(EBADF);
+  if (command == F_GETFD) return g_fds[fd].cloexec ? FD_CLOEXEC : 0;
+  if (command == F_GETFL) {
+    int mode = value->readable ? (value->writable ? O_RDWR : O_RDONLY) : O_WRONLY;
+    if (__atomic_load_n(&value->append, __ATOMIC_RELAXED)) mode |= O_APPEND;
+    if (__atomic_load_n(&value->nonblock, __ATOMIC_RELAXED)) mode |= O_NONBLOCK;
+    if (value->kind == Kind::Dir) mode |= O_DIRECTORY;
+    return mode;
   }
-  if (to < 0) return fail_errno(EMFILE);
-  return dup2(fd, to);
+  if (command != F_SETFD && command != F_SETFL && command != F_DUPFD && command != F_DUPFD_CLOEXEC)
+    return fail_errno(ENOTSUP);
+  va_list args;
+  va_start(args, command);
+  int argument = va_arg(args, int);
+  va_end(args);
+  if (command == F_SETFD) {
+    if (argument & ~FD_CLOEXEC) return fail_errno(EINVAL);
+    g_fds[fd].cloexec = (argument & FD_CLOEXEC) != 0;
+    return 0;
+  }
+  if (command == F_SETFL) {
+    if (argument & ~(O_ACCMODE | O_APPEND | O_NONBLOCK)) return fail_errno(EINVAL);
+    __atomic_store_n(&value->append, (argument & O_APPEND) != 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&value->nonblock, (argument & O_NONBLOCK) != 0, __ATOMIC_RELAXED);
+    return 0;
+  }
+  return duplicate_description(value, argument, command == F_DUPFD_CLOEXEC);
 }
 
 int fstat(int fd, struct stat* st) {
-  Fd* f = fd_get(fd);
+  FdLease lease(fd);
+  Fd* f = lease.get();
   if (f == nullptr) return fail_errno(EBADF);
   if (f->kind != Kind::File && f->kind != Kind::Dir) {
     *st = {0, 0, 0};
@@ -319,6 +405,7 @@ int fstat(int fd, struct stat* st) {
   abi::fs::Stat s;
   Status r = charm::fs_stat(f->handle, &s);
   if (r != Status::Ok) return fail(r);
+  if (s.size > INT64_MAX) return fail_errno(EOVERFLOW);
   st->st_size = static_cast<off_t>(s.size);
   st->st_mode = s.type == fsabi::kTypeDirectory ? S_IFDIR | 0755 : S_IFREG | 0644;
   st->st_mtime = static_cast<time_t>(s.mtime_ns / 1'000'000'000);
@@ -334,6 +421,7 @@ int stat(const char* path, struct stat* st) {
   s = charm::fs_stat(h, &t);
   (void)charm::handle_close(h);
   if (s != Status::Ok) return fail(s);
+  if (t.size > INT64_MAX) return fail_errno(EOVERFLOW);
   st->st_size = static_cast<off_t>(t.size);
   st->st_mode = dir ? S_IFDIR | 0755 : S_IFREG | 0644;
   st->st_mtime = static_cast<time_t>(t.mtime_ns / 1'000'000'000);
@@ -382,20 +470,24 @@ char* getcwd(char* buf, size_t size) {
 }
 
 int isatty(int fd) {
-  Fd* f = fd_get(fd);
+  FdLease lease(fd);
+  Fd* f = lease.get();
   return f != nullptr && f->kind == Kind::Console ? 1 : 0;
 }
 
 int fsync(int fd) {
-  Fd* f = fd_get(fd);
+  FdLease lease(fd);
+  Fd* f = lease.get();
   if (f == nullptr || f->kind != Kind::File) return fail_errno(EBADF);
   Status s = charm::file_sync(f->handle);
   return s == Status::Ok ? 0 : fail(s);
 }
 
 int ftruncate(int fd, off_t size) {
-  Fd* f = fd_get(fd);
+  FdLease lease(fd);
+  Fd* f = lease.get();
   if (f == nullptr || f->kind != Kind::File) return fail_errno(EBADF);
+  if (size < 0) return fail_errno(EINVAL);
   Status s = charm::file_resize(f->handle, static_cast<uint64_t>(size));
   return s == Status::Ok ? 0 : fail(s);
 }
@@ -409,8 +501,14 @@ DIR* opendir(const char* path) {
     return nullptr;
   }
   // Хендл переходит DIR; дескриптор освобождаем без закрытия хендла.
-  d->handle = fd_get(fd)->handle;
-  fd_get(fd)->kind = Kind::Free;
+  {
+    Guard guard(fd_lock());
+    Fd* value = fd_get(fd);
+    d->handle = value->handle;
+    value->handle = 0;
+    g_fds[fd] = {};
+    release_description(value);
+  }
   return d;
 }
 
@@ -446,7 +544,8 @@ int closedir(DIR* d) {
 }
 
 uint32_t charm_fd_handle(int fd) {
-  Fd* f = fd_get(fd);
+  FdLease lease(fd);
+  Fd* f = lease.get();
   return f != nullptr ? f->handle : 0;
 }
 
@@ -458,10 +557,15 @@ int charm_fd_from_handle(uint32_t h, int kind) {
 
 int clock_gettime(clockid_t id, struct timespec* ts) {
   if (!ts) return fail_errno(EFAULT);
-  if (id != CLOCK_REALTIME && id != CLOCK_MONOTONIC) return fail_errno(EINVAL);
+  if (id != CLOCK_REALTIME && id != CLOCK_MONOTONIC && id != CLOCK_BOOTTIME &&
+      id != CLOCK_PROCESS_CPUTIME_ID && id != CLOCK_THREAD_CPUTIME_ID) return fail_errno(EINVAL);
   uint64_t ns = 0;
   if (id == CLOCK_REALTIME) {
     auto result = charm::realtime();
+    if (!result.ok()) return fail(result.status);
+    ns = result.value;
+  } else if (id == CLOCK_PROCESS_CPUTIME_ID || id == CLOCK_THREAD_CPUTIME_ID) {
+    auto result = charm::runtime_query(static_cast<uint64_t>(id));
     if (!result.ok()) return fail(result.status);
     ns = result.value;
   } else ns = charm::now_ns();
@@ -505,6 +609,13 @@ int usleep(unsigned usec) {
   return nanosleep(&ts, nullptr);
 }
 
-pid_t getpid(void) { return 1; }  // pid узнаётся только по хендлу Process (process_info)
+static pid_t runtime_id(uint64_t selector) {
+  auto result = charm::runtime_query(selector);
+  if (!result.ok()) return static_cast<pid_t>(fail(result.status));
+  if (result.value > INT32_MAX) return static_cast<pid_t>(fail_errno(EOVERFLOW));
+  return static_cast<pid_t>(result.value);
+}
+pid_t getpid(void) { return runtime_id(0); }
+pid_t gettid(void) { return runtime_id(1); }
 
 }  // extern "C"

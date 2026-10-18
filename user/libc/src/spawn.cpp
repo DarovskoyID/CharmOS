@@ -207,16 +207,26 @@ sighandler_t signal(int signo, sighandler_t h) {
 }
 
 int sigemptyset(sigset_t* s) {
+  if (!s) return fail_errno(EFAULT);
   *s = 0;
+  return 0;
+}
+int sigfillset(sigset_t* s) {
+  if (!s) return fail_errno(EFAULT);
+  *s = (1ul << NSIG) - 2;
   return 0;
 }
 
 int sigaddset(sigset_t* s, int signo) {
+  if (!s) return fail_errno(EFAULT);
+  if (signo <= 0 || signo >= NSIG) return fail_errno(EINVAL);
   *s |= 1ul << signo;
   return 0;
 }
 
 int sigprocmask(int how, const sigset_t* set, sigset_t* old) {
+  if (set && how != SIG_BLOCK && how != SIG_UNBLOCK && how != SIG_SETMASK)
+    return fail_errno(EINVAL);
   uint64_t block = 0, unblock = 0;
   if (set != nullptr) {
     if (how == SIG_BLOCK) block = *set;
@@ -230,6 +240,13 @@ int sigprocmask(int how, const sigset_t* set, sigset_t* old) {
   if (!res.ok()) return fail(res.status);
   if (old != nullptr) *old = res.value;
   return 0;
+}
+int pthread_sigmask(int how, const sigset_t* set, sigset_t* old) {
+  int saved_errno = errno;
+  int result = sigprocmask(how, set, old);
+  int error = result < 0 ? errno : 0;
+  errno = saved_errno;
+  return error;
 }
 
 unsigned alarm(unsigned seconds) {

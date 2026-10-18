@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd -P)"
+mode="${1:-}"
+case "$mode" in ''|--full-runtime|--json-runtime|--base|--base-graph) ;; *) echo 'Expected --full-runtime, --json-runtime, --base or --base-graph' >&2; exit 2;; esac
 cache="$root/build/chromium/linux-cache"
 mountpoint -q "$cache" || { echo 'Run through with-cache.sh' >&2; exit 2; }
 python3 "$root/tools/chromium/prepare-platform.py"
@@ -11,15 +13,17 @@ source="$cache/release/chromium-$version"
 compiler="$source/third_party/llvm-build/Release+Asserts/bin"
 runtime="$source/third_party/llvm-build/Release+Asserts/lib/clang/24/lib/charmos"
 mkdir -p "$runtime"
+if [[ "$mode" != --base-graph ]]; then
 for unit in udivti3 umodti3 udivmodti4; do
   "$compiler/clang" --target=x86_64-unknown-elf -O2 -ffreestanding -nostdlibinc \
     -isystem "$root/user/libc/include" -c "$source/third_party/llvm/compiler-rt/lib/builtins/$unit.c" \
     -o "$runtime/$unit.o"
 done
 "$compiler/llvm-ar" rcs "$runtime/libclang_rt.builtins.a" "$runtime"/*.o
+fi
 output="$source/out/charmos-platform"
 mkdir -p "$output"
-python3 - "$root" "$output/args.gn" "$source/third_party/llvm-build/Release+Asserts" <<'PY'
+python3 - "$root" "$output/args.gn" "$source/third_party/llvm-build/Release+Asserts" "$mode" <<'PY'
 import json, pathlib, sys
 args = {
     "target_os": "charmos", "target_cpu": "x64", "charmos_repo": sys.argv[1],
@@ -32,6 +36,10 @@ args = {
     # compiler explicitly as custom, rather than inventing a matching stamp.
     "clang_base_path": sys.argv[3],
 }
+if sys.argv[4] in ("--base", "--base-graph"):
+    args.update(charmos_build_base=True, use_partition_alloc=False, use_allocator_shim=False,
+                absl_build_tests=False, enable_perfetto_ipc=False,
+                enable_perfetto_platform_services=False)
 destination = pathlib.Path(sys.argv[2])
 content = "".join(f"{k} = {json.dumps(v)}\n" for k,v in args.items())
 if not destination.exists() or destination.read_text() != content:
@@ -39,6 +47,10 @@ if not destination.exists() or destination.read_text() != content:
 PY
 cd "$source"
 buildtools/linux64/gn gen "$output" --fail-on-unused-args --root-target=//build/charmos:base_port
+if [[ "$mode" == --base || "$mode" == --base-graph ]]; then
+  python3 "$root/tools/chromium/audit-cpp-graph.py" "$source" "$output"
+fi
+if [[ "$mode" == --base-graph ]]; then exit 0; fi
 ninja -C "$output" -k 0 -j 4 platform_smoke
 "$compiler/llvm-objcopy" --strip-debug "$output/platform_smoke.elf" "$root/build/user/user/platform_smoke.elf"
 python3 "$root/tools/chromium/audit-elf.py" "$root/build/user/user/platform_smoke.elf"
@@ -58,6 +70,16 @@ report = {
 }
 (root / "build/chromium/platform-report.json").write_text(json.dumps(report, indent=2) + "\n")
 PY
-if [[ "${1:-}" == --full-runtime ]]; then
+if [[ "$mode" == --full-runtime ]]; then
   ninja -C "$output" -k 0 -j 4 full_runtime
+  "$compiler/llvm-objcopy" --strip-debug "$output/full_runtime.elf" "$root/build/user/user/runtime_cpp.elf"
+  python3 "$root/tools/chromium/audit-elf.py" "$root/build/user/user/runtime_cpp.elf"
+fi
+if [[ "$mode" == --json-runtime ]]; then
+  ninja -C "$output" -k 0 -j 4 json_runtime
+  "$compiler/llvm-objcopy" --strip-debug "$output/json_runtime.elf" "$root/build/user/user/runtime_json.elf"
+  python3 "$root/tools/chromium/audit-elf.py" "$root/build/user/user/runtime_json.elf"
+fi
+if [[ "$mode" == --base ]]; then
+  ninja -C "$output" -k 0 -j 4 base_runtime
 fi

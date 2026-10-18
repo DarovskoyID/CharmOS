@@ -52,6 +52,7 @@ struct Thread {
 
   uint32_t priority;      // 1..31 (process.md §8), больше — важнее
   uint64_t run_start_ns;  // начало текущего учтённого отрезка на CPU
+  uint64_t cpu_ns;        // charged CPU intervals, reset when Thread is reused
   // Сигналы (process.md §9) — только сам поток.
   uint64_t sig_mask;
   uint64_t sig_frame;     // адрес текущего SignalFrame в памяти процесса, 0 — не в обработчике
@@ -126,6 +127,8 @@ void preempt_check();
 // Учёт времени CPU потоков процессов: вызывается без блокировок, с
 // запрещёнными прерываниями (process.md §7, cpu_ns).
 void set_cpu_charge_hook(void (*hook)(Thread* t, uint64_t ns));
+// Checkpoint only this CPU, without holding a spinlock (hook may take ProcList).
+void account_current_cpu_time();
 // Переключается на следующий готовый поток. Прерывания должны быть запрещены,
 // spinlock'и — отпущены.
 void schedule();
