@@ -32,3 +32,12 @@ CLOCK_PROCESS_CPUTIME_ID=2 and CLOCK_THREAD_CPUTIME_ID=3. CLOCK_BOOTTIME=7 uses
 the existing monotonic source while CharmOS has no system suspend. Raw clock
 ID 4 is reserved but unsupported; a caller must handle EINVAL. Clock constants
 are local libc API values, not Linux syscall emulation.
+
+ABI 1.14 adds selector 5: total physical frames managed by the allocator
+(initial usable-memory budget, excluding firmware/kernel reservations);
+6: current free managed frames, sampled under the PMM lock; 7: online CPU
+count from the initialized SMP registry. Frame size is 4096 bytes. Selectors
+0..4 retain their existing meaning; selector 4 is a duration, not a CPU count.
+
+ABI 1.16 adds selector 8: the calling Job's effective ancestor maximum thread
+priority (1..31). See application-sdk.md for the current-thread query/update.

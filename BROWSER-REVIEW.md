@@ -18,8 +18,13 @@
 
 ## Проверки новых изменений
 
-Пока не запускались.
+### Проверка исходного пакета
+
+- Полная сборка CharmOS: успешно; лог `build/browser-completion-baseline.log`.
+- Host: **31/31 PASS**.
+- QEMU: `m10/window_managed`, `m10/canvas_runtime`, `m10/window_pixels`, `m10/graphics_runtime`, `browser/runtime_cpp`, `browser/base_runtime`, `m10/windows` — **7/7 PASS**; лог `build/browser-completion-baseline-qemu.log`.
 
 ## Коммиты
 
-Будут добавляться после каждого проверенного пакета.
+- `1158560` — создан файл ревью, добавлен remote `bottomweb`, существующая история отправлена на оба сервера.
+- Следующий коммит отдельно фиксирует проверенный унаследованный пакет WM v3, runtime и native canvas как baseline продолжения.

@@ -222,3 +222,123 @@ TEST(fs_gpt_with_partitions) {
   CHECK(fat.mount(&esp).is_ok() && ext.mount(&rootp).is_ok());
   CHECK(read_gpt(disk, &info).is_ok());  // ФС не задели таблицу
 }
+
+TEST(ext2_regular_rename_identity_and_replacement) {
+  for(uint32_t block_size:{1024u,2048u,4096u}) {
+    MemIo storage(32*1024*1024);
+    CHECK(Ext2::format(storage,block_size,"rename").is_ok());
+    Ext2 fs;
+    CHECK(fs.mount(&storage).is_ok());
+    auto root=fs.root();
+    uint32_t initial_blocks=fs.free_blocks(),initial_inodes=fs.free_inodes();
+    auto folder=fs.create(root,sv("folder"),NodeType::Directory);
+    auto source=fs.create(root,sv("before"),NodeType::File);
+    CHECK(folder.is_ok() && source.is_ok());
+    std::vector<uint8_t> contents(6000,71),back(contents.size());
+    CHECK(fs.write(source.value(),0,contents.data(),contents.size()).is_ok());
+    CHECK(fs.rename(root,sv("before"),folder.value(),sv("moved")).is_ok());
+    CHECK(fs.lookup(root,sv("before")).error()==FsError::NotFound);
+    CHECK(fs.lookup(folder.value(),sv("moved")).value().id==source.value().id);
+    CHECK(fs.read(source.value(),0,back.data(),back.size()).value()==back.size() && back==contents);
+    CHECK(fs.rename(folder.value(),sv("moved"),folder.value(),sv("moved")).is_ok());
+    CHECK(fs.rename(folder.value(),sv("moved"),root,sv("back")).is_ok());
+    auto replaced=fs.create(root,sv("replace"),NodeType::File);
+    CHECK(replaced.is_ok());
+    std::vector<uint8_t> old(3072,12);
+    CHECK(fs.write(replaced.value(),0,old.data(),old.size()).is_ok());
+    uint32_t before_blocks=fs.free_blocks(),before_inodes=fs.free_inodes();
+    CHECK(fs.rename(root,sv("back"),root,sv("replace")).is_ok());
+    CHECK(fs.lookup(root,sv("replace")).value().id==source.value().id);
+    CHECK(fs.lookup(root,sv("back")).error()==FsError::NotFound);
+    CHECK(fs.free_inodes()==before_inodes+1);
+    CHECK(fs.free_blocks()==before_blocks+(3072+block_size-1)/block_size);
+    CHECK(fs.rename(root,sv("replace"),root,sv("folder")).error()==FsError::IsDirectory);
+    CHECK(fs.rename(root,sv("folder"),root,sv("other-folder")).error()==FsError::Unsupported);
+    CHECK(fs.rename(root,sv("folder"),root,sv("folder")).is_ok());
+    CHECK(fs.rename(root,sv("missing"),root,sv("name")).error()==FsError::NotFound);
+    CHECK(fs.rename(root,sv("replace"),root,sv("..")).error()==FsError::InvalidName);
+    CHECK(fs.unlink(root,sv("replace")).is_ok());
+    CHECK(fs.unlink(root,sv("folder")).is_ok());
+    CHECK(fs.free_blocks()==initial_blocks && fs.free_inodes()==initial_inodes);
+  }
+}
+
+TEST(ext2_repeated_rename_does_not_leak_inodes) {
+  MemIo storage(32*1024*1024);
+  CHECK(Ext2::format(storage,1024,"rename-loop").is_ok());
+  Ext2 fs; CHECK(fs.mount(&storage).is_ok());
+  auto root=fs.root();
+  uint32_t initial_inodes=fs.free_inodes();
+  auto file=fs.create(root,sv("left"),NodeType::File); CHECK(file.is_ok());
+  uint32_t initial_blocks=fs.free_blocks();
+  for(unsigned i=0;i<200;++i) {
+    auto from=i%2 ? sv("right") : sv("left");
+    auto to=i%2 ? sv("left") : sv("right");
+    CHECK(fs.rename(root,from,root,to).is_ok());
+    CHECK(fs.lookup(root,from).error()==FsError::NotFound);
+    CHECK(fs.lookup(root,to).value().id==file.value().id);
+    CHECK(fs.free_inodes()==initial_inodes-1 && fs.free_blocks()==initial_blocks);
+  }
+  CHECK(fs.unlink(root,sv("left")).is_ok() && fs.free_inodes()==initial_inodes);
+}
+
+TEST(ext2_rename_write_failures_keep_source_data_reachable) {
+  class FailingIo final : public Io {
+   public:
+    explicit FailingIo(Io& storage):storage_(storage) {}
+    Status read(uint64_t offset,void* data,size_t length) override { return storage_.read(offset,data,length); }
+    Status write(uint64_t offset,const void* data,size_t length) override {
+      if(armed_ && writes_++==failure_) { armed_=false; failed_=true; return fail(FsError::IoError); }
+      return storage_.write(offset,data,length);
+    }
+    Status flush() override { return storage_.flush(); }
+    uint64_t size() const override { return storage_.size(); }
+    void arm(unsigned failure) { writes_=0; failure_=failure; armed_=true; failed_=false; }
+    void disarm() { armed_=false; }
+    bool failed() const { return failed_; }
+   private:
+    Io& storage_;
+    unsigned failure_=0,writes_=0;
+    bool armed_=false,failed_=false;
+  };
+  for(bool replace:{false,true}) {
+    MemIo storage(32*1024*1024);
+    CHECK(Ext2::format(storage,1024,"rename-io").is_ok());
+    Ext2 initial; CHECK(initial.mount(&storage).is_ok());
+    auto root=initial.root();
+    auto folder=initial.create(root,sv("folder"),NodeType::Directory);
+    auto file=initial.create(root,sv("source"),NodeType::File);
+    CHECK(folder.is_ok() && file.is_ok());
+    std::vector<uint8_t> content(2048,93),back(content.size());
+    CHECK(initial.write(file.value(),0,content.data(),content.size()).is_ok());
+    uint64_t old_destination=0;
+    if(replace) {
+      auto existing=initial.create(folder.value(),sv("target"),NodeType::File); CHECK(existing.is_ok());
+      old_destination=existing.value().id;
+      CHECK(initial.write(existing.value(),0,"old",3).is_ok());
+    }
+    CHECK(initial.sync().is_ok());
+    auto baseline=storage.data;
+    unsigned failed_cases=0;
+    for(unsigned failure=0;failure<14;++failure) {
+      storage.data=baseline;
+      FailingIo io(storage);
+      Ext2 fs; CHECK(fs.mount(&io).is_ok());
+      io.arm(failure);
+      auto outcome=fs.rename(root,sv("source"),folder.value(),sv("target"));
+      if(io.failed()) { CHECK(outcome.is_err()); ++failed_cases; }
+      io.disarm();
+      auto source=fs.lookup(root,sv("source"));
+      auto target=fs.lookup(folder.value(),sv("target"));
+      if(source.is_ok()) {
+        CHECK(source.value().id==file.value().id);
+        if(replace) CHECK(target.is_ok() && target.value().id==old_destination);
+        else CHECK(target.is_err() && target.error()==FsError::NotFound);
+      } else {
+        CHECK(source.error()==FsError::NotFound && target.is_ok() && target.value().id==file.value().id);
+      }
+      CHECK(fs.read(file.value(),0,back.data(),back.size()).value()==back.size() && back==content);
+    }
+    CHECK(failed_cases>=2);
+  }
+}

@@ -1,0 +1,5 @@
+Skia native: raster, FreeType glyphs and PNG roundtrip ok
+Skia native: UI watcher restart ok
+Skia native: ready for keyboard input
+Skia native: keyboard input and compositor frame acknowledgments ok
+Skia native: window closed

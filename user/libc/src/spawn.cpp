@@ -1,6 +1,7 @@
 // Запуск программ (docs/abi/process.md §3): charm_spawn, ожидание, журнал, сигналы.
 #include <abi/process.hpp>
 #include <charm/libc.h>
+#include <charm/process.hpp>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -18,10 +19,12 @@ namespace r = abi::syscall::rights;
 namespace {
 
 // Копия хендла для ребёнка: прав мы не знаем — пробуем от широких к узким.
-Handle dup_any(Handle h, const uint32_t* candidates, int n) {
+Handle dup_any(Handle h, const uint32_t* candidates, int n,Status* error) {
   for (int i = 0; i < n; ++i) {
     auto d = charm::handle_duplicate(h, candidates[i]);
     if (d.ok()) return static_cast<Handle>(d.value);
+    *error=d.status;
+    if(d.status!=Status::AccessDenied) return 0;
   }
   return 0;
 }
@@ -29,16 +32,19 @@ Handle dup_any(Handle h, const uint32_t* candidates, int n) {
 constexpr uint32_t kBase = r::kDuplicate | r::kTransfer;
 
 // Склеивает строки (с \0) в блок; false — не влезло.
-bool pack(char* const* v, char* out, size_t cap, uint32_t* bytes, uint32_t* count, const char* extra) {
+bool pack(char* const* v, char* out, size_t cap,uint32_t max_count, uint32_t* bytes, uint32_t* count, const char* extra) {
   size_t len = 0;
   uint32_t n = 0;
   for (; v != nullptr && v[n] != nullptr; ++n) {
-    size_t l = strlen(v[n]) + 1;
-    if (len + l > cap) return false;
+    if(n>=max_count) return false;
+    size_t l = strnlen(v[n],cap);
+    if (l==cap || l+1>cap-len) return false;
+    ++l;
     memcpy(out + len, v[n], l);
     len += l;
   }
   if (extra != nullptr) {
+    if(n>=max_count) return false;
     size_t l = strlen(extra) + 1;
     if (len + l > cap) return false;
     memcpy(out + len, extra, l);
@@ -75,6 +81,9 @@ void dispatch(uint64_t signo, void*, void*) {
 extern "C" {
 
 int64_t charm_spawn(const char* path, char* const argv[], char* const envp[], const struct charm_spawn_opts* o) {
+  if(o && ((o->give&~CHARM_GIVE_ALL) || o->priority>ap::kPriorityMax ||
+           o->extra_count>ap::kMaxStartHandlesV2 || (o->extra_count && !o->extra)))
+    return fail_errno(EINVAL);
   int fd = open(path, O_RDONLY);
   if (fd < 0) return -1;
   Guard g(g_spawn_lock);
@@ -87,13 +96,15 @@ int64_t charm_spawn(const char* path, char* const argv[], char* const envp[], co
   // PWD из окружения заменяется текущим каталогом.
   char* filtered[ap::kMaxEnv + 1];
   uint32_t nf = 0;
-  for (uint32_t i = 0; env != nullptr && env[i] != nullptr && nf < ap::kMaxEnv - 1; ++i) {
+  uint32_t env_capacity=ap::kMaxEnv-((give&CHARM_GIVE_CWD) ? 1u : 0u);
+  for (uint32_t i = 0; env != nullptr && env[i] != nullptr; ++i) {
     if ((give & CHARM_GIVE_CWD) != 0 && strncmp(env[i], "PWD=", 4) == 0) continue;
+    if(nf>=env_capacity) { close(fd); return fail_errno(E2BIG); }
     filtered[nf++] = env[i];
   }
   filtered[nf] = nullptr;
-  if (!pack(argv, g_args, sizeof g_args, &a.args_bytes, &a.argc, nullptr) ||
-      !pack(filtered, g_env, sizeof g_env, &a.env_bytes, &a.envc, (give & CHARM_GIVE_CWD) != 0 ? pwd : nullptr)) {
+  if (!pack(argv, g_args, sizeof g_args,ap::kMaxArgs, &a.args_bytes, &a.argc, nullptr) ||
+      !pack(filtered, g_env, sizeof g_env,ap::kMaxEnv, &a.env_bytes, &a.envc, (give & CHARM_GIVE_CWD) != 0 ? pwd : nullptr)) {
     close(fd);
     return fail_errno(E2BIG);
   }
@@ -107,11 +118,14 @@ int64_t charm_spawn(const char* path, char* const argv[], char* const envp[], co
   uint32_t handles[ap::kMaxStartHandlesV2];
   uint32_t roles[ap::kMaxStartHandlesV2];
   uint32_t n = 0;
+  Status duplicate_error=Status::Ok;
   StartInfo& si = start_info();
   auto add = [&](Handle src, uint32_t role, const uint32_t* cand, int nc) {
-    if (src == 0 || n == ap::kMaxStartHandlesV2) return;
-    Handle d = dup_any(src, cand, nc);
-    if (d == 0) return;
+    if (src == 0 || duplicate_error!=Status::Ok) return;
+    if(n==ap::kMaxStartHandlesV2) { duplicate_error=Status::NoSpace; return; }
+    Status error=Status::AccessDenied;
+    Handle d = dup_any(src, cand, nc,&error);
+    if (d == 0) { duplicate_error=error; return; }
     handles[n] = d;
     roles[n++] = role;
   };
@@ -128,7 +142,12 @@ int64_t charm_spawn(const char* path, char* const argv[], char* const envp[], co
   const uint32_t door[] = {kBase | r::kWrite};  // wm.md §1: только писать (и передавать дальше)
   if ((give & CHARM_GIVE_WM) != 0) add(si.wm, ap::kRoleWm, door, 1);
   if ((give & CHARM_GIVE_AUDIO) != 0) add(si.audio, ap::kRoleAudio, door, 1);
-  for (uint32_t i = 0; o != nullptr && i < o->extra_count && n < ap::kMaxStartHandlesV2; ++i) {
+  if(duplicate_error!=Status::Ok || (o && o->extra_count>ap::kMaxStartHandlesV2-n)) {
+    for(uint32_t i=0;i<n;++i) (void)charm::handle_close(handles[i]);
+    close(fd);
+    return duplicate_error==Status::Ok ? fail_errno(E2BIG) : fail(duplicate_error);
+  }
+  for (uint32_t i = 0; o != nullptr && i < o->extra_count; ++i) {
     handles[n] = o->extra[i];
     roles[n++] = o->extra_roles != nullptr ? o->extra_roles[i] : 0;
   }
@@ -151,19 +170,9 @@ int64_t charm_spawn(const char* path, char* const argv[], char* const envp[], co
 }
 
 int charm_wait(uint32_t proc, int64_t* code) {
-  auto port = charm::port_create();
-  if (!port.ok()) return fail(port.status);
-  Handle p = static_cast<Handle>(port.value);
-  Status s = charm::object_bind(p, proc, 1);
-  charm::PortPacket pkt{};
-  while (s == Status::Ok || s == Status::Interrupted) {
-    s = charm::port_wait(p, &pkt, charm::kForever);
-    if (s == Status::Ok) break;
-  }
-  (void)charm::handle_close(p);
-  if (s != Status::Ok) return fail(s);
-  if (code != nullptr) *code = static_cast<int64_t>(pkt.data0);
-  return 0;
+  Status status;
+  do { status=charm::ProcessView(proc).wait(charm::kForever,code); } while(status==Status::Interrupted);
+  return status==Status::Ok ? 0 : fail(status);
 }
 
 int charm_kill(uint32_t proc) {

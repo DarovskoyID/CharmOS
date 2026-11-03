@@ -13,6 +13,8 @@ typedef struct __dir DIR;
 extern "C" {
 #endif
 DIR* opendir(const char* path);
+DIR* fdopendir(int fd);
+int dirfd(DIR* directory);
 struct dirent* readdir(DIR* d);
 int closedir(DIR* d);
 #ifdef __cplusplus

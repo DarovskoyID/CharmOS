@@ -61,6 +61,11 @@ double difftime(time_t end, time_t begin) {
 time_t mktime(struct tm* value) {
   if (!value) { errno = EINVAL; return -1; }
   if (value->tm_isdst > 0) { errno = EINVAL; return -1; }
+  return timegm(value);
+}
+
+time_t timegm(struct tm* value) {
+  if (!value) { errno = EINVAL; return -1; }
   int64_t year = static_cast<int64_t>(value->tm_year) + 1900;
   int64_t months = value->tm_mon;
   int64_t years = months / 12;

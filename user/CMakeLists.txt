@@ -21,10 +21,14 @@ add_library(c STATIC
   libc/src/start.cpp libc/src/string.cpp libc/src/stdlib.cpp libc/src/stdio.cpp
   libc/src/fd.cpp libc/src/pthread.cpp libc/src/socket.cpp libc/src/spawn.cpp
   libc/src/random.cpp libc/src/pthread_extra.cpp libc/src/assert.cpp libc/src/wchar.cpp libc/src/calendar.cpp
-  libc/src/cxx.cpp libc/src/locale.cpp libc/src/strftime.cpp)
+  libc/src/cxx.cpp libc/src/locale.cpp libc/src/strftime.cpp libc/src/temp.cpp
+  libc/src/strptime.cpp libc/src/system.cpp libc/src/mman.cpp libc/src/uio.cpp libc/src/path.cpp
+  libc/src/realpath.cpp libc/src/file_policy.cpp libc/src/emutls.cpp
+  libc/src/arch/x86_64/setjmp.S libc/src/semaphore.cpp)
 target_include_directories(c PUBLIC libc/include rt/include)
 target_link_libraries(c PUBLIC abi)
 target_compile_options(c PRIVATE -fno-builtin)
+target_compile_options(c INTERFACE $<$<COMPILE_LANGUAGE:C,CXX>:-femulated-tls>)
 add_subdirectory(libwm)
 
 function(charmos_c_program name)
@@ -55,6 +59,10 @@ target_link_libraries(wm PRIVATE crypto)
 target_include_directories(wm PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libui/include)
 target_link_libraries(wdemo PRIVATE input)
 target_link_libraries(wdemo PRIVATE wm_client)
+charmos_c_program(window_pixels tests/window_pixels.cpp)
+target_link_libraries(window_pixels PRIVATE wm_client)
+charmos_c_program(window_managed tests/window_managed.cpp)
+target_link_libraries(window_managed PRIVATE wm_client)
 charmos_c_program(files bin/files/files.cpp)
 target_sources(files PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/wm-fonts.S)
 target_include_directories(files PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libui/include)

@@ -44,7 +44,7 @@ struct Guard {
 };
 
 // --- дескрипторы -------------------------------------------------------------------------
-enum class Kind : uint8_t { Free, File, Dir, Socket, Console, Debug };
+enum class Kind : uint8_t { Free, File, Dir, Socket, Console, Debug, Pipe, ChannelWatch };
 struct Fd {
   Kind kind;
   bool append;
@@ -55,10 +55,11 @@ struct Fd {
   uint64_t offset;
   uint32_t refs;  // dup делит запись
   Lock position_lock;
+  void* state;
 };
 constexpr int kMaxFds = 256;
 Fd* fd_get(int fd);
-int fd_alloc(Kind kind, Handle h, bool readable, bool writable, int flags = 0);
+int fd_alloc(Kind kind, Handle h, bool readable, bool writable, int flags = 0, void* state = nullptr);
 Lock& fd_lock();
 class FdLease {
  public:
@@ -85,6 +86,7 @@ void set_cwd(const char* abs_no_slash);
 struct StartInfo {
   Handle root, cwd, console, net, log, job, system, power, display, input, wm, audio;
   Handle extra[16];  // хендлы без роли, по порядку (стартовое сообщение v2)
+  uint32_t extra_roles[16];
   uint32_t extra_count;
 };
 StartInfo& start_info();
@@ -98,17 +100,23 @@ struct ThreadBlock {
   void* ret;
   Handle handle;          // Thread
   volatile uint32_t done;  // 1 — завершён (для join)
-  bool detached;
+  uint32_t lifecycle; // 0 joinable, 1 detached, 2 join claimed.
+  volatile uint32_t parent_ready;
   uint64_t stack_top;
+  uint64_t stack_size;
   struct SpecificValue { void* value; uint32_t generation; } specific[128];
   mbstate_t mb_decode, mb_length, mb_string, mb_encode;
   struct tm utc_time;
   void* locale_selection; // nullptr means the fixed global locale.
   fenv_t initial_fenv;
   bool has_initial_fenv;
+  void* compiler_tls;
+  void* compiler_tls_destructors;
 };
 ThreadBlock* current_thread();
 void thread_specific_cleanup();
+void run_compiler_tls_destructors();
+void release_compiler_tls();
 
 void stdio_init();
 void stdio_flush_all();

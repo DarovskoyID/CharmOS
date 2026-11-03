@@ -33,4 +33,4 @@ if __name__ == "__main__":
         audit(sys.argv[1])
     except (OSError, ValueError, struct.error) as error:
         sys.exit("CharmOS ELF audit: " + str(error))
-    print("CharmOS ELF audit: static x86-64, no dynamic loader or compiler TLS")
+    print("CharmOS ELF audit: static x86-64, no dynamic loader or ELF TLS")

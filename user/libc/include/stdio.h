@@ -61,6 +61,8 @@ void clearerr(FILE* f);
 int fileno(FILE* f);
 void perror(const char* s);
 int remove(const char* path);
+int rename(const char* source,const char* target);
+int renameat(int source_directory,const char* source,int target_directory,const char* target);
 int asprintf(char** out, const char* format, ...);
 int vasprintf(char** out, const char* format, va_list);
 int setvbuf(FILE* f, char* buf, int mode, size_t size);

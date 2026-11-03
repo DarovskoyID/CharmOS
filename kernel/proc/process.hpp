@@ -108,6 +108,7 @@ Status sys_process_info(uint32_t h, uint64_t out);
 Status sys_job_kill(uint32_t h);
 Status sys_job_set_limits(uint32_t h, uint64_t limits);
 Status sys_thread_set_priority(uint32_t thread, uint64_t priority);
+Status sys_thread_priority(uint64_t priority, uint64_t* out);
 // Учёт времени CPU (хук планировщика) и лимит cpu_ns.
 void init_accounting();
 Status sys_console_set_foreground(uint32_t con, uint32_t job);

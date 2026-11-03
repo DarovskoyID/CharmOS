@@ -12,6 +12,9 @@
 #define O_NONBLOCK 04000
 #define O_DIRECTORY 0200000
 #define O_CLOEXEC 02000000
+#define O_NOCTTY 0400
+#define O_NDELAY O_NONBLOCK
+#define O_NOFOLLOW 0400000
 #define F_DUPFD 0
 #define F_GETFD 1
 #define F_SETFD 2
@@ -22,6 +25,9 @@
 #define F_SETLKW 7
 #define F_DUPFD_CLOEXEC 1030
 #define FD_CLOEXEC 1
+#define AT_FDCWD (-100)
+#define AT_SYMLINK_NOFOLLOW 0x100
+#define AT_REMOVEDIR 0x200
 #define F_RDLCK 0
 #define F_WRLCK 1
 #define F_UNLCK 2
@@ -34,6 +40,7 @@ struct flock {
 extern "C" {
 #endif
 int open(const char* path, int flags, ...);
+int openat(int directory,const char* path,int flags,...);
 int creat(const char* path, mode_t mode);
 int fcntl(int fd, int command, ...);
 #ifdef __cplusplus

@@ -1,0 +1,7 @@
+#wait Skia native: ready for keyboard input
+#monitor sendkey a
+#wait Skia native: keyboard input and compositor frame acknowledgments ok
+#monitor screendump /mnt/a/CharmOS/build/chromium/native-skia.ppm
+#monitor sendkey esc
+#wait Skia native: window closed
+svc poweroff

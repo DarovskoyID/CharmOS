@@ -466,7 +466,9 @@ Status Ext2::add_entry(uint32_t dir, StringView name, uint32_t ino, NodeType typ
         } else {
           put<uint16_t>(h + 4, static_cast<uint16_t>(used));
           put<uint16_t>(e + 4, static_cast<uint16_t>(rec - used));
-          if (io_->write(at, h, 8).is_err() || io_->write(at + used, e, need).is_err()) {
+          // Populate the still-hidden tail before publishing its new record.
+          // An I/O error must not expose an uninitialized directory entry.
+          if (io_->write(at + used, e, need).is_err() || io_->write(at, h, 8).is_err()) {
             return fail(FsError::IoError);
           }
         }
@@ -556,7 +558,30 @@ Status Ext2::unlink(Node dir_node, StringView name) {
     if (r.is_err()) return r;
     if (next != 0) return fail(FsError::NotEmpty);
   }
-  // Убрать запись: присоединить к предыдущей или обнулить inode.
+  Status erased=erase_entry(dir,name);
+  if(erased.is_err()) return erased;
+
+  in.links = static_cast<uint16_t>(in.links - (is_dir ? 2 : 1));
+  if (is_dir) {
+    Inode parent;
+    if (read_inode(dir, &parent).is_err()) return fail(FsError::IoError);
+    --parent.links;
+    if (write_inode(dir, parent).is_err()) return fail(FsError::IoError);
+    uint32_t g = (ino - 1) / inodes_per_group_;
+    uint8_t gd[kGdSize];
+    if (read_group(g, gd).is_err()) return fail(FsError::IoError);
+    put<uint16_t>(gd + kGUsedDirs, static_cast<uint16_t>(get<uint16_t>(gd + kGUsedDirs) - 1));
+    if (write_group(g, gd).is_err()) return fail(FsError::IoError);
+  }
+  return retire_inode(ino,in);
+}
+
+Status Ext2::erase_entry(uint32_t dir,StringView name) {
+  uint64_t pos=0,prev=0;
+  uint32_t ino=0;
+  auto found=find(dir,name,&pos,&ino,&prev);
+  if(found.is_err()) return found;
+  // Remove only the name, retaining inode contents and link accounting.
   Inode d;
   if (read_inode(dir, &d).is_err()) return fail(FsError::IoError);
   auto pb = bmap(d, pos / block_size_, false);
@@ -574,18 +599,23 @@ Status Ext2::unlink(Node dir_node, StringView name) {
     if (io_->write(base + prev % block_size_, ph, 8).is_err()) return fail(FsError::IoError);
   }
 
-  in.links = static_cast<uint16_t>(in.links - (is_dir ? 2 : 1));
-  if (is_dir) {
-    Inode parent;
-    if (read_inode(dir, &parent).is_err()) return fail(FsError::IoError);
-    --parent.links;
-    if (write_inode(dir, parent).is_err()) return fail(FsError::IoError);
-    uint32_t g = (ino - 1) / inodes_per_group_;
-    uint8_t gd[kGdSize];
-    if (read_group(g, gd).is_err()) return fail(FsError::IoError);
-    put<uint16_t>(gd + kGUsedDirs, static_cast<uint16_t>(get<uint16_t>(gd + kGUsedDirs) - 1));
-    if (write_group(g, gd).is_err()) return fail(FsError::IoError);
-  }
+  return ok();
+}
+
+Status Ext2::replace_entry(uint32_t dir,StringView name,uint32_t inode) {
+  uint64_t pos=0,prev=0;
+  uint32_t old_inode=0;
+  auto found=find(dir,name,&pos,&old_inode,&prev);
+  if(found.is_err()) return found;
+  Inode directory;
+  if(read_inode(dir,&directory).is_err()) return fail(FsError::IoError);
+  auto block=bmap(directory,pos/block_size_,false);
+  if(block.is_err() || !block.value()) return fail(FsError::Corrupt);
+  uint8_t value[4]; put<uint32_t>(value,inode);
+  return io_->write(block_offset(block.value())+pos%block_size_,value,sizeof value);
+}
+
+Status Ext2::retire_inode(uint32_t ino,Inode& in) {
   if (in.links == 0 || static_cast<int16_t>(in.links) < 0) {
     in.links = 0;
     uint64_t keep = 0;
@@ -605,6 +635,50 @@ Status Ext2::unlink(Node dir_node, StringView name) {
     return release(true, ino);
   }
   return write_inode(ino, in);
+}
+
+Status Ext2::rename(Node source_dir,StringView source,Node target_dir,StringView target) {
+  if(read_only_) return fail(FsError::ReadOnly);
+  if(!valid_name(source) || !valid_name(target)) return fail(FsError::InvalidName);
+  auto from=lookup(source_dir,source);
+  if(from.is_err()) return fail(from.error());
+  auto to=lookup(target_dir,target);
+  if(to.is_err() && to.error()!=FsError::NotFound) return fail(to.error());
+  if(to.is_ok() && to.value().id==from.value().id) return ok();
+  Inode original;
+  auto inode=static_cast<uint32_t>(from.value().id);
+  if(read_inode(inode,&original).is_err()) return fail(FsError::IoError);
+  if((original.mode&kModeTypeMask)!=kModeFile) return fail(FsError::Unsupported);
+  if(!original.links) return fail(FsError::Corrupt);
+  Inode replaced{};
+  uint32_t old_inode=0;
+  if(to.is_ok()) {
+    old_inode=static_cast<uint32_t>(to.value().id);
+    if(read_inode(old_inode,&replaced).is_err()) return fail(FsError::IoError);
+    if((replaced.mode&kModeTypeMask)==kModeDir) return fail(FsError::IsDirectory);
+    if((replaced.mode&kModeTypeMask)!=kModeFile) return fail(FsError::Unsupported);
+    if(!replaced.links) return fail(FsError::Corrupt);
+  }
+  uint32_t source_parent=static_cast<uint32_t>(source_dir.id);
+  uint32_t target_parent=static_cast<uint32_t>(target_dir.id);
+  auto published=old_inode ? replace_entry(target_parent,target,inode) : add_entry(target_parent,target,inode,NodeType::File);
+  if(published.is_err()) return published;
+  auto removed=erase_entry(source_parent,source);
+  if(removed.is_err()) {
+    // A failed write may still have removed the source. Keep the destination
+    // unless the old name is definitely still reachable with the same inode.
+    auto remaining=lookup(source_dir,source);
+    if(remaining.is_ok() && remaining.value().id==inode) {
+      if(old_inode) (void)replace_entry(target_parent,target,old_inode);
+      else (void)erase_entry(target_parent,target);
+    }
+    return removed;
+  }
+  if(old_inode) {
+    --replaced.links;
+    return retire_inode(old_inode,replaced);
+  }
+  return ok();
 }
 
 // --- файлы --------------------------------------------------------------------------------

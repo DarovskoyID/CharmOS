@@ -56,6 +56,9 @@ struct Endpoint {
   sync::WaitList readers;
   Port* bound;  // однократная подписка (держит ссылку на порт)
   uint64_t bound_key;
+  uint32_t bound_mask;
+  bool read_shut;
+  bool write_shut;
 };
 
 struct Port {
@@ -127,6 +130,7 @@ struct SocketObj {
   uint64_t id;  // идентификатор сокета в kernel/net/socket
   Port* bound;  // однократная подписка на готовность (опрос стеком)
   uint64_t bound_key;
+  uint32_t watch_mask; // 0 preserves legacy ObjectBind behavior.
 };
 constinit void (*g_socket_closed)(uint64_t id) = nullptr;
 
@@ -296,6 +300,8 @@ void port_push(Port* port, uint64_t key, uint32_t type, uint64_t d0 = 0, uint64_
 void fire(Endpoint* ep, uint32_t type) {
   Port* port = ep->bound;
   if (port == nullptr) return;
+  if(type==abi::syscall::kPacketChannelReadable && !(ep->bound_mask&1u)) return;
+  if(type==abi::syscall::kPacketChannelWritable && !(ep->bound_mask&2u)) return;
   ep->bound = nullptr;
   --port->armed;
   port_push(port, ep->bound_key, type);
@@ -740,10 +746,11 @@ Status kernel_send(Cap* endpoint, const void* bytes, uint64_t len, Cap* const* c
   m->bytes = static_cast<uint32_t>(len);
   sync::SpinGuard guard(g_lock);
   auto* ep = reinterpret_cast<Endpoint*>(endpoint->obj);
-  if (ep->peer == nullptr) {
+  if (ep->peer == nullptr || ep->write_shut || ep->peer->read_shut) {
     mm::kfree(m);
     return Status::PeerClosed;
   }
+  if(ep->peer->count>=kChannelMaxQueue) { mm::kfree(m); return Status::WouldBlock; }
   for (uint32_t i = 0; i < count; ++i) {
     caps[i]->where = Where::Message;
     caps[i]->msg = m;
@@ -890,7 +897,9 @@ Status sys_channel_write(uint32_t h, uint64_t bytes, uint64_t len, uint64_t hand
       result = Status::WrongType;
     } else if ((c->rights & rights::kWrite) == 0) {
       result = Status::AccessDenied;
-    } else if (reinterpret_cast<Endpoint*>(c->obj)->peer == nullptr) {
+    } else if (reinterpret_cast<Endpoint*>(c->obj)->peer == nullptr ||
+               reinterpret_cast<Endpoint*>(c->obj)->write_shut ||
+               reinterpret_cast<Endpoint*>(c->obj)->peer->read_shut) {
       result = Status::PeerClosed;
     } else if (reinterpret_cast<Endpoint*>(c->obj)->peer->count >= kChannelMaxQueue) {
       result = Status::WouldBlock;
@@ -957,6 +966,7 @@ Status sys_channel_read(uint32_t h, uint64_t bytes, uint64_t cap, uint64_t handl
       return s;
     }
     auto* ep = reinterpret_cast<Endpoint*>(c->obj);
+    if(ep->read_shut) { g_lock.unlock(irq); return Status::PeerClosed; }
     if (Message* m = ep->head) {
       uint32_t n = 0;
       for (uint32_t i = 0; i < m->ncaps; ++i) n += m->caps[i] != nullptr ? 1 : 0;
@@ -997,11 +1007,12 @@ Status sys_channel_read(uint32_t h, uint64_t bytes, uint64_t cap, uint64_t handl
       ep->head = m->next;
       if (ep->head == nullptr) ep->tail = nullptr;
       --ep->count;
+      if(ep->peer) fire(ep->peer,abi::syscall::kPacketChannelWritable);
       mm::kfree(m);
       g_lock.unlock(irq);
       return Status::Ok;
     }
-    if (ep->peer == nullptr) {
+    if (ep->peer == nullptr || ep->peer->write_shut) {
       g_lock.unlock(irq);
       return Status::PeerClosed;
     }
@@ -1035,6 +1046,56 @@ Status sys_channel_read(uint32_t h, uint64_t bytes, uint64_t cap, uint64_t handl
 }
 
 // --- объекты памяти ---------------------------------------------------------------------
+
+Status sys_channel_query(uint32_t handle,uint64_t user_output) {
+  abi::syscall::ChannelState state{};
+  {
+    sync::SpinGuard guard(g_lock);
+    Cap* capability=lookup(me(),handle);
+    if(!capability) return Status::BadHandle;
+    if(capability->obj->type!=Type::Endpoint) return Status::WrongType;
+    if(!(capability->rights&rights::kRead)) return Status::AccessDenied;
+    auto* endpoint=reinterpret_cast<Endpoint*>(capability->obj);
+    for(Message* message=endpoint->head;message;message=message->next) state.queued_bytes+=message->bytes;
+    state.messages=endpoint->count;
+    if(endpoint->read_shut) state.flags|=1u;
+    if(endpoint->write_shut) state.flags|=2u;
+    if(!endpoint->peer || endpoint->peer->write_shut) state.flags|=4u;
+    if(!endpoint->peer || endpoint->peer->read_shut) state.flags|=8u;
+  }
+  return proc::copy_to_user(user_output,&state,sizeof state) ? Status::Ok : Status::BadAddress;
+}
+
+Status sys_channel_shutdown(uint32_t handle,uint32_t directions) {
+  if(!directions || (directions&~3u)) return Status::InvalidArgs;
+  sync::SpinGuard guard(g_lock);
+  Cap* capability=lookup(me(),handle);
+  if(!capability) return Status::BadHandle;
+  if(capability->obj->type!=Type::Endpoint) return Status::WrongType;
+  uint32_t need=((directions&1u) ? rights::kRead : 0u)|((directions&2u) ? rights::kWrite : 0u);
+  if((capability->rights&need)!=need) return Status::AccessDenied;
+  auto* endpoint=reinterpret_cast<Endpoint*>(capability->obj);
+  if(directions&1u) {
+    endpoint->read_shut=true;
+    while(Message* message=endpoint->head) {
+      endpoint->head=message->next;
+      destroy_message(message);
+    }
+    endpoint->tail=nullptr; endpoint->count=0;
+    while(sched::Thread* reader=endpoint->readers.pop()) sched::wake(reader);
+  }
+  if(directions&2u) {
+    endpoint->write_shut=true;
+    if(endpoint->peer)
+      while(sched::Thread* reader=endpoint->peer->readers.pop()) sched::wake(reader);
+  }
+  if(endpoint->bound_mask&directions) fire(endpoint,abi::syscall::kPacketPeerClosed);
+  Endpoint* peer=endpoint->peer;
+  if(peer && (((directions&1u) && (peer->bound_mask&2u)) ||
+              ((directions&2u) && (peer->bound_mask&1u))))
+    fire(peer,abi::syscall::kPacketPeerClosed);
+  return Status::Ok;
+}
 
 Status sys_vmo_create(uint64_t size, uint64_t* out) {
   if (size == 0 || size % kPageSize != 0 || size > abi::syscall::kVmoMaxSize) {
@@ -1132,6 +1193,25 @@ Status sys_vmo_map(uint32_t h, uint64_t req, uint64_t* out) {
   return Status::Ok;
 }
 
+Status sys_vmo_size(uint32_t h, uint64_t* out) {
+  *out=0;
+  sync::SpinGuard guard(g_lock);
+  Cap* cap=lookup(me(),h);
+  if (cap==nullptr) return Status::BadHandle;
+  if (cap->obj->type!=Type::Vmo) return Status::WrongType;
+  *out=reinterpret_cast<Vmo*>(cap->obj)->size;
+  return Status::Ok;
+}
+
+Status sys_handle_rights(uint32_t h,uint64_t* out) {
+  *out=0;
+  sync::SpinGuard guard(g_lock);
+  Cap* cap=lookup(me(),h);
+  if (!cap) return Status::BadHandle;
+  *out=cap->rights;
+  return Status::Ok;
+}
+
 Status sys_vmo_unmap(uint64_t addr) {
   Pending pend;
   {
@@ -1172,13 +1252,22 @@ Status sys_port_create(uint64_t* out) {
   return Status::Ok;
 }
 
-Status sys_object_bind(uint32_t port_h, uint32_t h, uint64_t key) {
+Status sys_object_bind(uint32_t port_h, uint32_t h, uint64_t key, uint32_t mask) {
+  if (mask & ~3u) return Status::InvalidArgs;
   sync::SpinGuard guard(g_lock);
   proc::Process* p = me();
   Cap* pc = lookup(p, port_h);
   Cap* oc = lookup(p, h);
   if (pc == nullptr || oc == nullptr) return Status::BadHandle;
   if (pc->obj->type != Type::Port) return Status::WrongType;
+  if (mask != 0) {
+    if ((pc->rights & rights::kWrite) == 0) return Status::AccessDenied;
+    uint32_t need=((mask&1u) ? rights::kRead : 0u)|((mask&2u) ? rights::kWrite : 0u);
+    if ((oc->rights&need)!=need) return Status::AccessDenied;
+    if (oc->obj->type!=Type::Socket && oc->obj->type!=Type::Endpoint &&
+        (mask!=1 || oc->obj->type!=Type::Console))
+      return Status::NotSupported;
+  }
   if (oc->obj->type == Type::Interrupt) {
     if ((pc->rights & rights::kWrite) == 0 || (oc->rights & rights::kRead) == 0) {
       return Status::AccessDenied;
@@ -1309,32 +1398,85 @@ Status sys_object_bind(uint32_t port_h, uint32_t h, uint64_t key) {
     if (slot == nullptr) return Status::NoMemory;
     so->bound = port;
     so->bound_key = key;
+    so->watch_mask = mask;
     ++port->armed;
     ++port->base.refs;
     *slot = so;  // стек опрашивает готовность (poll_sockets) и шлёт пакет
     return Status::Ok;
   }
   if (oc->obj->type != Type::Endpoint) return Status::WrongType;
-  if ((pc->rights & rights::kWrite) == 0 || (oc->rights & rights::kRead) == 0) {
+  if ((pc->rights & rights::kWrite) == 0 || (!mask && (oc->rights & rights::kRead) == 0)) {
     return Status::AccessDenied;
   }
   auto* port = reinterpret_cast<Port*>(pc->obj);
   auto* ep = reinterpret_cast<Endpoint*>(oc->obj);
   if (ep->bound != nullptr) return Status::Busy;
   if (port->count + port->armed >= abi::syscall::kPortMaxPackets) return Status::Busy;
+  uint32_t interest=mask ? mask : 1u;
+  bool read_closed=ep->read_shut || !ep->peer || ep->peer->write_shut;
+  bool write_closed=ep->write_shut || !ep->peer || ep->peer->read_shut;
+  if (mask && (((interest&1u) && read_closed) || ((interest&2u) && write_closed))) {
+    port_push(port,key,abi::syscall::kPacketPeerClosed,ep->head!=nullptr ? 1u : 0u);
+    return Status::Ok;
+  }
   // Событие уже наступило — пакет сразу.
-  if (ep->head != nullptr) {
+  if ((interest&1u) && ep->head != nullptr) {
     port_push(port, key, abi::syscall::kPacketChannelReadable);
     return Status::Ok;
   }
-  if (ep->peer == nullptr) {
+  if ((interest&1u) && read_closed) {
     port_push(port, key, abi::syscall::kPacketPeerClosed);
+    return Status::Ok;
+  }
+  if((interest&2u) && !write_closed && ep->peer->count<kChannelMaxQueue) {
+    port_push(port,key,abi::syscall::kPacketChannelWritable);
     return Status::Ok;
   }
   ep->bound = port;
   ep->bound_key = key;
+  ep->bound_mask=interest;
   ++port->armed;
   ++port->base.refs;
+  return Status::Ok;
+}
+
+Status sys_object_unbind(uint32_t port_h, uint32_t h, uint64_t key) {
+  sync::SpinGuard guard(g_lock);
+  Cap* pc=lookup(me(),port_h);
+  Cap* oc=lookup(me(),h);
+  if (!pc || !oc) return Status::BadHandle;
+  if (pc->obj->type!=Type::Port) return Status::WrongType;
+  if (!(pc->rights&rights::kWrite)) return Status::AccessDenied;
+  Port** bound=nullptr;
+  uint64_t bound_key=0;
+  if (oc->obj->type==Type::Endpoint) {
+    auto* endpoint=reinterpret_cast<Endpoint*>(oc->obj);
+    bound=&endpoint->bound; bound_key=endpoint->bound_key;
+  } else if (oc->obj->type==Type::Socket) {
+    auto* socket=reinterpret_cast<SocketObj*>(oc->obj);
+    bound=&socket->bound; bound_key=socket->bound_key;
+  } else if (oc->obj->type==Type::Console) {
+    auto* console=reinterpret_cast<ConsoleObj*>(oc->obj);
+    bound=&console->bound; bound_key=console->bound_key;
+  } else if (oc->obj->type==Type::Process) {
+    auto* process=reinterpret_cast<ProcessObj*>(oc->obj);
+    bound=&process->bound; bound_key=process->bound_key;
+  } else if (oc->obj->type==Type::Thread) {
+    auto* thread=reinterpret_cast<ThreadObj*>(oc->obj);
+    bound=&thread->bound; bound_key=thread->bound_key;
+  } else if (oc->obj->type==Type::Job) {
+    auto* job=reinterpret_cast<Job*>(oc->obj);
+    bound=&job->bound; bound_key=job->bound_key;
+  } else return Status::WrongType;
+  auto* port=reinterpret_cast<Port*>(pc->obj);
+  if (*bound!=port || bound_key!=key) return Status::NotFound;
+  *bound=nullptr;
+  if (oc->obj->type==Type::Socket)
+    for (auto*& socket:g_socket_binds) if (socket && &socket->base==oc->obj) socket=nullptr;
+  if (oc->obj->type==Type::Console)
+    for (auto*& console:g_console_binds) if (console && &console->base==oc->obj) console=nullptr;
+  --port->armed;
+  release_object(&port->base);
   return Status::Ok;
 }
 
@@ -1853,6 +1995,7 @@ Status kernel_recv_caps(Cap* endpoint, void* buf, uint64_t cap, uint32_t* len, C
   auto* ep = reinterpret_cast<Endpoint*>(endpoint->obj);
   for (;;) {
     bool irq = g_lock.lock();
+    if(ep->read_shut) { g_lock.unlock(irq); return Status::PeerClosed; }
     if (Message* m = ep->head) {
       *len = m->bytes;
       if (m->bytes > cap) {
@@ -1863,6 +2006,7 @@ Status kernel_recv_caps(Cap* endpoint, void* buf, uint64_t cap, uint32_t* len, C
       ep->head = m->next;
       if (ep->head == nullptr) ep->tail = nullptr;
       --ep->count;
+      if(ep->peer) fire(ep->peer,abi::syscall::kPacketChannelWritable);
       m->next = nullptr;
       // Хендлы — ядру (сколько просили), остальное закроет destroy_message.
       for (uint32_t i = 0; i < m->ncaps && *got < ncap; ++i) {
@@ -1877,7 +2021,7 @@ Status kernel_recv_caps(Cap* endpoint, void* buf, uint64_t cap, uint32_t* len, C
       g_lock.unlock(irq);
       return Status::Ok;
     }
-    if (ep->peer == nullptr) {
+    if (ep->peer == nullptr || ep->peer->write_shut) {
       g_lock.unlock(irq);
       return Status::PeerClosed;
     }
@@ -2079,26 +2223,33 @@ Status get_socket(uint32_t h, uint32_t need, uint64_t* id) {
   return Status::Ok;
 }
 
-void poll_sockets(bool (*ready)(uint64_t id, uint32_t* packet)) {
+void poll_sockets(bool (*ready)(uint64_t id, uint32_t mask, uint32_t* events)) {
   // Готовность проверяется без g_lock (стек берёт свои блокировки), затем
   // пакет — под ним. Подписка однократная.
   for (uint32_t i = 0; i < kMaxSocketBinds; ++i) {
-    uint64_t id;
+    uint64_t id, key;
+    uint32_t mask;
+    Port* expected_port;
     {
       sync::SpinGuard guard(g_lock);
       if (g_socket_binds[i] == nullptr) continue;
       id = g_socket_binds[i]->id;
+      mask=g_socket_binds[i]->watch_mask;
+      key=g_socket_binds[i]->bound_key;
+      expected_port=g_socket_binds[i]->bound;
     }
-    uint32_t packet;
-    if (!ready(id, &packet)) continue;
+    uint32_t events;
+    if (!ready(id, mask ? mask : 3u, &events)) continue;
     sync::SpinGuard guard(g_lock);
     SocketObj* so = g_socket_binds[i];
-    if (so == nullptr || so->id != id || so->bound == nullptr) continue;
+    if (so == nullptr || so->id != id || so->bound != expected_port ||
+        so->bound_key!=key || so->watch_mask!=mask) continue;
     Port* port = so->bound;
     so->bound = nullptr;
     g_socket_binds[i] = nullptr;
     --port->armed;
-    port_push(port, so->bound_key, packet);
+    uint32_t packet=(events&1u) ? abi::syscall::kPacketSocketReadable : abi::syscall::kPacketSocketWritable;
+    port_push(port, so->bound_key, packet, mask ? events : 0);
     release_object(&port->base);
   }
 }
@@ -2380,7 +2531,8 @@ Status send_from_table(Cap* endpoint, const void* bytes, uint64_t len, const uin
     proc::Process* p = me();
     auto* ep = reinterpret_cast<Endpoint*>(endpoint->obj);
     Cap* moved[kChannelMaxHandles] = {};
-    if (ep->peer == nullptr) result = Status::PeerClosed;
+    if (ep->peer == nullptr || ep->write_shut || ep->peer->read_shut) result = Status::PeerClosed;
+    else if(ep->peer->count>=kChannelMaxQueue) result=Status::WouldBlock;
     // Всё проверяется до перемещения: при ошибке хендлы остаются у вызывающего.
     for (uint32_t i = 0; i < count && result == Status::Ok; ++i) {
       Cap* t = lookup(p, handles[i]);

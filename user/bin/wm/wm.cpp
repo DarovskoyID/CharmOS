@@ -96,6 +96,7 @@ struct Window {
   bool used;
   bool minimized;
   uint32_t id;
+  uint32_t generation;
   int client;
   Rect frame;  // с заголовком; содержимое — frame.y + kTitle
   int32_t w, h;
@@ -108,9 +109,19 @@ struct Window {
   sc::InputEvent* events;
 };
 
+constexpr unsigned kOutboundMessages=64;
+struct OutboundMessage {
+  uint32_t size;
+  Handle capability;
+  alignas(4) uint8_t bytes[sizeof(wm::WelcomeV3)];
+};
 struct Client {
   bool used;
+  bool failed;
   Handle ch;
+  uint32_t version;
+  unsigned output_head,output_count;
+  OutboundMessage output[kOutboundMessages];
 };
 
 Screen g_s;
@@ -675,10 +686,55 @@ void damage(Rect r) {
   else { g_regions[0] = intersect(g_damage, g_s.all()); g_region_count = 1; }
 }
 
-void send_event(int client, uint32_t type, uint32_t window, uint32_t value) {
-  if (client < 0 || !g_cl[client].used) return;
-  wm::WindowEvent e{type, window, value};
-  (void)charm::channel_write(g_cl[client].ch, &e, sizeof e, nullptr, 0);
+void rearm_client(int ci) {
+  Client& client=g_cl[ci];
+  if(!client.used || client.failed) return;
+  uint64_t key=kKeyClient+static_cast<uint64_t>(ci);
+  (void)charm::object_unbind(g_port,client.ch,key);
+  uint32_t mask=client.output_count ? 3u : 1u;
+  if(charm::object_watch(g_port,client.ch,key,mask)!=Status::Ok) client.failed=true;
+}
+void flush_client(int ci) {
+  Client& client=g_cl[ci];
+  while(client.used && !client.failed && client.output_count) {
+    OutboundMessage& next=client.output[client.output_head];
+    auto status=charm::channel_write(client.ch,next.bytes,next.size,
+        next.capability ? &next.capability : nullptr,next.capability ? 1 : 0);
+    if(status==Status::WouldBlock) return;
+    if(status!=Status::Ok) { client.failed=true; return; }
+    next.capability=0;
+    client.output_head=(client.output_head+1)%kOutboundMessages;
+    --client.output_count;
+  }
+}
+// On success this takes ownership of capability, including a deferred send.
+Status send_message(int ci,const void* data,uint32_t size,Handle capability=0) {
+  Client& client=g_cl[ci];
+  if(!client.used || client.failed) return Status::PeerClosed;
+  if(size>sizeof(OutboundMessage::bytes)) return Status::InvalidArgs;
+  if(client.output_count==kOutboundMessages) { client.failed=true; return Status::NoSpace; }
+  bool previously_empty=!client.output_count;
+  auto& next=client.output[(client.output_head+client.output_count)%kOutboundMessages];
+  next.size=size; next.capability=capability;
+  memcpy(next.bytes,data,size);
+  ++client.output_count;
+  flush_client(ci);
+  if(previously_empty && client.output_count) rearm_client(ci);
+  return Status::Ok;
+}
+void send_event(int client,uint32_t type,uint32_t window,uint32_t value,uint32_t generation=0) {
+  if(client<0 || !g_cl[client].used || g_cl[client].failed) return;
+  wm::WindowEventV3 event{{type,window,value},generation,0,0,0,0};
+  if(g_cl[client].version==wm::kManagedVersion) {
+    for(const auto& candidate:g_win) if(candidate.used && candidate.client==client && candidate.id==window) {
+      if(!generation) event.generation=candidate.generation;
+      event.x=candidate.frame.x; event.y=candidate.frame.y+kTitle;
+      event.width=static_cast<uint32_t>(candidate.w); event.height=static_cast<uint32_t>(candidate.h);
+      break;
+    }
+  }
+  uint32_t size=g_cl[client].version==wm::kManagedVersion ? sizeof event : sizeof event.base;
+  if(send_message(client,&event,size)!=Status::Ok) g_cl[client].failed=true;
 }
 
 void raise(int wi) {
@@ -689,6 +745,8 @@ void raise(int wi) {
   if (at < 0) return;
   if (g_win[wi].minimized) {
     g_win[wi].minimized = false;
+    if(g_cl[g_win[wi].client].version==wm::kManagedVersion)
+      send_event(g_win[wi].client,wm::kVisibilityChanged,g_win[wi].id,1);
     printf("wm: window %u restored\n", g_win[wi].id);
   }
   for (int i = at; i + 1 < g_zn; ++i) g_z[i] = g_z[i + 1];
@@ -755,6 +813,7 @@ void minimize(int wi) {
   if (wi < 0 || !g_win[wi].used || g_win[wi].minimized) return;
   Window& w = g_win[wi];
   w.minimized = true;
+  if(g_cl[w.client].version==wm::kManagedVersion) send_event(w.client,wm::kVisibilityChanged,w.id,0);
   if (g_drag == wi) g_drag = -1;
   damage(w.frame);
   if (g_focus == wi) focus_top_visible();
@@ -784,11 +843,26 @@ void destroy_window(int wi) {
 }
 
 void drop_client(int ci) {
+  if(!g_cl[ci].used) return;
+  g_cl[ci].used=false;
+  (void)charm::object_unbind(g_port,g_cl[ci].ch,kKeyClient+static_cast<uint64_t>(ci));
+  for(auto& message:g_cl[ci].output) if(message.capability) {
+    (void)charm::handle_close(message.capability); message.capability=0;
+  }
   for (int i = 0; i < kMaxWindows; ++i) {
     if (g_win[i].used && g_win[i].client == ci) destroy_window(i);
   }
   (void)charm::handle_close(g_cl[ci].ch);
-  g_cl[ci].used = false;
+  g_cl[ci]={};
+}
+void collect_failed_clients() {
+  for(int pass=0;pass<kMaxClients;++pass) {
+    bool found=false;
+    for(int ci=0;ci<kMaxClients;++ci) if(g_cl[ci].used && g_cl[ci].failed) {
+      drop_client(ci); found=true;
+    }
+    if(!found) return;
+  }
 }
 
 // Событие в кольцо окна (wm.md §3) и INPUT, если кольцо было пусто.
@@ -805,7 +879,30 @@ void forward(int wi, const sc::InputEvent& e) {
   if (lib::input::publish_tail(&w.ring->tail, &w.ring->head, tail + 1)) send_event(w.client, wm::kInput, w.id, 0);
 }
 
-void create_window(int ci, const wm::Create& m, const Handle* hs, uint32_t nh) {
+bool map_framebuffers(const Handle* handles,uint32_t count,uint64_t bytes,uint64_t* first,uint64_t* second) {
+  *first=*second=0;
+  if(count!=2) return false;
+  auto size0=charm::vmo_size(handles[0]),size1=charm::vmo_size(handles[1]);
+  if(!size0.ok() || !size1.ok() || size0.value<bytes || size1.value<bytes) return false;
+  auto a=charm::vmo_map(handles[0],charm::rights::kRead);
+  if(!a.ok()) return false;
+  auto b=charm::vmo_map(handles[1],charm::rights::kRead);
+  if(!b.ok()) { (void)charm::vmo_unmap(a.value); return false; }
+  *first=a.value; *second=b.value;
+  return true;
+}
+void clamp_position(Window& window,int32_t content_x,int32_t content_y) {
+  int64_t x=content_x,y=int64_t{content_y}-kTitle;
+  int64_t maximum_x=int64_t{g_s.width}-window.w;
+  int64_t maximum_y=int64_t{g_s.height}-window.h-kTitle;
+  if(maximum_y<kPanel) maximum_y=kPanel;
+  if(x<0) x=0;
+  if(x>maximum_x) x=maximum_x;
+  if(y<kPanel) y=kPanel;
+  if(y>maximum_y) y=maximum_y;
+  window.frame.x=static_cast<int32_t>(x); window.frame.y=static_cast<int32_t>(y);
+}
+void create_window(int ci, const wm::Create& m, const Handle* hs, uint32_t nh,uint32_t flags=0) {
   wm::Created reply{wm::kCreated, 0, 0, 0};
   int wi = -1;
   for (int i = 0; i < kMaxWindows; ++i) {
@@ -816,29 +913,29 @@ void create_window(int ci, const wm::Create& m, const Handle* hs, uint32_t nh) {
   }
   uint64_t bytes = uint64_t{m.width} * m.height * 4;
   bool ok = wi >= 0 && nh == 2 && m.width > 0 && m.height > 0 && m.width <= g_s.width && m.height <= g_s.height;
+  if(g_cl[ci].version==wm::kManagedVersion && uint64_t{m.height}+kTitle+kPanel>g_s.height) ok=false;
   uint64_t map0 = 0, map1 = 0;
-  if (ok) {
-    auto a = charm::vmo_map(hs[0], charm::rights::kRead);
-    auto b = charm::vmo_map(hs[1], charm::rights::kRead);
-    ok = a.ok() && b.ok();
-    map0 = a.value;
-    map1 = b.value;
-  }
+  if(ok) ok=map_framebuffers(hs,nh,bytes,&map0,&map1);
   // Кольцо ввода окна: создаём, отдаём клиенту дубликат (он двигает head).
   auto ring = ok ? charm::vmo_create(4096) : charm::SysResult{Status::NoMemory, 0};
   auto ring_map = ring.ok() ? charm::vmo_map(static_cast<Handle>(ring.value), charm::rights::kRead | charm::rights::kWrite)
                             : charm::SysResult{Status::NoMemory, 0};
   for (uint32_t i = 0; i < nh; ++i) (void)charm::handle_close(hs[i]);  // отображения держат VMO
-  (void)bytes;
   if (!ok || !ring_map.ok()) {
-    (void)charm::channel_write(g_cl[ci].ch, &reply, sizeof reply, nullptr, 0);
+    if(map0) (void)charm::vmo_unmap(map0);
+    if(map1) (void)charm::vmo_unmap(map1);
+    if(ring_map.ok()) (void)charm::vmo_unmap(ring_map.value);
+    if(ring.ok()) (void)charm::handle_close(static_cast<Handle>(ring.value));
+    (void)send_message(ci,&reply,sizeof reply);
     return;
   }
   Window& w = g_win[wi];
   memset(&w, 0, sizeof w);
   w.used = true;
   w.id = g_next_id++;
+  w.generation=g_cl[ci].version==wm::kManagedVersion ? 1 : 0;
   w.client = ci;
+  w.minimized=(flags&wm::kCreateInvisible)!=0;
   w.w = static_cast<int32_t>(m.width);
   w.h = static_cast<int32_t>(m.height);
   memcpy(w.title, m.title, sizeof w.title);
@@ -854,6 +951,7 @@ void create_window(int ci, const wm::Create& m, const Handle* hs, uint32_t nh) {
     if (w.frame.y + w.frame.h > static_cast<int32_t>(g_s.height)) w.frame.y = static_cast<int32_t>(g_s.height) - w.frame.h;
     if (w.frame.y < kPanel) w.frame.y = kPanel;
   }
+  if(g_cl[ci].version==wm::kManagedVersion) clamp_position(w,w.frame.x,w.frame.y+kTitle);
   w.buf[0] = reinterpret_cast<const uint32_t*>(map0);
   w.buf[1] = reinterpret_cast<const uint32_t*>(map1);
   w.shown = w.pending = -1;
@@ -868,8 +966,12 @@ void create_window(int ci, const wm::Create& m, const Handle* hs, uint32_t nh) {
   reply.x = w.frame.x;
   reply.y = w.frame.y + kTitle;
   Handle give = static_cast<Handle>(ring.value);
-  (void)charm::channel_write(g_cl[ci].ch, &reply, sizeof reply, &give, 1);
-  set_focus(wi);  // FOCUS — после CREATED: клиент уже знает номер окна
+  if(send_message(ci,&reply,sizeof reply,give)!=Status::Ok) {
+    (void)charm::handle_close(give);
+    g_cl[ci].failed=true;
+    return;
+  }
+  if(!w.minimized && !(flags&wm::kCreateInactive)) set_focus(wi);
   printf("wm: window %u \"%s\" %ux%u at %d,%d\n", w.id, w.title, m.width, m.height, w.frame.x, w.frame.y);
 }
 
@@ -880,31 +982,81 @@ int find_window(int ci, uint32_t id) {
   return -1;
 }
 
+void configure_window(int ci,const wm::Configure& request,const Handle* handles,uint32_t count) {
+  int wi=find_window(ci,request.window);
+  bool shape=wi>=0 && count==2 && !request.reserved &&
+      g_win[wi].generation!=UINT32_MAX && request.generation==g_win[wi].generation+1;
+  if(!shape) {
+    for(uint32_t i=0;i<count;++i) (void)charm::handle_close(handles[i]);
+    g_cl[ci].failed=true;
+    return;
+  }
+  Window& window=g_win[wi];
+  bool valid=request.width && request.height && request.width<=g_s.width &&
+      uint64_t{request.height}+kTitle+kPanel<=g_s.height;
+  uint64_t first=0,second=0;
+  if(valid) valid=map_framebuffers(handles,count,uint64_t{request.width}*request.height*4,&first,&second);
+  for(uint32_t i=0;i<count;++i) (void)charm::handle_close(handles[i]);
+  if(!valid) { send_event(ci,wm::kConfigured,window.id,1,request.generation); return; }
+  if(window.pending>=0) send_event(ci,wm::kFrameDone,window.id,static_cast<uint32_t>(window.pending));
+  damage(window.frame);
+  for(auto buffer:window.buf) if(buffer) (void)charm::vmo_unmap(reinterpret_cast<uint64_t>(buffer));
+  window.buf[0]=reinterpret_cast<const uint32_t*>(first);
+  window.buf[1]=reinterpret_cast<const uint32_t*>(second);
+  window.w=static_cast<int32_t>(request.width); window.h=static_cast<int32_t>(request.height);
+  window.frame.w=window.w; window.frame.h=window.h+kTitle;
+  window.generation=request.generation;
+  window.shown=window.pending=-1; window.pending_damage={};
+  clamp_position(window,request.x,request.y);
+  damage(window.frame);
+  send_event(ci,wm::kConfigured,window.id,0);
+}
+
 void client_message(int ci) {
-  uint8_t msg[128];
+  alignas(4) uint8_t msg[128];
   Handle hs[4];
-  for (;;) {
+  for (unsigned messages=0;messages<64 && !g_cl[ci].failed;++messages) {
     auto r = charm::channel_read(g_cl[ci].ch, msg, sizeof msg, hs, 4, 0);
     if (r.status == Status::WouldBlock) return;
     if (!r.ok()) {
-      drop_client(ci);
+      g_cl[ci].failed=true;
       return;
     }
     uint32_t len = static_cast<uint32_t>(r.value >> 32), nh = static_cast<uint32_t>(r.value & 0xffffffff);
     uint32_t type = len >= 4 ? *reinterpret_cast<uint32_t*>(msg) : 0;
-    if (type == wm::kCreate && len == sizeof(wm::Create)) {
-      create_window(ci, *reinterpret_cast<wm::Create*>(msg), hs, nh);
+    bool managed=g_cl[ci].version==wm::kManagedVersion;
+    if(type==wm::kCreate) {
+      if(!managed && len==sizeof(wm::Create)) {
+        create_window(ci,*reinterpret_cast<wm::Create*>(msg),hs,nh);
+        continue;
+      }
+      if(managed && len==sizeof(wm::CreateV3)) {
+        auto& request=*reinterpret_cast<wm::CreateV3*>(msg);
+        if(nh==2 && !(request.flags&~(wm::kCreateInvisible|wm::kCreateInactive))) {
+          create_window(ci,request.base,hs,nh,request.flags);
+          continue;
+        }
+      }
+    }
+    if(managed && type==wm::kConfigure && len==sizeof(wm::Configure)) {
+      configure_window(ci,*reinterpret_cast<wm::Configure*>(msg),hs,nh);
       continue;
     }
     for (uint32_t i = 0; i < nh; ++i) (void)charm::handle_close(hs[i]);
-    if (type == wm::kPresent && len == sizeof(wm::Present)) {
+    if(nh) { g_cl[ci].failed=true; return; }
+    if (type == wm::kPresent && len == (managed ? sizeof(wm::PresentV3) : sizeof(wm::Present))) {
       auto& p = *reinterpret_cast<wm::Present*>(msg);
       int wi = find_window(ci, p.window);
-      if (wi < 0 || p.buffer > 1 || g_win[wi].shown == static_cast<int>(p.buffer)) {
-        drop_client(ci);
+      if (wi < 0 || p.buffer > 1 || g_win[wi].shown == static_cast<int>(p.buffer) ||
+          g_win[wi].pending==static_cast<int>(p.buffer) ||
+          (managed && reinterpret_cast<wm::PresentV3*>(msg)->generation!=g_win[wi].generation)) {
+        g_cl[ci].failed=true;
         return;
       }
       Window& w = g_win[wi];
+      if(p.x<0 || p.y<0 || p.w<=0 || p.h<=0 || int64_t{p.x}+p.w>w.w || int64_t{p.y}+p.h>w.h) {
+        g_cl[ci].failed=true; return;
+      }
       if (w.pending >= 0 && w.pending != static_cast<int>(p.buffer)) {
         send_event(ci, wm::kFrameDone, w.id, static_cast<uint32_t>(w.pending));  // слит (wm.md §3)
       }
@@ -916,8 +1068,42 @@ void client_message(int ci) {
     } else if (type == wm::kDestroy && len == sizeof(wm::Destroy)) {
       int wi = find_window(ci, reinterpret_cast<wm::Destroy*>(msg)->window);
       if (wi >= 0) destroy_window(wi);
+      else { g_cl[ci].failed=true; return; }
+    } else if(managed && type==wm::kSetTitle && len==sizeof(wm::SetTitle)) {
+      const auto& request=*reinterpret_cast<wm::SetTitle*>(msg);
+      int wi=find_window(ci,request.window);
+      if(wi<0 || !memchr(request.title,0,sizeof request.title)) { g_cl[ci].failed=true; return; }
+      memcpy(g_win[wi].title,request.title,sizeof request.title);
+      damage(g_s.all());
+    } else if(managed && type==wm::kSetPosition && len==sizeof(wm::SetPosition)) {
+      const auto& request=*reinterpret_cast<wm::SetPosition*>(msg);
+      int wi=find_window(ci,request.window);
+      if(wi<0) { g_cl[ci].failed=true; return; }
+      damage(g_win[wi].frame);
+      clamp_position(g_win[wi],request.x,request.y);
+      damage(g_win[wi].frame);
+      send_event(ci,wm::kBoundsChanged,request.window,0);
+    } else if(managed && type==wm::kSetVisibility && len==sizeof(wm::SetVisibility)) {
+      const auto& request=*reinterpret_cast<wm::SetVisibility*>(msg);
+      int wi=find_window(ci,request.window);
+      if(wi<0 || request.visible>1 || request.activate>1) { g_cl[ci].failed=true; return; }
+      bool was_minimized=g_win[wi].minimized;
+      if(request.visible) {
+        raise(wi);
+        if(!was_minimized) send_event(ci,wm::kVisibilityChanged,request.window,1);
+        if(request.activate) set_focus(wi);
+      } else {
+        minimize(wi);
+        if(was_minimized) send_event(ci,wm::kVisibilityChanged,request.window,0);
+      }
+    } else if(managed && type==wm::kActivate && len==sizeof(wm::Activate)) {
+      const auto& request=*reinterpret_cast<wm::Activate*>(msg);
+      int wi=find_window(ci,request.window);
+      if(wi<0 || request.active>1) { g_cl[ci].failed=true; return; }
+      if(request.active) { raise(wi); set_focus(wi); }
+      else if(g_focus==wi) set_focus(-1);
     } else {
-      drop_client(ci);
+      g_cl[ci].failed=true;
       return;
     }
   }
@@ -926,11 +1112,12 @@ void client_message(int ci) {
 void door_message(Handle door) {
   wm::Helo m;
   Handle hs[1];
-  for (;;) {
+  for (unsigned messages=0;messages<64;++messages) {
     auto r = charm::channel_read(door, &m, sizeof m, hs, 1, 0);
     if (!r.ok()) return;
     uint32_t len = static_cast<uint32_t>(r.value >> 32), nh = static_cast<uint32_t>(r.value & 0xffffffff);
-    if (len != sizeof m || m.type != wm::kHelo || m.version != wm::kVersion || nh != 1) {
+    if (len != sizeof m || m.type != wm::kHelo ||
+        (m.version!=wm::kVersion && m.version!=wm::kManagedVersion) || nh != 1) {
       for (uint32_t i = 0; i < nh; ++i) (void)charm::handle_close(hs[i]);
       continue;
     }
@@ -945,10 +1132,14 @@ void door_message(Handle door) {
       (void)charm::handle_close(hs[0]);
       continue;
     }
-    g_cl[ci] = {true, hs[0]};
-    wm::Welcome w{wm::kWelcome, wm::kVersion, g_s.bgrx ? sc::kDisplayBgrx : sc::kDisplayRgbx, g_s.width, g_s.height};
-    (void)charm::channel_write(hs[0], &w, sizeof w, nullptr, 0);
-    (void)charm::object_bind(g_port, hs[0], kKeyClient + static_cast<uint64_t>(ci));
+    g_cl[ci]={};
+    g_cl[ci].used=true; g_cl[ci].ch=hs[0]; g_cl[ci].version=m.version;
+    wm::WelcomeV3 welcome{{wm::kWelcome,m.version,g_s.bgrx ? sc::kDisplayBgrx : sc::kDisplayRgbx,
+                          g_s.width,g_s.height},kTitle,0,kPanel,g_s.width,g_s.height-kPanel,
+                         wm::kFeatureTitle|wm::kFeatureBounds|wm::kFeatureVisibility|wm::kFeatureActivation};
+    uint32_t bytes=m.version==wm::kManagedVersion ? sizeof welcome : sizeof welcome.base;
+    if(send_message(ci,&welcome,bytes)!=Status::Ok) g_cl[ci].failed=true;
+    rearm_client(ci);
   }
 }
 
@@ -1051,6 +1242,10 @@ void input_event(const sc::InputEvent& e) {
       w.frame.x += g_cursor.x - old.x;
       w.frame.y += g_cursor.y - old.y;
       if (w.frame.y < kPanel) w.frame.y = kPanel;
+      if(g_cl[w.client].version==wm::kManagedVersion) {
+        clamp_position(w,w.frame.x,w.frame.y+kTitle);
+        send_event(w.client,wm::kBoundsChanged,w.id,0);
+      }
       damage(w.frame);
     }
     Rect next_hot = hover_rect();
@@ -1301,11 +1496,14 @@ extern "C" int main(int, char**) {
       } else if (pk.key >= kKeyClient && pk.key < kKeyClient + kMaxClients) {
         int ci = static_cast<int>(pk.key - kKeyClient);
         if (g_cl[ci].used) {
-          client_message(ci);
-          if (g_cl[ci].used) (void)charm::object_bind(g_port, g_cl[ci].ch, pk.key);
+          flush_client(ci);
+          if(!g_cl[ci].failed) client_message(ci);
+          flush_client(ci);
+          rearm_client(ci);
         }
       }
     }
+    collect_failed_clients();
     uint64_t now = charm::now_ns();
     if (!g_damage.empty() && now >= last_frame + kFrameNs) {
       // Буферы, которые станут показанными в этом кадре: прежние — клиенту после вывода.
@@ -1329,5 +1527,6 @@ extern "C" int main(int, char**) {
         send_event(w.client, wm::kFrameDone, w.id, static_cast<uint32_t>(done_buf[k]));
       }
     }
+    collect_failed_clients();
   }
 }

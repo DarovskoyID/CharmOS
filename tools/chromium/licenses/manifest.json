@@ -1,4 +1,60 @@
 {
+  "fdlibm.txt": {
+    "source": "third_party/fdlibm/LICENSE",
+    "sha256": "e7115e18444dae09d17f361ddc365fb1d342640fe500796209c63f7c80dfae10"
+  },
+  "harfbuzz.txt": {
+    "source": "third_party/harfbuzz/src/COPYING",
+    "sha256": "ba8f810f2455c2f08e2d56bb49b72f37fcf68f1f4fade38977cfd7372050ad64"
+  },
+  "skia.txt": {
+    "source": "third_party/skia/LICENSE",
+    "sha256": "5f787c1dee3c56547f09ccc2906ab5f5293c4d8dd6c8654e573216c38e908dbd"
+  },
+  "libpng.txt": {
+    "source": "third_party/libpng/LICENSE",
+    "sha256": "bdb0a645ea18c60507d0368379b1ac5474b92255fcc2d115e07486a7672ba526"
+  },
+  "freetype.txt": {
+    "source": "third_party/freetype/src/LICENSE.TXT",
+    "sha256": "bd36c8b474855fa294c2ec5c184544478ef3720aad37d65a6296a4f264fd2d3b"
+  },
+  "freetype-ftl.txt": {
+    "source": "third_party/freetype/src/docs/FTL.TXT",
+    "sha256": "5a5ee54c5001bbad1cdc1a57cc3dd4c42199b2da09d39c7ee41fab002d02967f"
+  },
+  "freetype-gpl-alternative.txt": {
+    "source": "third_party/freetype/src/docs/GPLv2.TXT",
+    "sha256": "c4120c6752c910c299e3bd9cb3a46ff262c268303ca2069b61f92f10a5656c18"
+  },
+  "libjpeg-turbo.md": {
+    "source": "third_party/libjpeg_turbo/LICENSE.md",
+    "sha256": "96f5b328adbb78eeaaec6980d73fd558cb1e4d62560ed615646bc3cf5e532430"
+  },
+  "libjpeg-turbo-chromium.md": {
+    "source": "third_party/libjpeg_turbo/LICENSE.md.chromium",
+    "sha256": "152a0f78d9c3a3afc09470cba1e66eabb915515cb121252d6c85c4ed6352a073"
+  },
+  "libwebp.txt": {
+    "source": "third_party/libwebp/src/COPYING",
+    "sha256": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf"
+  },
+  "wuffs.txt": {
+    "source": "third_party/wuffs/src/LICENSE",
+    "sha256": "f8ac2c75e7f629a87565c80d61ff9fe5aa15cdea0bda997d52a4dc13fdbd19cb"
+  },
+  "wuffs-apache.txt": {
+    "source": "third_party/wuffs/src/LICENSE-APACHE",
+    "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+  },
+  "wuffs-mit.txt": {
+    "source": "third_party/wuffs/src/LICENSE-MIT",
+    "sha256": "bb811a4b485eac3caeb8bdc58bbafb355fbcb6116010a7ea9179e5c70b0bc878"
+  },
+  "expat.txt": {
+    "source": "third_party/expat/src/expat/COPYING",
+    "sha256": "31b15de82aa19a845156169a17a5488bf597e561b2c318d159ed583139b25e87"
+  },
   "llvm-libc.txt": {
     "source": "third_party/llvm-libc/src/LICENSE.TXT",
     "sha256": "ebcd9bbf783a73d05c53ba4d586b8d5813dcdf3bbec50265860ccc885e606f47"

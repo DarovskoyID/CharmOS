@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <poll.h>
 
 #define CHECK(c) do { if (!(c)) { printf("https runtime: FAILED line %d errno %d\n", __LINE__, errno); ERR_print_errors_fp(stderr); exit(1); } } while (0)
 namespace {
@@ -18,6 +19,8 @@ void flush(BIO* outgoing, int fd) {
     int size = BIO_read(outgoing, bytes, sizeof bytes); CHECK(size > 0);
     int sent = 0;
     while (sent < size) {
+      pollfd writable{fd,POLLOUT,0};
+      CHECK(poll(&writable,1,5000)==1 && (writable.revents&POLLOUT));
       ssize_t n = write(fd, bytes + sent, static_cast<size_t>(size - sent));
       if (n < 0 && errno == EINTR) continue;
       CHECK(n > 0); sent += static_cast<int>(n);
@@ -26,6 +29,8 @@ void flush(BIO* outgoing, int fd) {
 }
 void receive(BIO* incoming, int fd) {
   char bytes[8192]; ssize_t size;
+  pollfd readable{fd,POLLIN,0};
+  CHECK(poll(&readable,1,5000)==1 && (readable.revents&POLLIN));
   do { size = read(fd, bytes, sizeof bytes); } while (size < 0 && errno == EINTR);
   CHECK(size > 0);
   CHECK(BIO_write(incoming, bytes, static_cast<int>(size)) == size);
@@ -51,6 +56,8 @@ void session(uint16_t version, bool trusted, const char* hostname, time_t verify
   sockaddr_in address{}; address.sin_family = AF_INET; address.sin_port = htons(17443);
   CHECK(inet_pton(AF_INET, "10.0.2.2", &address.sin_addr) == 1);
   CHECK(connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof address) == 0);
+  pollfd waiting{fd,POLLIN,0};
+  for (unsigned attempt=0;attempt<3;++attempt) CHECK(poll(&waiting,1,1)==0 && !waiting.revents);
   bool finished = false, rejected = false;
   for (unsigned i = 0; i < 1000; ++i) {
     int result = SSL_do_handshake(client);

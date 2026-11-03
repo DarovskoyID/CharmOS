@@ -1,0 +1,7 @@
+#wait managed window: resize generations, rollback, title, visibility and focus ok
+#monitor sendkey a
+#wait managed window: input after resize rendered
+#monitor screendump /mnt/a/CharmOS/build/chromium/native-managed-window.ppm
+#monitor sendkey esc
+#wait managed window: closed
+svc poweroff

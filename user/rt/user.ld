@@ -10,7 +10,11 @@ PHDRS {
 
 SECTIONS {
   . = 0x400000;
-  .text : { *(.text .text.*) } :text
+  .text : {
+    __charm_text_start = .;
+    *(.text .text.*)
+    __charm_text_end = .;
+  } :text
   . = ALIGN(4096);
   .rodata : { *(.rodata .rodata.*) } :rodata
   . = ALIGN(4096);

@@ -25,6 +25,7 @@ class Ext2 final : public FileSystem {
   Result<Node> lookup(Node dir, lib::core::StringView name) override;
   Result<Node> create(Node dir, lib::core::StringView name, NodeType type) override;
   Status unlink(Node dir, lib::core::StringView name) override;
+  Status rename(Node source_dir,lib::core::StringView source,Node target_dir,lib::core::StringView target) override;
   Result<Stat> stat(Node node) override;
   Result<size_t> read(Node file, uint64_t offset, void* buf, size_t len) override;
   Result<size_t> write(Node file, uint64_t offset, const void* buf, size_t len) override;
@@ -55,6 +56,9 @@ class Ext2 final : public FileSystem {
   Status find(uint32_t dir, lib::core::StringView name, uint64_t* pos, uint32_t* ino,
               uint64_t* prev);
   Status add_entry(uint32_t dir, lib::core::StringView name, uint32_t ino, NodeType type);
+  Status erase_entry(uint32_t dir,lib::core::StringView name);
+  Status replace_entry(uint32_t dir,lib::core::StringView name,uint32_t inode);
+  Status retire_inode(uint32_t inode,Inode& data);
   Status write_super();
 
   Io* io_ = nullptr;

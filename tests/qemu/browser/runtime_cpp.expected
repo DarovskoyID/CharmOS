@@ -1,9 +1,34 @@
+cxx runtime: fdlibm double hyperbolic functions, signed zero, domains and overflow ok
+cxx runtime: native allocator payload capacities and realloc preservation ok
+cxx runtime: nonlocal jumps, nested stacks, thread isolation and floating environment ok
+cxx runtime: native counting semaphores, signal posting, deadlines and token handoff ok
+cxx runtime: compiler TLS isolation, alignment, cross-unit access and destructor ordering ok
+cxx runtime: native live allocator capacities and descriptor accounting ok
+cxx runtime: spawn argument/environment limits and excess-handle failure cleanup ok
+cxx runtime: shared process API, real capability rights and cancelled deadline waits ok
+cxx runtime: shared application SDK ownership, immutable sizes and restricted memory rights ok
+cxx runtime: native current-thread priorities, inheritance and independent worker updates ok
+cxx runtime: native Perfetto VMO memory, move ownership and guard-page faults ok
+cxx runtime: native anonymous/private-file mappings, unchanged offsets and read-only faults ok
+cxx runtime: cancellable watches, pipe backpressure, shared reads, poll timeouts and EOF ok
+cxx runtime: custom pthread stacks, detached reclamation and monotonic conditions ok
 cxx runtime: parsing, range, rounding, fenv and numeric functions ok
 cxx runtime: strings, locale, streams, formatting and new-handler ok
 cxx runtime: C++ threads, fenv inheritance, locale isolation, clocks and entropy ok
 cxx runtime: wide file I/O, positions, UTF-8 bytes and UTC formatting ok
+cxx runtime: exclusive random temporary files and directories, access and concurrent creators ok
 cxx runtime: UTC normalization, numeric time differences and per-thread signal masks ok
 cxx runtime: kernel process/thread IDs and CPU accounting excluding sleep ok
 cxx runtime: shared file descriptions, descriptor flags and concurrent offsets ok
+cxx runtime: vectored file transfers, partial scatter and atomic pipe records ok
+cxx runtime: native lexical paths and C-locale filename matching ok
+cxx runtime: stable filesystem identity and explicit timestamp limitations ok
+cxx runtime: enforced descriptor limits and retained open descriptors ok
+cxx runtime: directory-relative files, stable rename identity and checked canonical paths ok
+cxx runtime: one-time startup capability ownership under concurrent consumers ok
+cxx runtime: channel writable readiness, cancelled watches and half-close draining ok
+cxx runtime: native channel streams with bounded frames, backpressure and partial reads ok
+cxx runtime: channel read shutdown closes queued capabilities and cancels blocked reads ok
+cxx runtime: channel readiness descriptors preserve native messages and capability lifetime ok
 ktest: bin/runtime_cpp exited with 0
 ktest: PASS runtime_cpp

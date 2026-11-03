@@ -6,6 +6,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#include <malloc.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -56,6 +57,7 @@ int errno_from(Status s) {
     case Status::NetUnreachable: return ENETUNREACH;
     case Status::AddressInUse: return EADDRINUSE;
     case Status::Interrupted: return EINTR;
+    case Status::CrossDevice: return EXDEV;
   }
   return EIO;
 }
@@ -87,6 +89,7 @@ struct FreeBlock {
 };
 
 Lock g_heap_lock;
+size_t g_live_block_bytes=0;
 FreeBlock* g_free[kMaxShift + 1] = {};
 char* g_chunk_cur = nullptr;
 char* g_chunk_end = nullptr;
@@ -114,6 +117,9 @@ using namespace libc;
 extern "C" {
 
 int* __errno_location(void) { return &current_thread()->err; }
+size_t charm_heap_allocated_bytes(void) {
+  return __atomic_load_n(&g_live_block_bytes,__ATOMIC_RELAXED);
+}
 
 void* malloc(size_t n) {
   if (n == 0) n = 1;
@@ -126,6 +132,7 @@ void* malloc(size_t n) {
       return nullptr;
     }
     *h = {0, kBigMagic, size};
+    __atomic_fetch_add(&g_live_block_bytes,static_cast<size_t>(size),__ATOMIC_RELAXED);
     return h + 1;
   }
   uint32_t s = class_of(n);
@@ -133,6 +140,7 @@ void* malloc(size_t n) {
   if (FreeBlock* b = g_free[s]) {
     g_free[s] = b->next;
     auto* h = reinterpret_cast<Header*>(b) - 1;
+    __atomic_fetch_add(&g_live_block_bytes,static_cast<size_t>(h->size),__ATOMIC_RELAXED);
     return h + 1;
   }
   size_t block = size_t{1} << s;
@@ -148,6 +156,7 @@ void* malloc(size_t n) {
   auto* h = reinterpret_cast<Header*>(g_chunk_cur);
   g_chunk_cur += block;
   *h = {s, 0, block};
+  __atomic_fetch_add(&g_live_block_bytes,block,__ATOMIC_RELAXED);
   return h + 1;
 }
 
@@ -155,11 +164,16 @@ void free(void* p) {
   if (p == nullptr) return;
   auto* h = static_cast<Header*>(p) - 1;
   if (h->shift == 0) {
-    if (h->magic == kBigMagic) (void)charm::vmo_unmap(reinterpret_cast<uint64_t>(h));
+    if (h->magic == kBigMagic) {
+      size_t capacity=static_cast<size_t>(h->size);
+      if(charm::vmo_unmap(reinterpret_cast<uint64_t>(h))==Status::Ok)
+        __atomic_fetch_sub(&g_live_block_bytes,capacity,__ATOMIC_RELAXED);
+    }
     else if (h->magic == kAlignedMagic) free(reinterpret_cast<void**>(h)[-1]);
     return;
   }
   Guard g(g_heap_lock);
+  __atomic_fetch_sub(&g_live_block_bytes,static_cast<size_t>(h->size),__ATOMIC_RELAXED);
   auto* b = static_cast<FreeBlock*>(p);
   b->next = g_free[h->shift];
   g_free[h->shift] = b;
@@ -211,14 +225,19 @@ void* calloc(size_t n, size_t size) {
   return p;
 }
 
+size_t malloc_usable_size(void* p) {
+  if(p==nullptr) return 0;
+  const auto* h=static_cast<const Header*>(p)-1;
+  return h->shift==0 && h->magic==kAlignedMagic ? h->size : h->size-sizeof(Header);
+}
+
 void* realloc(void* p, size_t n) {
   if (p == nullptr) return malloc(n);
   if (n == 0) {
     free(p);
     return nullptr;
   }
-  auto* h = static_cast<Header*>(p) - 1;
-  size_t have = h->shift == 0 && h->magic == kAlignedMagic ? h->size : h->size - sizeof(Header);
+  size_t have = malloc_usable_size(p);
   if (n <= have) return p;
   void* q = malloc(n);
   if (q == nullptr) return nullptr;

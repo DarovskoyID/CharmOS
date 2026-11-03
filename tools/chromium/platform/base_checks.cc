@@ -11,9 +11,22 @@
 #include "base/time/time.h"
 #include <stdio.h>
 #include <string>
+#include <string.h>
+
+int TestNativeMessagePump();
+int TestNativeSharedMemoryAndProcesses();
+int TestNativeSharedMemoryChild();
+int TestNativeFilesAndAccounting();
+int TestNativeIpc();
+int TestNativeIpcChild();
 
 extern "C" int main(int argc,char** argv) {
+  if(argc==2 && !strcmp(argv[1],"native-child")) return 37;
   if(!base::CommandLine::Init(argc,argv)) return 1;
+  if(base::CommandLine::ForCurrentProcess()->HasSwitch("native-memory"))
+    return TestNativeSharedMemoryChild();
+  if(base::CommandLine::ForCurrentProcess()->HasSwitch("native-channel"))
+    return TestNativeIpcChild();
   auto json = base::JSONReader::ReadDict(
       "{\"title\":\"Привет / \\uD83D\\uDE00\",\"version\":1,\"version\":2}",
       base::JSON_PARSE_RFC);
@@ -38,6 +51,10 @@ extern "C" int main(int argc,char** argv) {
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(FROM_HERE,loop.QuitClosure(),base::Milliseconds(2));
   loop.Run();
   if(base::TimeTicks::Now()<=before) return 6;
+  if (int result=TestNativeMessagePump()) return result;
+  if (int result=TestNativeSharedMemoryAndProcesses()) return result;
+  if (int result=TestNativeFilesAndAccounting()) return result;
+  if (int result=TestNativeIpc()) return result;
   printf("base runtime: native strings, files, monotonic clock and task loop ok\n");
   return 0;
 }

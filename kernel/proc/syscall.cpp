@@ -12,6 +12,8 @@
 #include "../ipc/ipc.hpp"
 #include "../platform/platform.hpp"
 #include "../platform/entropy.hpp"
+#include "../mm/pmm.hpp"
+#include "../smp/cpu.hpp"
 #include "../sched/sched.hpp"
 #include "process.hpp"
 #include "signal.hpp"
@@ -121,7 +123,7 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
       set_result(f, Status::Ok, kernel::platform::now_ns());
       break;
     case Number::RuntimeQuery: {
-      if (f.rdi > 4) {
+      if (f.rdi > 8) {
         set_result(f, Status::InvalidArgs);
         break;
       }
@@ -130,6 +132,10 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
       uint64_t value = 0;
       if (f.rdi == 0) value = process->pid;
       else if (f.rdi == 1) value = thread->id;
+      else if (f.rdi == 5) value = kernel::mm::total_frame_count();
+      else if (f.rdi == 6) value = kernel::mm::free_frame_count();
+      else if (f.rdi == 7) value = kernel::smp::cpu_count();
+      else if (f.rdi == 8) value = kernel::ipc::job_max_priority(process->job);
       else if (f.rdi == 4) {
         uint64_t hz = kernel::platform::tick_hz();
         if (!hz) { set_result(f, Status::NotSupported); break; }
@@ -184,6 +190,12 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
     case Number::ChannelWrite:
       set_result(f, kernel::ipc::sys_channel_write(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx,
                                                    f.r10, f.r8));
+      break;
+    case Number::ChannelQuery:
+      set_result(f,kernel::ipc::sys_channel_query(static_cast<uint32_t>(f.rdi),f.rsi));
+      break;
+    case Number::ChannelShutdown:
+      set_result(f,kernel::ipc::sys_channel_shutdown(static_cast<uint32_t>(f.rdi),static_cast<uint32_t>(f.rsi)));
       break;
     case Number::ChannelRead: {
       uint64_t v = 0;
@@ -269,6 +281,13 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
     }
     case Number::FsUnlink:
       set_result(f, kernel::fs::sys_fs_unlink(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx));
+      break;
+    case Number::FsUnlinkTyped:
+      set_result(f,kernel::fs::sys_fs_unlink_typed(static_cast<uint32_t>(f.rdi),f.rsi,f.rdx,f.r10));
+      break;
+    case Number::FsRename:
+      set_result(f,kernel::fs::sys_fs_rename(static_cast<uint32_t>(f.rdi),f.rsi,f.rdx,
+                                          static_cast<uint32_t>(f.r10),f.r8,f.r9));
       break;
     case Number::FileResize:
       set_result(f, kernel::fs::sys_file_resize(static_cast<uint32_t>(f.rdi), f.rsi));
@@ -416,6 +435,44 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
     case Number::SystemPower:
       set_result(f, sys_system_power(static_cast<uint32_t>(f.rdi), f.rsi));
       break;
+    case Number::FsIdentity: {
+      uint64_t node=0;
+      bool directory=false;
+      uint32_t rights=0;
+      Status status=kernel::ipc::get_fs_node(static_cast<uint32_t>(f.rdi),0,&node,&directory,&rights);
+      set_result(f,status,status==Status::Ok ? node : 0);
+      break;
+    }
+    case Number::VmoSize: {
+      uint64_t size=0;
+      Status status=kernel::ipc::sys_vmo_size(static_cast<uint32_t>(f.rdi),&size);
+      set_result(f,status,size);
+      break;
+    }
+    case Number::HandleRights: {
+      uint64_t rights=0;
+      Status status=kernel::ipc::sys_handle_rights(static_cast<uint32_t>(f.rdi),&rights);
+      set_result(f,status,rights);
+      break;
+    }
+    case Number::ThreadPriority: {
+      uint64_t priority=0;
+      Status status=sys_thread_priority(f.rdi,&priority);
+      set_result(f,status,priority);
+      break;
+    }
+    case Number::ObjectUnbind:
+      set_result(f, kernel::ipc::sys_object_unbind(static_cast<uint32_t>(f.rdi),static_cast<uint32_t>(f.rsi),f.rdx));
+      break;
+    case Number::ObjectWatch: {
+      if (f.r10==0 || (f.r10&~uint64_t{3})!=0) set_result(f, Status::InvalidArgs);
+      else {
+        Status status=kernel::ipc::sys_object_bind(static_cast<uint32_t>(f.rdi),static_cast<uint32_t>(f.rsi),f.rdx,static_cast<uint32_t>(f.r10));
+        if (status==Status::Ok) kernel::net::poll_socket_watches();
+        set_result(f,status);
+      }
+      break;
+    }
     case Number::ObjectBind:
       set_result(f, kernel::ipc::sys_object_bind(static_cast<uint32_t>(f.rdi),
                                                  static_cast<uint32_t>(f.rsi), f.rdx));

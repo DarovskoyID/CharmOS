@@ -46,10 +46,19 @@ uint32_t charm_wm(void);       /* дверь компоновщика (wm.md §1
 uint32_t charm_audio(void);    /* доступ к PCM (audio.md) */
 /* i-й хендл стартового сообщения без роли (0 — нет). */
 uint32_t charm_extra_handle(int i);
+/* Забрать хендл прикладной роли >=0x10000; владение передаётся один раз. */
+uint32_t charm_take_start_handle(uint32_t role);
+/* Сумма ёмкостей живых блоков libc, с заголовками и округлением. */
+size_t charm_heap_allocated_bytes(void);
+/* Число открытых FD вызывающего процесса (включая FD выше soft limit). */
+int charm_open_fd_count(void);
+/* FD только для poll канала; interests: Read=1, Write=2. Исходный хендл заёмный. */
+int charm_channel_watch_fd(uint32_t endpoint,uint32_t interests);
 /* Хендл ядра за файловым дескриптором (0 — нет). */
 uint32_t charm_fd_handle(int fd);
-/* Новый дескриптор для хендла канала/сокета/файла (тип по kind). */
+/* Импорт файла/каталога/сокета: владение переходит только при успехе. */
 #define CHARM_FD_FILE 1
+#define CHARM_FD_DIRECTORY 2
 #define CHARM_FD_SOCKET 3
 int charm_fd_from_handle(uint32_t h, int kind);
 /* Сообщение в системный журнал (служба logd); уровень 0..7. */

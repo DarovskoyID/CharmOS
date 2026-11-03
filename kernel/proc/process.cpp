@@ -630,6 +630,15 @@ Status sys_thread_set_priority(uint32_t h, uint64_t priority) {
   return ipc::thread_set_priority(h, clip_priority(current_process()->job, static_cast<uint32_t>(priority)));
 }
 
+Status sys_thread_priority(uint64_t priority,uint64_t* out) {
+  *out=0;
+  if (priority>ap::kPriorityMax) return Status::InvalidArgs;
+  auto* thread=sched::current();
+  if (priority) sched::set_priority(thread,clip_priority(current_process()->job,static_cast<uint32_t>(priority)));
+  *out=sched::get_priority(thread);
+  return Status::Ok;
+}
+
 void init_accounting() {
   sched::set_cpu_charge_hook([](sched::Thread* t, uint64_t ns) {
     auto* p = static_cast<Process*>(t->process);

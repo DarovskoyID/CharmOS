@@ -32,6 +32,7 @@ namespace ap = abi::process;
 char g_msg[sizeof(ap::StartHeaderV2) + ap::kMaxArgsBytes + ap::kMaxEnvBytes];
 char* g_argv[ap::kMaxArgs + 1];
 StartInfo g_start = {};
+Lock g_extra_lock;
 ThreadBlock g_main_thread = {};
 
 }  // namespace
@@ -79,7 +80,10 @@ extern "C" [[noreturn]] void __libc_start(uint64_t boot) {
           case ap::kRoleInput: g_start.input = hs[i]; break;
           case ap::kRoleWm: g_start.wm = hs[i]; break;
           case ap::kRoleAudio: g_start.audio = hs[i]; break;
-          default: g_start.extra[g_start.extra_count++] = hs[i]; break;  // без роли: программа знает сама
+          default:
+            g_start.extra[g_start.extra_count]=hs[i];
+            g_start.extra_roles[g_start.extra_count++]=h.roles[i];
+            break;
         }
       }
     }
@@ -104,6 +108,8 @@ int atexit(void (*fn)(void)) {
 }
 
 void exit(int code) {
+  run_compiler_tls_destructors();
+  release_compiler_tls();
   run_exit_handlers();
   run_finalizers();
   stdio_flush_all();
@@ -126,7 +132,20 @@ uint32_t charm_input(void) { return g_start.input; }
 uint32_t charm_wm(void) { return g_start.wm; }
 uint32_t charm_audio(void) { return g_start.audio; }
 uint32_t charm_extra_handle(int i) {
+  Guard lock(g_extra_lock);
   return i >= 0 && static_cast<uint32_t>(i) < g_start.extra_count ? g_start.extra[i] : 0;
+}
+uint32_t charm_take_start_handle(uint32_t role) {
+  if(role<0x10000u) return 0;
+  Guard lock(g_extra_lock);
+  for(uint32_t i=0;i<g_start.extra_count;++i) {
+    if(g_start.extra_roles[i]==role && g_start.extra[i]) {
+      Handle result=g_start.extra[i];
+      g_start.extra[i]=0;
+      return result;
+    }
+  }
+  return 0;
 }
 
 }  // extern "C"

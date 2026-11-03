@@ -425,6 +425,11 @@ void set_priority(Thread* t, uint32_t priority) {
   kick_cpu(target);
 }
 
+uint32_t get_priority(Thread* t) {
+  sync::SpinGuard guard(g_rq[t->cpu].lock);
+  return t->priority;
+}
+
 void preempt_check() {
   bool irq = save_and_cli();
   RunQueue& q = local_rq();

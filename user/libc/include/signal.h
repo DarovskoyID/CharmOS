@@ -11,6 +11,7 @@
 #define SIGUSR2 8
 #define NSIG 9
 typedef void (*sighandler_t)(int);
+typedef int sig_atomic_t;
 #define SIG_DFL ((sighandler_t)0)
 #define SIG_IGN ((sighandler_t)1)
 #define SIG_ERR ((sighandler_t)-1)

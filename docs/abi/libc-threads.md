@@ -39,3 +39,32 @@ sched_yield передаёт исполнение планировщику. pthr
 [rdlock](https://man7.org/linux/man-pages/man3/pthread_rwlock_rdlock.3p.html),
 [unlock](https://man7.org/linux/man-pages/man3/pthread_rwlock_unlock.3p.html).
 Исходный код libc собственный; полное соответствие POSIX не заявляется.
+
+## Static libc v3: native browser threads
+
+All native programs must be rebuilt; no kernel thread ABI is changed.
+pthread_attr_t is 16 bytes (size_t stack_size, int detach_state, padding).
+Defaults: 256 KiB, joinable. Explicit sizes from PTHREAD_STACK_MIN=16 KiB
+through the 1 GiB VMO limit are supported, rounded to pages at allocation.
+Attributes can select joinable/detached state. Creation leaves output unchanged
+on failure. Children wait at a startup gate until the parent publishes their
+native Thread handle and pthread_t.
+
+Detached threads are reaped after the real ThreadExited packet, releasing the
+native handle, stack VMO and TCB. One bounded, process-lifetime reaper thread
+and port are created lazily. Registration/reclamation are serialized so a
+fast exiting or self-detaching child cannot reclaim a TCB its creator is
+still publishing. Native port capacity can make detach fail EAGAIN; no
+successful detach silently abandons stack ownership. The bootstrap main
+thread has no owned Thread capability and detach returns ENOTSUP for it.
+Join claims a joinable thread once, rejects self-join with EDEADLK and does
+not free a running thread on a failed wait registration.
+
+pthread_cond_t v3 is 8 bytes: u32 sequence + clockid_t clock. Static/default
+conditions use CLOCK_REALTIME. condattr init/getclock/setclock/destroy support
+REALTIME and MONOTONIC; other clocks are EINVAL. Monotonic timed waits use the
+absolute native deadline directly. Realtime waits retain the documented UTC
+translation on entry. Mutex/rwlock/TSD ownership and error codes are unchanged.
+pthread_equal compares opaque pthread identities, without converting them to
+kernel TIDs. Priority inheritance is unavailable on CharmOS; Chromium must
+choose its non-inheritance lock implementation.

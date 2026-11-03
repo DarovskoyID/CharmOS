@@ -1,10 +1,16 @@
 import("//build/toolchain/gcc_toolchain.gni")
 import("toolchain-revision.gni")
 import("numeric-sources.gni")
+import("//build/buildflag_header.gni")
+import("//ui/base/ui_features.gni")
+import("//build/config/linux/gtk/gtk.gni")
+import("//ui/qt/qt.gni")
+import("//build/config/locales.gni")
 
 declare_args() {
   charmos_repo = ""
   charmos_build_base = false
+  charmos_build_graphics = false
 }
 assert(charmos_repo != "", "Set charmos_repo to the native CharmOS checkout")
 
@@ -47,9 +53,10 @@ executable("platform_smoke") {
 
 executable("full_runtime") {
   # Normal executable dependencies pull in the complete upstream runtime.
-  sources = [ "runtime_checks.cc" ]
+  sources = [ "runtime_checks.cc", "paged_memory.cc", "compiler_tls_checks.cc", "compiler_tls_other.cc", "nonlocal_jump_checks.c", "semaphore_checks.cc" ]
+  configs += [ "//third_party/perfetto/gn:public_config" ]
   libs = [ "$charmos_repo/build/user/user/libc.a" ]
-  deps = [ ":numeric_runtime" ]
+  deps = [ ":numeric_runtime", "//third_party/perfetto/gn:gen_buildflags" ]
 }
 
 executable("json_runtime") {
@@ -61,7 +68,7 @@ executable("json_runtime") {
 }
 
 static_library("numeric_runtime") {
-  sources = charmos_numeric_sources
+  sources = charmos_numeric_sources + [ "fdlibm_math.cc" ]
   include_dirs = [ "//third_party/llvm-libc/src" ]
   defines = [
     "LIBC_NAMESPACE=__llvm_libc_cr",
@@ -98,12 +105,70 @@ group("base_port") {
   if (charmos_build_base) {
     deps += [ ":base_runtime" ]
   }
+  if (charmos_build_graphics) {
+    deps += [ ":graphics_runtime", ":canvas_runtime" ]
+  }
 }
 
 if (charmos_build_base) {
   executable("base_runtime") {
-    sources = [ "base_checks.cc" ]
+    sources = [ "base_checks.cc", "message_pump_checks.cc", "shared_memory_checks.cc", "file_checks.cc", "ipc_checks.cc" ]
     libs = [ "$charmos_repo/build/user/user/libc.a" ]
     deps = [ "//base", ":numeric_runtime" ]
+  }
+}
+
+if (charmos_build_graphics) {
+  buildflag_header("ui_buildflags") {
+    header = "buildflags.h"
+    header_dir = "ui/base"
+    flags = [
+      "ENABLE_HIDPI=$enable_hidpi",
+      "ENABLE_MESSAGE_CENTER=$enable_message_center",
+      "USE_ATK=$use_atk",
+      "USE_XKBCOMMON=$use_xkbcommon",
+      "HAS_NATIVE_ACCESSIBILITY=$has_native_accessibility",
+      "HAS_PLATFORM_ACCESSIBILITY_SUPPORT=$has_platform_accessibility_support",
+      "USE_GTK=$use_gtk",
+      "USE_QT=$use_qt",
+      "ENABLE_PSEUDOLOCALES=$enable_pseudolocales",
+    ]
+  }
+  source_set("ui_features") {
+    sources = [ "//ui/base/ui_base_features.cc", "//ui/base/ui_base_features.h" ]
+    defines = [ "IS_UI_BASE_FEATURES_IMPL" ]
+    deps = [ ":ui_buildflags", "//base" ]
+  }
+  executable("graphics_runtime") {
+    sources = [ "graphics_runtime.cc", "window_event_source_charmos.cc" ]
+    include_dirs = [ "$charmos_repo/user/libwm/include" ]
+    libs = [
+      "$charmos_repo/build/user/user/libwm/libwm_client.a",
+      "$charmos_repo/build/user/lib/input/libinput.a",
+      "$charmos_repo/build/user/user/libc.a",
+    ]
+    deps = [ "//base", "//skia", ":numeric_runtime" ]
+  }
+  source_set("native_canvas") {
+    sources = [
+      "native_window_presenter_charmos.cc",
+      "native_window_presenter_charmos.h",
+      "surface_ozone_canvas_charmos.cc",
+      "surface_ozone_canvas_charmos.h",
+      "window_event_source_charmos.cc",
+      "//ui/ozone/public/surface_ozone_canvas.cc",
+    ]
+    include_dirs = [ "$charmos_repo/user/libwm/include" ]
+    public_deps = [ "//base", "//skia", "//ui/gfx/geometry" ]
+  }
+  executable("canvas_runtime") {
+    sources = [ "canvas_runtime.cc" ]
+    include_dirs = [ "$charmos_repo/user/libwm/include" ]
+    deps = [ ":native_canvas", ":numeric_runtime" ]
+    libs = [
+      "$charmos_repo/build/user/user/libwm/libwm_client.a",
+      "$charmos_repo/build/user/lib/input/libinput.a",
+      "$charmos_repo/build/user/user/libc.a",
+    ]
   }
 }

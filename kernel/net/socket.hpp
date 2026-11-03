@@ -14,6 +14,7 @@ using abi::syscall::Status;
 
 // Отсоединённая капабилити Net со всеми правами (для стартовых сообщений).
 Status net_cap(ipc::Cap** out);
+void poll_socket_watches();
 
 Status sys_socket_open(uint32_t net, uint64_t type, uint64_t* out);
 Status sys_socket_bind(uint32_t sock, uint64_t user_addr);

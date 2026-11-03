@@ -486,6 +486,7 @@ size_t fwrite(const void* buf, size_t size, size_t n, FILE* f) {
 FILE* fdopen(int fd, const char*) { return new_file(fd, isatty(fd) ? _IOLBF : _IOFBF); }
 
 FILE* fopen(const char* path, const char* mode) {
+  if(!path || !mode) { errno=EFAULT; return nullptr; }
   int flags = 0;
   bool plus = strchr(mode, '+') != nullptr;
   switch (mode[0]) {
@@ -493,6 +494,11 @@ FILE* fopen(const char* path, const char* mode) {
     case 'w': flags = (plus ? O_RDWR : O_WRONLY) | O_CREAT | O_TRUNC; break;
     case 'a': flags = (plus ? O_RDWR : O_WRONLY) | O_CREAT | O_APPEND; break;
     default: errno = EINVAL; return nullptr;
+  }
+  if(strchr(mode,'e')) flags|=O_CLOEXEC;
+  if(strchr(mode,'x')) {
+    if(!(flags&O_CREAT)) { errno=EINVAL; return nullptr; }
+    flags|=O_EXCL;
   }
   int fd = open(path, flags);
   if (fd < 0) return nullptr;

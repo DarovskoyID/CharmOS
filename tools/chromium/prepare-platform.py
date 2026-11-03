@@ -20,6 +20,344 @@ for name, item in json.loads((licenses / "manifest.json").read_text()).items():
         if hashlib.sha256(path.read_bytes()).hexdigest() != item["sha256"]:
             raise SystemExit("Unexpected dependency license: " + str(path))
 patches = {
+    "base/process/process_metrics.cc": (
+        "59c6215545c797c5680118966e2169e96ae7236e4419df21f50a2ca79df88c4a", [
+            ('#else\nint ProcessMetrics::GetIdleWakeupsPerSecond() {',
+             '#elif !BUILDFLAG(IS_CHARMOS)\nint ProcessMetrics::GetIdleWakeupsPerSecond() {'),
+        ]),
+    "base/trace_event/malloc_dump_provider.h": (
+        "d3600524f697755ad85cf1ca5251b56a06a3563ab4eb1e2cac979d4c275724a2", [
+            ('    BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE)\n#define MALLOC_MEMORY_TRACING_SUPPORTED',
+             '    BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_CHARMOS)\n#define MALLOC_MEMORY_TRACING_SUPPORTED'),
+        ]),
+    "base/posix/unix_domain_socket.h": (
+        "d895f01663de3907f43927c413129c9c081d2f1e660ecd55a67a229a2d3fee83", [
+            ('#include <stddef.h>',
+             '#include "build/build_config.h"\n#if BUILDFLAG(IS_CHARMOS)\n'
+             '#include "build/charmos/native_channel.h"\n#else\n#include <stddef.h>'),
+            ('#endif  // BASE_POSIX_UNIX_DOMAIN_SOCKET_H_',
+             '#endif  // !BUILDFLAG(IS_CHARMOS)\n#endif  // BASE_POSIX_UNIX_DOMAIN_SOCKET_H_'),
+        ]),
+    "base/sync_socket.h": (
+        "23999390f53dfc6292240f2fec5ca48612b690cdeedc4c734c92986d79c93b47", [
+            ('#include <sys/types.h>',
+             '#include <sys/types.h>\n#if BUILDFLAG(IS_CHARMOS)\n#include <memory>\n#include <charm/handle.hpp>\n#endif'),
+            ('  using Handle = PlatformFile;\n  using ScopedHandle = ScopedPlatformFile;',
+             '#if BUILDFLAG(IS_CHARMOS)\n  using Handle=charm::Handle;\n  using ScopedHandle=charm::UniqueHandle;\n'
+             '#else\n  using Handle = PlatformFile;\n  using ScopedHandle = ScopedPlatformFile;\n#endif'),
+            ('  ScopedHandle handle_;',
+             '  ScopedHandle handle_;\n#if BUILDFLAG(IS_CHARMOS)\n'
+             '  struct NativeState;\n  std::unique_ptr<NativeState> native_state_;\n#endif'),
+        ]),
+    "base/memory/shared_memory_switch.cc": (
+        "f00cd09c7eb1dd1c8064423d90c2e08a87eac38f25d0b3d878a251a6ff934f06", [
+            ('#include "base/unguessable_token.h"',
+             '#include "base/unguessable_token.h"\n#if BUILDFLAG(IS_CHARMOS)\n'
+             '#include <charm/libc.h>\n#include <charm/handle.hpp>\n#endif'),
+            ('#if !BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_APPLE)\n  CHECK(launch_options != nullptr);',
+             '#if !BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_CHARMOS)\n  CHECK(launch_options != nullptr);'),
+            ('#elif BUILDFLAG(IS_POSIX)\n  // Serialize the key',
+             '#elif BUILDFLAG(IS_CHARMOS)\n'
+             '  uint32_t role=0x40000000u;\n'
+             '  for (;;) {\n'
+             '    bool occupied=false;\n'
+             '    for (const auto& entry:launch_options->charmos_handles)\n'
+             '      if (entry.role==role) occupied=true;\n'
+             '    if (!occupied) break;\n'
+             '    CHECK_NE(role,UINT32_MAX);\n    ++role;\n  }\n'
+             '  auto metadata=charm::handle_rights(shmem_handle.get());\n'
+             '  CHECK(metadata.ok());\n'
+             '  uint32_t rights=static_cast<uint32_t>(metadata.value);\n'
+             '  if (is_read_only) rights &= ~charm::rights::kWrite;\n'
+             '  charm::UniqueHandle duplicate;\n'
+             '  CHECK(shmem_handle.duplicate(rights,&duplicate)==charm::Status::Ok);\n'
+             '  auto owner=std::make_shared<charm::UniqueHandle>(std::move(duplicate));\n'
+             '  launch_options->charmos_handles.push_back({owner->get(),role,rights});\n'
+             '  launch_options->charmos_owned_handles.push_back(std::move(owner));\n'
+             '  StrAppend(&serialized,{NumberToString(role),",i,"});\n'
+             '#elif BUILDFLAG(IS_POSIX)\n  // Serialize the key'),
+            ('#elif BUILDFLAG(IS_POSIX)\n  DCHECK_EQ(tokens[1], "i");',
+             '#elif BUILDFLAG(IS_CHARMOS)\n'
+             '  if (tokens[1]!="i") return unexpected(SharedMemoryError::kUnexpectedHandleType);\n'
+             '  if (shmem_handle<0x40000000u || shmem_handle>UINT32_MAX)\n'
+             '    return unexpected(SharedMemoryError::kInvalidHandle);\n'
+             '  auto scoped_handle=charm::UniqueHandle::adopt(\n'
+             '      charm_take_start_handle(static_cast<uint32_t>(shmem_handle)));\n'
+             '  if (!scoped_handle) return unexpected(SharedMemoryError::kInvalidHandle);\n'
+             '#elif BUILDFLAG(IS_POSIX)\n  DCHECK_EQ(tokens[1], "i");'),
+        ]),
+    "base/files/file_util_posix.cc": (
+        "8d416614ffd120590f7baf2a0ec3fb6953a2c2cdaf53eec4c0e5b974ad5660af", [
+            ('#include <sys/param.h>',
+             '#if !defined(__charmos__)\n#include <sys/param.h>\n#endif'),
+            ('#if !BUILDFLAG(IS_IOS)\n#include <grp.h>',
+             '#if !BUILDFLAG(IS_IOS) && !BUILDFLAG(IS_CHARMOS)\n#include <grp.h>'),
+            ('bool GetPosixFilePermissions(const FilePath& path, int* mode) {',
+             'bool GetPosixFilePermissions(const FilePath& path, int* mode) {\n'
+             '#if BUILDFLAG(IS_CHARMOS)\n  errno=ENOTSUP;\n  return false;\n#else'),
+            ('  *mode = file_info.st_mode & FILE_PERMISSION_MASK;\n  return true;\n}',
+             '  *mode = file_info.st_mode & FILE_PERMISSION_MASK;\n  return true;\n#endif\n}'),
+            ('bool SetPosixFilePermissions(const FilePath& path, int mode) {',
+             'bool SetPosixFilePermissions(const FilePath& path, int mode) {\n'
+             '#if BUILDFLAG(IS_CHARMOS)\n  errno=ENOTSUP;\n  return false;\n#else'),
+            ('  return true;\n}\n\nbool ExecutableExistsInPath(',
+             '  return true;\n#endif\n}\n\nbool ExecutableExistsInPath('),
+            ('bool AllocateFileRegion(File* file, int64_t offset, size_t size) {',
+             '#if !BUILDFLAG(IS_CHARMOS)\nbool AllocateFileRegion(File* file, int64_t offset, size_t size) {'),
+            ('bool AppendToFile(const FilePath& filename, span<const uint8_t> data) {',
+             '#endif  // !BUILDFLAG(IS_CHARMOS)\n\nbool AppendToFile(const FilePath& filename, span<const uint8_t> data) {'),
+        ]),
+    "base/process/launch.h": (
+        "52b4dc784b0e8678697b10c847fa03f2b482578a323fcd0574d95ef68d6ed008", [
+            ('struct BASE_EXPORT LaunchOptions {',
+             '#if BUILDFLAG(IS_CHARMOS)\n'
+             'struct NativeHandleTransfer { uint32_t handle; uint32_t role; uint32_t rights; };\n#endif\n'
+             'struct BASE_EXPORT LaunchOptions {\n#if BUILDFLAG(IS_CHARMOS)\n'
+             '  uint32_t charmos_capabilities=0;\n  uint32_t charmos_job=0;\n'
+             '  uint32_t charmos_priority=0;\n  std::vector<NativeHandleTransfer> charmos_handles;\n#endif'),
+            ('#if !BUILDFLAG(IS_APPLE)\n// Close all file descriptors,',
+             '#if !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_CHARMOS)\n// Close all file descriptors,'),
+            ('#include "build/build_config.h"',
+             '#include "build/build_config.h"\n#if BUILDFLAG(IS_CHARMOS)\n'
+             '#include <memory>\n#include <charm/handle.hpp>\n#endif'),
+            ('  uint32_t charmos_priority=0;\n  std::vector<NativeHandleTransfer> charmos_handles;\n#endif',
+             '  uint32_t charmos_priority=0;\n  std::vector<NativeHandleTransfer> charmos_handles;\n'
+             '  std::vector<std::shared_ptr<charm::UniqueHandle>> charmos_owned_handles;\n#endif'),
+        ]),
+    "base/process/process_handle.h": (
+        "1f1b60073b3e6bbb8ae61adb11cdb2c06fd596f017878c0db062131efd43cb04", [
+            ('#elif BUILDFLAG(IS_POSIX)\n// On POSIX, our ProcessHandle will just be the PID.',
+             '#elif BUILDFLAG(IS_CHARMOS)\n'
+             'using ProcessHandle = int64_t;  // Native uint32 capability or self pseudo-handle.\n'
+             'using ProcessId = pid_t;\n'
+             'inline constexpr ProcessHandle kNullProcessHandle=0;\n'
+             'inline constexpr ProcessHandle kCurrentProcessHandle=-1;\n'
+             'inline constexpr ProcessId kNullProcessId=0;\n'
+             '#elif BUILDFLAG(IS_POSIX)\n// On POSIX, our ProcessHandle will just be the PID.'),
+        ]),
+    "base/memory/discardable_shared_memory.cc": (
+        "1eeb75b4ce96d3b1c331fb314e86c3ce9ecc8372919de46e9ed9cd9fc8f4ca33", [
+            ('bool DiscardableSharedMemory::Purge(Time current_time) {',
+             'bool DiscardableSharedMemory::Purge(Time current_time) {\n'
+             '#if BUILDFLAG(IS_CHARMOS)\n  return false;  // VMO page discard is unsupported.\n#else'),
+            ('  last_known_usage_ = Time();\n  return true;\n}',
+             '  last_known_usage_ = Time();\n  return true;\n#endif\n}'),
+        ]),
+    "base/trace_event/process_memory_dump.cc": (
+        "e3f8edcd27ca5b1c74ef4ca569e158fe283b5c02b1a135d8e11b7c062e2f417e", [
+            ('#elif BUILDFLAG(IS_POSIX)\n    int error_counter = 0;',
+             '#elif BUILDFLAG(IS_CHARMOS)\n'
+             '    failure=true;  // No native per-page residency query.\n'
+             '    errno=ENOTSUP;\n    std::ignore=chunk_start;\n'
+             '    std::ignore=page_count;\n    std::ignore=accumulate_page_if_resident;\n'
+             '#elif BUILDFLAG(IS_POSIX)\n    int error_counter = 0;'),
+        ]),
+    "base/memory/platform_shared_memory_handle.h": (
+        "0b1d68d9ddb4fb5f45e2dcf65f2d8dfd6719f2f7d59560a72d1965df438acd66", [
+            ('#elif BUILDFLAG(IS_FUCHSIA)\n#include <lib/zx/vmo.h>',
+             '#elif BUILDFLAG(IS_CHARMOS)\n#include <charm/handle.hpp>\n'
+             '#elif BUILDFLAG(IS_FUCHSIA)\n#include <lib/zx/vmo.h>'),
+            ('#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_ANDROID)',
+             '#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)'),
+            ('#elif BUILDFLAG(IS_FUCHSIA)\nusing PlatformSharedMemoryHandle',
+             '#elif BUILDFLAG(IS_CHARMOS)\nusing PlatformSharedMemoryHandle = charm::Handle;\n'
+             'using ScopedPlatformSharedMemoryHandle = charm::UniqueHandle;\n'
+             '#elif BUILDFLAG(IS_FUCHSIA)\nusing PlatformSharedMemoryHandle'),
+        ]),
+    "base/memory/platform_shared_memory_handle.cc": (
+        "06708570d09cd7d2763d250acab90eb316a1908fcb1070398a14a674880e1c6d", [
+            ('#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_ANDROID)',
+             '#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)'),
+        ]),
+    "base/memory/platform_shared_memory_region.h": (
+        "393d93629641f88d42ad0d6b444bbdbf33379ae9c3a469357e7b5cd41427feeb", [
+            ('#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_APPLE)',
+             '#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_CHARMOS)'),
+            ('    kExpectedWritableButNot,',
+             '    kExpectedWritableButNot,\n#if BUILDFLAG(IS_CHARMOS)\n'
+             '    kInvalidNativeHandle,\n    kNativeSizeMismatch,\n#endif'),
+        ]),
+    "base/threading/platform_thread_posix.cc": (
+        "1778a070a9635448538485f422dc17318996a5ecbffd8673613978d175a98eff", [
+            ('#if !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_FUCHSIA)\n#include',
+             '#if !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_FUCHSIA) && !BUILDFLAG(IS_CHARMOS)\n#include'),
+            ('#if !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_FUCHSIA)\n\n// static',
+             '#if !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_FUCHSIA) && !BUILDFLAG(IS_CHARMOS)\n\n// static'),
+            ('#elif BUILDFLAG(IS_ANDROID)\n  // Note: do not cache',
+             '#elif BUILDFLAG(IS_CHARMOS)\n  return PlatformThreadId(gettid());\n'
+             '#elif BUILDFLAG(IS_ANDROID)\n  // Note: do not cache'),
+        ]),
+    "base/rand_util.h": (
+        "cd347eebd12a828536ef1c26a4131a9f9e68cfef005a4d524f0fd78357617436", [
+            ('#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_APPLE)\nBASE_EXPORT int GetUrandomFD();',
+             '#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_CHARMOS)\nBASE_EXPORT int GetUrandomFD();'),
+        ]),
+    "base/time/time.h": (
+        "e66bef19df9d66cb48f6e6cc7eff68faf35dd46b29ac469206b6e7d122c1bb80", [
+            ('    WIN_ROLLOVER_PROTECTED_TIME_GET_TIME\n',
+             '    WIN_ROLLOVER_PROTECTED_TIME_GET_TIME,\n    CHARMOS_CLOCK_MONOTONIC\n'),
+        ]),
+    "base/time/time_now_posix.cc": (
+        "ad8a692b7c94b84c6a8e516b61074485a3414fa419401630ad73b58d13f1ebf7", [
+            ('    BUILDFLAG(IS_BSD) || BUILDFLAG(IS_ANDROID)\n',
+             '    BUILDFLAG(IS_BSD) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHARMOS)\n'),
+            ('  struct timezone tz = {0, 0};  // UTC\n  CHECK(gettimeofday(&tv, &tz) == 0);',
+             '#if BUILDFLAG(IS_CHARMOS)\n  CHECK(gettimeofday(&tv, nullptr) == 0);\n#else\n'
+             '  struct timezone tz = {0, 0};  // UTC\n  CHECK(gettimeofday(&tv, &tz) == 0);\n#endif'),
+            ('  return TimeTicks() + Microseconds(ClockNow(CLOCK_MONOTONIC_COARSE));',
+             '#if BUILDFLAG(IS_CHARMOS)\n  return TimeTicksNowIgnoringOverride();\n#else\n'
+             '  return TimeTicks() + Microseconds(ClockNow(CLOCK_MONOTONIC_COARSE));\n#endif'),
+            ('  return Clock::LINUX_CLOCK_MONOTONIC;',
+             '#if BUILDFLAG(IS_CHARMOS)\n  return Clock::CHARMOS_CLOCK_MONOTONIC;\n#else\n'
+             '  return Clock::LINUX_CLOCK_MONOTONIC;\n#endif'),
+            ('    BUILDFLAG(IS_ANDROID)\n  return ThreadTicks()',
+             '    BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHARMOS)\n  return ThreadTicks()'),
+        ]),
+    "base/time/time_exploded_posix.cc": (
+        "71b40743ad0c11933e5b6460c6119b44c8347ae477864c6a336a1fcc0a189d99", [
+            ('#if !BUILDFLAG(IS_SOLARIS) && !BUILDFLAG(IS_AIX)',
+             '#if !BUILDFLAG(IS_SOLARIS) && !BUILDFLAG(IS_AIX) && !BUILDFLAG(IS_CHARMOS)'),
+        ]),
+    "base/rand_util_posix.cc": (
+        "fa4c57fc7a501cbc116dac37607d7884967eecd5c00b53465b07a4ae3d605c09", [
+            ('#include <sys/syscall.h>',
+             '#if !BUILDFLAG(IS_CHARMOS)\n#include <sys/syscall.h>\n#endif'),
+            ('#if !BUILDFLAG(IS_APPLE)\n\n#if BUILDFLAG(IS_AIX)',
+             '#if !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_CHARMOS)\n\n#if BUILDFLAG(IS_AIX)'),
+            ('#if !BUILDFLAG(IS_APPLE)\nint GetUrandomFD()',
+             '#if !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_CHARMOS)\nint GetUrandomFD()'),
+            ('#if BUILDFLAG(IS_MAC)\n  CHECK(getentropy(output.data(), output.size()) == 0);',
+             '#if BUILDFLAG(IS_CHARMOS)\n'
+             '  while (!output.empty()) {\n'
+             '    size_t chunk=output.size()>256 ? 256 : output.size();\n'
+             '    CHECK(getentropy(output.data(),chunk)==0);\n'
+             '    output=output.subspan(chunk);\n  }\n'
+             '#elif BUILDFLAG(IS_MAC)\n  CHECK(getentropy(output.data(), output.size()) == 0);'),
+        ]),
+    "base/files/file_util.cc": (
+        "3a882fea594885cc3984a2fa270b95e1e91c19b208bf79cd8f4c2d626a9b84aa", [
+            ('bool ContentsEqual(const FilePath& filename1, const FilePath& filename2) {',
+             '#if !BUILDFLAG(IS_CHARMOS)\nbool ContentsEqual(const FilePath& filename1, const FilePath& filename2) {'),
+            ('bool ReadStreamToString(FILE* stream, std::string* contents) {',
+             '#endif  // !IS_CHARMOS: native streaming comparison lives in build/charmos.\n\n'
+             'bool ReadStreamToString(FILE* stream, std::string* contents) {'),
+        ]),
+    "base/message_loop/message_pump_for_io.h": (
+        "cab2ea5e73e0c88d5202d70359edff7983a7af86d94ad1780d34928abda0ef66", [
+            ('#elif BUILDFLAG(IS_POSIX)\n#include "base/message_loop/message_pump_epoll.h"',
+             '#elif BUILDFLAG(IS_CHARMOS)\n#include "build/charmos/message_pump_charmos.h"\n'
+             '#elif BUILDFLAG(IS_POSIX)\n#include "base/message_loop/message_pump_epoll.h"'),
+            ('#elif BUILDFLAG(IS_POSIX)\nusing MessagePumpForIO = MessagePumpEpoll;',
+             '#elif BUILDFLAG(IS_CHARMOS)\nusing MessagePumpForIO = MessagePumpCharmOS;\n'
+             '#elif BUILDFLAG(IS_POSIX)\nusing MessagePumpForIO = MessagePumpEpoll;'),
+        ]),
+    "base/message_loop/message_pump_for_ui.h": (
+        "5d7ed92b6ed0e6ccc983036abd015bbbd6810bdfaf216b0a62d6cfbf4c5269a0", [
+            ('#elif BUILDFLAG(IS_ANDROID)\n#include "base/message_loop/message_pump_android.h"',
+             '#elif BUILDFLAG(IS_CHARMOS)\n#include "build/charmos/message_pump_charmos.h"\n'
+             '#elif BUILDFLAG(IS_ANDROID)\n#include "base/message_loop/message_pump_android.h"'),
+            ('#elif BUILDFLAG(IS_ANDROID)\nusing MessagePumpForUI = MessagePumpAndroid;',
+             '#elif BUILDFLAG(IS_CHARMOS)\nusing MessagePumpForUI = MessagePumpCharmOS;\n'
+             '#elif BUILDFLAG(IS_ANDROID)\nusing MessagePumpForUI = MessagePumpAndroid;'),
+        ]),
+    "base/debug/stack_trace.h": (
+        "ea6578f820b49eb05a32db35894d106f86a20aa22591321f74209b063507c383", [
+            ('#if BUILDFLAG(IS_POSIX)\n// Sets a first-chance callback',
+             '#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_CHARMOS)\n// Sets a first-chance callback'),
+        ]),
+    "base/debug/debugger_posix.cc": (
+        "852e6d3b5065456d2f111375d5fef6ed111934407d17da33a7fd56bd3712f77b", [
+            ('#include <sys/param.h>',
+             '#if BUILDFLAG(IS_CHARMOS)\n#include <limits.h>\n#else\n#include <sys/param.h>\n#endif'),
+            ('#if BUILDFLAG(IS_CHARMOS)\n#include <limits.h>\n#else\n#include <sys/param.h>\n#endif',
+             '#if defined(__charmos__)\n#include <limits.h>\n#else\n#include <sys/param.h>\n#endif'),
+        ]),
+    "base/synchronization/lock_impl_posix.cc": (
+        "69bd84e3684308cd943ea092ba6187eceed901efc8d4147dc375fe1a96a7fcd1", [
+            ('#if BUILDFLAG(IS_FUCHSIA)\n#define PRIORITY_INHERITANCE_LOCKS_POSSIBLE() 0',
+             '#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHARMOS)\n#define PRIORITY_INHERITANCE_LOCKS_POSSIBLE() 0'),
+        ]),
+    "base/process/set_process_title.cc": (
+        "0ee3b7e26195659bb33bf6a9a4321866b226d2931f872617675f3c4d3f8bb80d", [
+            ('    !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_FUCHSIA)\n',
+             '    !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_FUCHSIA) && !BUILDFLAG(IS_CHARMOS)\n'),
+        ]),
+    "base/process/process_metrics.h": (
+        "bfd9dcd28d394d0969d970182c666cdc4b68eaeb7a143a91ef36e23fbb93f354", [
+            ('    BUILDFLAG(IS_FUCHSIA)\n// Data about system-wide memory consumption.',
+             '    BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHARMOS)\n// Data about system-wide memory consumption.'),
+        ]),
+    "third_party/perfetto/src/base/paged_memory.cc": (
+        "48aacf758df4247a8bc45fdd217ea902e8fb54dd0c9e86800cff7e8a7eac0122", [
+            ('#include "perfetto/ext/base/paged_memory.h"',
+             '#if defined(__charmos__)\n#include "build/charmos/paged_memory.cc"\n#else\n'
+             '#include "perfetto/ext/base/paged_memory.h"'),
+            ('}  // namespace perfetto\n', '}  // namespace perfetto\n#endif  // __charmos__\n'),
+        ]),
+    "third_party/abseil-cpp/absl/debugging/internal/elf_mem_image.h": (
+        "1b68d87c36787060222660f7031efdac8660cf06e298f8e5314986322c8570fe", [
+            ('    !defined(__XTENSA__)\n#define ABSL_HAVE_ELF_MEM_IMAGE 1',
+             '    !defined(__XTENSA__) && !defined(__charmos__)\n#define ABSL_HAVE_ELF_MEM_IMAGE 1'),
+        ]),
+    "third_party/abseil-cpp/BUILD.gn": (
+        "d68cb21c4e8a53e4c3f3df9f9211bfc55c79fc4e814014b30e5392f6a8dd1031", [
+            ('group("absl_component_deps") {\n  public_deps = [',
+             'group("absl_component_deps") {\n  public_deps = []\n'
+             '  if (!is_charmos) {\n'
+             '    public_deps += [ "//third_party/abseil-cpp/absl/debugging:failure_signal_handler" ]\n'
+             '  }\n  public_deps += ['),
+            ('    "//third_party/abseil-cpp/absl/debugging:failure_signal_handler",',
+             '    # Native CharmOS has no POSIX failure-signal/altstack API.\n'
+             '    # The optional handler is not available in this profile.'),
+        ]),
+    "third_party/perfetto/src/base/clock_snapshots.cc": (
+        "d83f631879ddf0671197963a09cfb9f068d48a310da842c62b72fc2777db758f", [
+            ('      {CLOCK_REALTIME_COARSE,',
+             '#if !PERFETTO_BUILDFLAG(PERFETTO_OS_CHARMOS)\n      {CLOCK_REALTIME_COARSE,'),
+            ('      {CLOCK_REALTIME, protos::pbzero::BUILTIN_CLOCK_REALTIME, {0, 0}},',
+             '#endif\n      {CLOCK_REALTIME, protos::pbzero::BUILTIN_CLOCK_REALTIME, {0, 0}},'),
+            ('      {CLOCK_MONOTONIC_RAW,',
+             '#if !PERFETTO_BUILDFLAG(PERFETTO_OS_CHARMOS)\n      {CLOCK_MONOTONIC_RAW,'),
+            ('       {0, 0}},\n  };', '       {0, 0}},\n#endif\n  };'),
+        ]),
+    "third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_libc.cc": (
+        "498b80b48fe53f8812803873cdfddb5d3dee98a42c8b345fc47ca401de1b2bfd", [
+            ('#elif defined(__sun) || defined(_AIX)',
+             '#elif defined(__charmos__)\n'
+             '// Native libc localtime is fixed UTC; tm has no extension fields.\n'
+             'long tm_gmtoff(const std::tm&) { return 0; }\n'
+             'const char* tm_zone(const std::tm&) { return "UTC"; }\n'
+             '#elif defined(__sun) || defined(_AIX)'),
+        ]),
+    "third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_info.cc": (
+        "5695f30cc5842c196a358752823f6b8332ebf3cadc4f4f8a55ca044c3075ae37", [
+            ('      std::ifstream version_stream(prefix + "revision.txt");\n'
+             '      if (version_stream.is_open()) {\n'
+             '        // revision.txt should contain no newlines, but to be\n'
+             '        // defensive we read just the first line.\n'
+             '        std::getline(version_stream, version);\n      }',
+             '#if defined(__charmos__)\n'
+             '      auto version_file = FOpen((prefix + "revision.txt").c_str());\n'
+             '      if (version_file) {\n'
+             '        int ch;\n'
+             '        while ((ch = std::fgetc(version_file.get())) != EOF && ch != \'\\n\')\n'
+             '          version.push_back(static_cast<char>(ch));\n'
+             '      }\n'
+             '#else\n'
+             '      std::ifstream version_stream(prefix + "revision.txt");\n'
+             '      if (version_stream.is_open()) {\n'
+             '        // revision.txt should contain no newlines, but to be\n'
+             '        // defensive we read just the first line.\n'
+             '        std::getline(version_stream, version);\n      }\n'
+             '#endif'),
+        ]),
+    "third_party/perfetto/include/perfetto/base/thread_utils.h": (
+        "a2a30174d7abacbb8c2a8fc179982b6af2e66609ddbff7ebf550a587f72fced7", [
+            ('#elif PERFETTO_BUILDFLAG(PERFETTO_OS_QNX)\n#include <sys/types.h>',
+             '#elif PERFETTO_BUILDFLAG(PERFETTO_OS_QNX) || PERFETTO_BUILDFLAG(PERFETTO_OS_CHARMOS)\n#include <sys/types.h>'),
+            ('    PERFETTO_BUILDFLAG(PERFETTO_OS_QNX)\nusing PlatformThreadId = pid_t;',
+             '    PERFETTO_BUILDFLAG(PERFETTO_OS_QNX) || PERFETTO_BUILDFLAG(PERFETTO_OS_CHARMOS)\nusing PlatformThreadId = pid_t;'),
+        ]),
     "third_party/perfetto/include/perfetto/base/time.h": (
         "d6510d1400b05c4450b73a12e944c96a7036f7525f1e742f5d572969d60afc14", [
             ('#if (PERFETTO_BUILDFLAG(PERFETTO_OS_FREEBSD))',
@@ -190,6 +528,16 @@ operations = []
 # These are the optional Rust-language bindings around the C++ base library,
 # not its C++ implementation. Upstream evaluates template assertions even for
 # unreachable targets, so omit unavailable language bindings in this profile.
+patches["buildtools/third_party/libc++abi/BUILD.gn"][1].append((
+    '    sources += [ "//third_party/libc++abi/src/src/cxa_noexception.cpp" ]',
+    '    sources -= [ "//third_party/libc++abi/src/src/cxa_thread_atexit.cpp" ]\n'
+    '    sources += [ "//third_party/libc++abi/src/src/cxa_noexception.cpp" ]'))
+patches["buildtools/third_party/libc++abi/BUILD.gn"][1].append((
+    '    sources -= [ "//third_party/libc++abi/src/src/cxa_thread_atexit.cpp" ]\n'
+    '    sources += [ "//third_party/libc++abi/src/src/cxa_noexception.cpp" ]',
+    '    # Native runtime owns TLS destructor support; this target does not select its pthread fallback.\n'
+    '    sources += [ "//third_party/libc++abi/src/src/cxa_noexception.cpp" ]'))
+
 base_name = "base/BUILD.gn"
 base_digest = "3983f3e3964b9e111bf4759b53168efb34ea533124f655a7288a328b2105343c"
 base_original_path = originals / base_name
@@ -235,6 +583,76 @@ for match in re.finditer(r'(?m)^([ ]*)(\w+)\("([^"]+)"\) \{', base_text):
 if rust_target_count != 15:
     raise SystemExit("Unexpected number of base Rust binding targets")
 base_replacements += [
+    ('  public_deps += [\n    ":compiler_specific",\n    ":memory_dump_provider_name_variants",',
+     '  if (is_charmos) {\n    sources += [ "//build/charmos/memory_metrics.cc" ]\n  }\n\n'
+     '  public_deps += [\n    ":compiler_specific",\n    ":memory_dump_provider_name_variants",'),
+    ('    sources += [ "//build/charmos/memory_metrics.cc" ]',
+     '    sources += [\n      "//build/charmos/memory_metrics.cc",\n'
+     '      "//build/charmos/message_pump_charmos.cc",\n    ]'),
+    ('      "//build/charmos/message_pump_charmos.cc",',
+     '      "//build/charmos/message_pump_charmos.cc",\n      "//build/charmos/files_comparison.cc",'),
+    ('      "//build/charmos/files_comparison.cc",',
+     '      "//build/charmos/files_comparison.cc",\n      "//build/charmos/platform_thread_charmos.cc",'),
+    ('  if (is_charmos) {\n    sources += [',
+     '  if (is_charmos) {\n'
+     '    sources -= [ "posix/can_lower_nice_to.cc", "threading/platform_thread_internal_posix.cc" ]\n'
+     '    sources += ['),
+    ('      "//build/charmos/platform_thread_charmos.cc",',
+     '      "//build/charmos/platform_thread_charmos.cc",\n'
+     '      "//build/charmos/shared_memory_charmos.cc",\n'
+     '      "//build/charmos/shared_memory_mapper_charmos.cc",'),
+    ('    sources -= [ "posix/can_lower_nice_to.cc", "threading/platform_thread_internal_posix.cc" ]',
+     '    sources -= [\n      "posix/can_lower_nice_to.cc",\n'
+     '      "threading/platform_thread_internal_posix.cc",\n'
+     '      "memory/platform_shared_memory_mapper_posix.cc",\n'
+     '      "memory/platform_shared_memory_region_posix.cc",\n    ]'),
+    ('      "memory/platform_shared_memory_region_posix.cc",\n    ]',
+     '      "memory/platform_shared_memory_region_posix.cc",\n'
+     '      "system/sys_info_posix.cc",\n      "files/drive_info_posix.cc",\n'
+     '      "native_library_posix.cc",\n    ]'),
+    ('      "//build/charmos/shared_memory_mapper_charmos.cc",',
+     '      "//build/charmos/shared_memory_mapper_charmos.cc",\n'
+     '      "//build/charmos/sys_info_charmos.cc",\n'
+     '      "//build/charmos/native_library_charmos.cc",'),
+    ('      "native_library_posix.cc",\n    ]',
+     '      "native_library_posix.cc",\n'
+     '      "process/process_handle_posix.cc",\n      "process/process_posix.cc",\n    ]'),
+    ('      "//build/charmos/native_library_charmos.cc",',
+     '      "//build/charmos/native_library_charmos.cc",\n      "//build/charmos/process_charmos.cc",'),
+    ('      "process/process_posix.cc",\n    ]',
+     '      "process/process_posix.cc",\n      "process/kill.cc",\n      "process/kill_posix.cc",\n    ]'),
+    ('      "process/kill_posix.cc",\n    ]',
+     '      "process/kill_posix.cc",\n      "process/launch_posix.cc",\n    ]'),
+    ('      "//build/charmos/process_charmos.cc",',
+     '      "//build/charmos/process_charmos.cc",\n      "//build/charmos/kill_charmos.cc",'),
+    ('      "//build/charmos/kill_charmos.cc",',
+     '      "//build/charmos/kill_charmos.cc",\n      "//build/charmos/launch_charmos.cc",'),
+    ('      "//build/charmos/launch_charmos.cc",',
+     '      "//build/charmos/launch_charmos.cc",\n      "//build/charmos/file_allocation_charmos.cc",'),
+    ('      "process/launch_posix.cc",\n    ]',
+     '      "process/launch_posix.cc",\n      "process/process_metrics_posix.cc",\n'
+     '      "debug/stack_trace_posix.cc",\n      "profiler/module_cache_posix.cc",\n'
+     '      "profiler/stack_base_address_posix.cc",\n      "profiler/stack_copier_signal.cc",\n'
+     '      "profiler/thread_delegate_posix.cc",\n    ]'),
+    ('      "//build/charmos/file_allocation_charmos.cc",',
+     '      "//build/charmos/file_allocation_charmos.cc",\n'
+     '      "//build/charmos/process_metrics_charmos.cc",\n'
+     '      "//build/charmos/module_cache_charmos.cc",\n'
+     '      "//build/charmos/stack_trace_charmos.cc",'),
+    ('      "profiler/thread_delegate_posix.cc",\n    ]',
+     '      "profiler/thread_delegate_posix.cc",\n      "trace_event/malloc_dump_provider.cc",\n    ]'),
+    ('      "//build/charmos/stack_trace_charmos.cc",',
+     '      "//build/charmos/stack_trace_charmos.cc",\n'
+     '      "//build/charmos/malloc_dump_provider_charmos.cc",'),
+    ('      "trace_event/malloc_dump_provider.cc",\n    ]',
+     '      "trace_event/malloc_dump_provider.cc",\n      "sync_socket.cc",\n      "sync_socket_posix.cc",\n    ]'),
+    ('      "//build/charmos/malloc_dump_provider_charmos.cc",',
+     '      "//build/charmos/malloc_dump_provider_charmos.cc",\n      "//build/charmos/sync_socket_charmos.cc",'),
+    ('      "trace_event/malloc_dump_provider.cc",\n      "sync_socket.cc",\n      "sync_socket_posix.cc",\n    ]',
+     '      "trace_event/malloc_dump_provider.cc",\n      "sync_socket.cc",\n'
+     '      "sync_socket_posix.cc",\n      "posix/unix_domain_socket.cc",\n    ]'),
+    ('      "//build/charmos/sync_socket_charmos.cc",',
+     '      "//build/charmos/sync_socket_charmos.cc",\n      "//build/charmos/native_channel.cc",'),
     ('  deps += [\n    "logging/rust_logger",\n'
      '    "//third_party/rust/serde_json_lenient/v0_2/wrapper",\n  ]',
      '  if (enable_rust) {\n    deps += [\n      "logging/rust_logger",\n'
@@ -249,6 +667,8 @@ base_replacements += [
 patches[base_name] = (base_digest, base_replacements)
 patches['base/logging.cc'] = (
     'f8af905b1e6e07532f5ab45f037bec61a323dc77bbc8e5e1d222514371ee3013', [
+        ('#include <paths.h>',
+         '#if !BUILDFLAG(IS_CHARMOS)\n#include <paths.h>\n#endif'),
         ('#include "base/logging/rust_logger/lib.rs.h"',
          '#if !BUILDFLAG(IS_CHARMOS)\n#include "base/logging/rust_logger/lib.rs.h"\n#endif'),
         ('  internal::init_rust_logging();',
@@ -258,6 +678,14 @@ patches['base/logging.cc'] = (
         ('#if !BUILDFLAG(IS_CHARMOS)\n  internal::init_rust_logging();\n#endif',
          '  // C++ logging is initialized above; no Rust bridge in this profile.'),
     ])
+import runpy
+graphics = runpy.run_path(str(repo / "tools/chromium/graphics-patches.py"))["graphics_patches"]()
+if set(graphics).intersection(patches):
+    raise SystemExit("Duplicate graphics patch ownership")
+patches.update(graphics)
+base_replacements.append((
+    '      "//build/charmos/sync_socket_charmos.cc",',
+    '      "//build/charmos/sync_socket_charmos.cc",\n      "//build/charmos/allocator_charmos.cc",'))
 for name, (digest, replacements) in patches.items():
     target, backup = source / name, originals / name
     current = target.read_bytes()
@@ -268,7 +696,7 @@ for name, (digest, replacements) in patches.items():
     known = [original]
     for before, after in replacements:
         if modified.count(before) != 1:
-            raise SystemExit("Non-unique patch context: " + name)
+            raise SystemExit("Non-unique patch context: " + name + ": " + repr(before[:180]))
         modified = modified.replace(before, after, 1)
         known.append(modified.encode())
     modified = modified.encode()
@@ -305,6 +733,11 @@ for group, variable in (("sources", "charmos_numeric_sources"), ("engine_sources
         if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
             raise SystemExit("Unexpected numeric source: " + name)
         paths.append("//third_party/llvm-libc/src/" + name)
+    if group=="sources":
+        for name,digest in numeric.get("fdlibm_sources",{}).items():
+            if hashlib.sha256((source/name).read_bytes()).hexdigest()!=digest:
+                raise SystemExit("Unexpected fdlibm source: "+name)
+            paths.append("//"+name)
     numeric_content += variable + " = " + json.dumps(paths, indent=2) + "\n"
 if not numeric_file.exists() or numeric_file.read_text() != numeric_content:
     numeric_file.write_text(numeric_content)

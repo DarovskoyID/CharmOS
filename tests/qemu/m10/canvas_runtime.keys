@@ -1,0 +1,8 @@
+#wait Ozone canvas: resized surface ready for keyboard input
+#monitor sendkey a
+#wait Ozone canvas: keyboard frame acknowledged
+#monitor screendump /mnt/a/CharmOS/build/chromium/native-ozone-canvas.ppm
+#pixel 180 270 230 270 430 270 140 200
+#monitor sendkey esc
+#wait Ozone canvas: closed
+svc poweroff

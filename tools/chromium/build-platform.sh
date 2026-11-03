@@ -2,7 +2,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd -P)"
 mode="${1:-}"
-case "$mode" in ''|--full-runtime|--json-runtime|--base|--base-graph) ;; *) echo 'Expected --full-runtime, --json-runtime, --base or --base-graph' >&2; exit 2;; esac
+case "$mode" in ''|--full-runtime|--json-runtime|--base|--base-graph|--graphics|--graphics-graph) ;; *) echo 'Expected a runtime, base or graphics mode' >&2; exit 2;; esac
 cache="$root/build/chromium/linux-cache"
 mountpoint -q "$cache" || { echo 'Run through with-cache.sh' >&2; exit 2; }
 python3 "$root/tools/chromium/prepare-platform.py"
@@ -13,13 +13,8 @@ source="$cache/release/chromium-$version"
 compiler="$source/third_party/llvm-build/Release+Asserts/bin"
 runtime="$source/third_party/llvm-build/Release+Asserts/lib/clang/24/lib/charmos"
 mkdir -p "$runtime"
-if [[ "$mode" != --base-graph ]]; then
-for unit in udivti3 umodti3 udivmodti4; do
-  "$compiler/clang" --target=x86_64-unknown-elf -O2 -ffreestanding -nostdlibinc \
-    -isystem "$root/user/libc/include" -c "$source/third_party/llvm/compiler-rt/lib/builtins/$unit.c" \
-    -o "$runtime/$unit.o"
-done
-"$compiler/llvm-ar" rcs "$runtime/libclang_rt.builtins.a" "$runtime"/*.o
+if [[ "$mode" != --base-graph && "$mode" != --graphics-graph ]]; then
+python3 "$root/tools/chromium/build-builtins.py" "$root" "$source"
 fi
 output="$source/out/charmos-platform"
 mkdir -p "$output"
@@ -30,16 +25,22 @@ args = {
     "is_debug": False, "is_component_build": False, "symbol_level": 1,
     "enable_rust": False, "use_sysroot": False, "use_remoteexec": False, "use_glib": False,
     "use_udev": False, "use_dbus": False,
+    # All probes share one native configuration. Selecting a diagnostic target
+    # must not toggle allocator/buildflags and invalidate unrelated objects.
+    "charmos_build_base": True,
+    # Adds a root only; native base/compiler configuration stays unchanged.
+    "charmos_build_graphics": sys.argv[4] in ("--graphics", "--graphics-graph"),
+    "use_partition_alloc": False, "use_allocator_shim": False,
+    "absl_build_tests": False,
+    "enable_perfetto_ipc": False,
+    "enable_perfetto_platform_services": False,
+    "enable_perfetto_trace_processor_httpd": False,
     "use_ozone": True, "ozone_auto_platforms": False,
     "ozone_platform_headless": True, "clang_use_chrome_plugins": False,
     # The source archive has an empty release stamp. Register the actual
     # compiler explicitly as custom, rather than inventing a matching stamp.
     "clang_base_path": sys.argv[3],
 }
-if sys.argv[4] in ("--base", "--base-graph"):
-    args.update(charmos_build_base=True, use_partition_alloc=False, use_allocator_shim=False,
-                absl_build_tests=False, enable_perfetto_ipc=False,
-                enable_perfetto_platform_services=False)
 destination = pathlib.Path(sys.argv[2])
 content = "".join(f"{k} = {json.dumps(v)}\n" for k,v in args.items())
 if not destination.exists() or destination.read_text() != content:
@@ -51,6 +52,10 @@ if [[ "$mode" == --base || "$mode" == --base-graph ]]; then
   python3 "$root/tools/chromium/audit-cpp-graph.py" "$source" "$output"
 fi
 if [[ "$mode" == --base-graph ]]; then exit 0; fi
+if [[ "$mode" == --graphics || "$mode" == --graphics-graph ]]; then
+  python3 "$root/tools/chromium/audit-cpp-graph.py" "$source" "$output" graphics_runtime
+fi
+if [[ "$mode" == --graphics-graph ]]; then exit 0; fi
 ninja -C "$output" -k 0 -j 4 platform_smoke
 "$compiler/llvm-objcopy" --strip-debug "$output/platform_smoke.elf" "$root/build/user/user/platform_smoke.elf"
 python3 "$root/tools/chromium/audit-elf.py" "$root/build/user/user/platform_smoke.elf"
@@ -82,4 +87,11 @@ if [[ "$mode" == --json-runtime ]]; then
 fi
 if [[ "$mode" == --base ]]; then
   ninja -C "$output" -k 0 -j 4 base_runtime
+  "$compiler/llvm-objcopy" --strip-debug "$output/base_runtime.elf" "$root/build/user/user/base_runtime.elf"
+  python3 "$root/tools/chromium/audit-elf.py" "$root/build/user/user/base_runtime.elf"
+fi
+if [[ "$mode" == --graphics ]]; then
+  ninja -C "$output" -k 0 -j 4 graphics_runtime
+  "$compiler/llvm-objcopy" --strip-debug "$output/graphics_runtime.elf" "$root/build/user/user/graphics_runtime.elf"
+  python3 "$root/tools/chromium/audit-elf.py" "$root/build/user/user/graphics_runtime.elf"
 fi

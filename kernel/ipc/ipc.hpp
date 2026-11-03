@@ -105,7 +105,7 @@ void set_socket_closed_hook(void (*hook)(uint64_t id));
 Status install_socket(uint64_t id, uint64_t* out);
 Status get_socket(uint32_t h, uint32_t need, uint64_t* id);
 // Для стека: пройти подписки на сокеты; ready возвращает true и тип пакета.
-void poll_sockets(bool (*ready)(uint64_t id, uint32_t* packet));
+void poll_sockets(bool (*ready)(uint64_t id, uint32_t mask, uint32_t* events));
 
 // --- запуск процессов и Job (docs/abi/process.md §3, §5) ---------------------------------
 // Сообщение в канал (endpoint — отсоединённая капабилити ядра) с хендлами
@@ -191,16 +191,21 @@ Status sys_handle_close(uint32_t h);
 Status sys_handle_duplicate(uint32_t h, uint64_t rights, uint64_t* out);
 Status sys_handle_revoke(uint32_t h, uint64_t* out);
 Status sys_channel_create(uint64_t user_pair);
+Status sys_channel_query(uint32_t handle,uint64_t user_output);
+Status sys_channel_shutdown(uint32_t handle,uint32_t directions);
 Status sys_channel_write(uint32_t h, uint64_t bytes, uint64_t len, uint64_t handles,
                          uint64_t count);
 Status sys_channel_read(uint32_t h, uint64_t bytes, uint64_t cap, uint64_t handles,
                         uint64_t hcap, uint64_t deadline, uint64_t* out);
 Status sys_vmo_create(uint64_t size, uint64_t* out);
+Status sys_vmo_size(uint32_t h, uint64_t* out);
+Status sys_handle_rights(uint32_t h, uint64_t* out);
 Status sys_vmo_map(uint32_t h, uint64_t rights, uint64_t* out);
 Status sys_vmo_unmap(uint64_t addr);
 Status sys_port_create(uint64_t* out);
 Status sys_port_wait(uint32_t port, uint64_t user_packet, uint64_t deadline);
-Status sys_object_bind(uint32_t port, uint32_t h, uint64_t key);
+Status sys_object_bind(uint32_t port, uint32_t h, uint64_t key, uint32_t mask = 0);
+Status sys_object_unbind(uint32_t port, uint32_t h, uint64_t key);
 Status sys_device_info(uint32_t dev, uint64_t user_out);
 Status sys_device_map_bar(uint32_t dev, uint64_t bar, uint64_t* out);
 Status sys_device_irq(uint32_t dev, uint64_t index, uint64_t* out);

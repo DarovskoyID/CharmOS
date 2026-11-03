@@ -1,5 +1,5 @@
 #pragma once
-// Syscall ABI v1.13. Нормативные документы — docs/abi/syscalls.md (v1.0),
+// Syscall ABI v1.18. Нормативные документы — docs/abi/syscalls.md (v1.0),
 // docs/abi/ipc.md (v1.1), docs/abi/driver.md (v1.2), docs/abi/block.md и
 // docs/abi/fs.md (v1.3), docs/abi/net.md и docs/abi/socket.md (v1.4),
 // docs/abi/process.md и docs/abi/console.md (v1.5), docs/abi/pkg.md (v1.6).
@@ -10,7 +10,7 @@
 namespace abi::syscall {
 
 inline constexpr uint16_t kVersionMajor = 1;
-inline constexpr uint16_t kVersionMinor = 13;
+inline constexpr uint16_t kVersionMinor = 18;
 
 // §5
 enum class Number : uint64_t {
@@ -92,6 +92,16 @@ enum class Number : uint64_t {
   ClockRealtime = 70,  // v1.12, time-random.md
   RandomRead = 71,
   RuntimeQuery = 72,  // v1.13, runtime-query.md
+  ObjectUnbind = 73,  // v1.14, object-watch.md
+  ObjectWatch = 74,
+  FsIdentity = 75,  // v1.15, fs-identity.md
+  VmoSize = 76,  // v1.16, application-sdk.md
+  ThreadPriority = 77,
+  HandleRights = 78,
+  FsUnlinkTyped = 79,  // v1.17, libc-directory.md
+  FsRename = 80,
+  ChannelQuery = 81,
+  ChannelShutdown = 82,
 };
 
 // display.md §2.1.
@@ -156,6 +166,15 @@ inline constexpr uint32_t kPacketConsoleReadable = 7; // console.md §1
 inline constexpr uint32_t kPacketThreadExited = 8;    // process.md §4
 inline constexpr uint32_t kPacketJobEmpty = 9;        // process.md §5
 inline constexpr uint32_t kPacketInputReadable = 10;  // input.md §2
+inline constexpr uint32_t kPacketChannelWritable = 11; // channel-control.md
+struct ChannelState {
+  uint64_t queued_bytes;
+  uint32_t messages;
+  uint32_t flags;
+};
+static_assert(sizeof(ChannelState)==16);
+static_assert(__builtin_offsetof(ChannelState,messages)==8);
+static_assert(__builtin_offsetof(ChannelState,flags)==12);
 inline constexpr uint32_t kPortMaxPackets = 64;
 
 // Описание устройства для драйвера (docs/abi/driver.md §6.1).
@@ -258,6 +277,7 @@ enum class Status : uint64_t {
   AddressInUse = 21,
   // v1.5 (docs/abi/process.md §10)
   Interrupted = 22,
+  CrossDevice = 23,  // v1.17, directory-relative rename
 };
 
 // §4

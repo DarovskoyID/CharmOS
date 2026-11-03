@@ -1,6 +1,12 @@
 {
   "upstream_version": "155.0.8059.84",
   "scope": "Available ISO C numeric entrypoints for the Chromium dependency; missing upstream units are not replaced by stubs",
+  "fdlibm_sources": {
+    "third_party/fdlibm/ieee754.cc": "661b229dd99d262594df7a25d1c709d63f0af202c9bae252b3cabbaeb27d7d2f",
+    "third_party/fdlibm/ieee754.h": "67ac025f301eb38f63a4523f94f0cc30a4c0aa2f441f40f6e139026a84d49072",
+    "third_party/fdlibm/overflowing-math.h": "7f4aa5f970161181a698e9c70a9d1015fd04ce6be5e281e79ff1abfebf1cfc42"
+  },
+  "fdlibm_entrypoints": [ "acosh", "asinh", "atanh", "sinh", "cosh", "tanh" ],
   "sources": {
     "src/fenv/feclearexcept.cpp": "c42186bf033b75a6ca61fd284c65f8f7d6f7dddbb13d4a2e635d2f8c73a69c98",
     "src/fenv/fegetenv.cpp": "f6e59fabdcd1039a376cb9e8d52fdaab18ac356f410620c8a1c285278e7d8adb",

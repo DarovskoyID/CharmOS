@@ -129,3 +129,13 @@ ClockRealtime (70) и RandomRead (71) определены в [time-random.md](t
 
 Дополнение 1.13 (2026-10-18): readonly RuntimeQuery=72 — docs/abi/runtime-query.md.
 
+Дополнение 1.14 (2026-10-28): ObjectUnbind=73 и ObjectWatch=74 —
+docs/abi/object-watch.md. Прежний ObjectBind и его пакеты сохраняются.
+
+Дополнение 1.15 (2026-10-28): FsIdentity=75 — docs/abi/fs-identity.md.
+Дополнение 1.16 (2026-10-28): VmoSize=76, ThreadPriority=77, HandleRights=78 и
+RuntimeQuery(8) — docs/abi/application-sdk.md.
+Дополнение 1.17: FsUnlinkTyped=79, FsRename=80, CrossDevice=23 — docs/abi/libc-directory.md.
+Дополнение 1.18: ChannelQuery=81, ChannelShutdown=82 и готовность каналов к
+записи — docs/abi/channel-control.md. Старые сообщения и номера сохранены.
+

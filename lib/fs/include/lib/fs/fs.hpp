@@ -83,6 +83,11 @@ class FileSystem {
   virtual Result<Node> create(Node dir, lib::core::StringView name, NodeType type) = 0;
   // Удаляет файл или пустой каталог.
   virtual Status unlink(Node dir, lib::core::StringView name) = 0;
+  // Atomic to externally serialized filesystem observers; unsupported backends
+  // fail explicitly. No cross-filesystem copying is performed by rename.
+  virtual Status rename(Node,lib::core::StringView,Node,lib::core::StringView) {
+    return fail(FsError::Unsupported);
+  }
 
   virtual Result<Stat> stat(Node node) = 0;
   // Читает до len байт; меньше — конец файла.

@@ -15,6 +15,7 @@ if mode == "ar":
 if mode not in ("cc", "cxx", "link"):
     raise SystemExit("Unknown CharmOS tool mode: " + mode)
 flags = ["--target=x86_64-unknown-elf", "-ffreestanding", "-fno-stack-protector",
+         "-femulated-tls",
          "-fno-pic", "-fno-pie", "-D__charmos__=1", "-nostdlibinc",
          "-isystem", str(repo / "user/libc/include"),
          "-I" + str(repo / "user/rt/include"), "-I" + str(repo / "include")]

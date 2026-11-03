@@ -199,6 +199,11 @@ static const char* error_message(int e) {
     case EBUSY: return const_cast<char*>("Busy");
     case EEXIST: return const_cast<char*>("File exists");
     case ENOTDIR: return const_cast<char*>("Not a directory");
+    case ENODEV: return const_cast<char*>("No such device");
+    case EDEADLK: return const_cast<char*>("Resource deadlock avoided");
+    case ENAMETOOLONG: return const_cast<char*>("File name too long");
+    case EMSGSIZE: return const_cast<char*>("Message too large");
+    case EXDEV: return const_cast<char*>("Cross-device operation");
     case EISDIR: return const_cast<char*>("Is a directory");
     case EINVAL: return const_cast<char*>("Invalid argument");
     case EMFILE: return const_cast<char*>("Too many open files");

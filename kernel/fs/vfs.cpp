@@ -549,7 +549,8 @@ Status sys_dir_read(uint32_t h, uint64_t user_buf, uint64_t cap, uint64_t cookie
   return s;
 }
 
-Status sys_fs_unlink(uint32_t dir_h, uint64_t user_path, uint64_t len) {
+namespace {
+Status unlink_node(uint32_t dir_h, uint64_t user_path, uint64_t len,bool typed,bool directory) {
   lib::fs::FileSystem* fs;
   Node dir;
   uint32_t r;
@@ -568,6 +569,8 @@ Status sys_fs_unlink(uint32_t dir_h, uint64_t user_path, uint64_t len) {
       auto found = fs->lookup(parent, last);
       if (found.is_err()) {
         s = map(found.error());
+      } else if (typed && (found.value().type==NodeType::Directory)!=directory) {
+        s = Status::WrongType;
       } else if (is_open(global_id(mount_of(fs), found.value().id))) {
         s = Status::Busy;  // на узел есть хендлы
       } else if (auto u = fs->unlink(parent, last); u.is_err()) {
@@ -577,6 +580,15 @@ Status sys_fs_unlink(uint32_t dir_h, uint64_t user_path, uint64_t len) {
   }
   mm::kfree(path);
   return s;
+}
+}
+
+Status sys_fs_unlink(uint32_t dir_h,uint64_t path,uint64_t len) {
+  return unlink_node(dir_h,path,len,false,false);
+}
+Status sys_fs_unlink_typed(uint32_t dir_h,uint64_t path,uint64_t len,uint64_t directory) {
+  if(directory>1) return Status::InvalidArgs;
+  return unlink_node(dir_h,path,len,true,directory!=0);
 }
 
 Status sys_file_resize(uint32_t h, uint64_t size) {
@@ -588,6 +600,47 @@ Status sys_file_resize(uint32_t h, uint64_t size) {
   sync::MutexGuard guard(g_vfs);
   auto rs = fs->resize(file, size);
   return rs.is_ok() ? Status::Ok : map(rs.error());
+}
+
+Status sys_fs_rename(uint32_t source_dir,uint64_t source_path,uint64_t source_len,
+                     uint32_t target_dir,uint64_t target_path,uint64_t target_len) {
+  lib::fs::FileSystem *source_fs=nullptr,*target_fs=nullptr;
+  Node source_base{},target_base{};
+  uint32_t source_rights=0,target_rights=0;
+  auto status=node_from(source_dir,rights::kWrite,true,&source_base,&source_rights,&source_fs);
+  if(status!=Status::Ok) return status;
+  status=node_from(target_dir,rights::kWrite,true,&target_base,&target_rights,&target_fs);
+  if(status!=Status::Ok) return status;
+  if(source_fs!=target_fs) return Status::CrossDevice;
+  char *source=nullptr,*target=nullptr;
+  status=copy_path(source_path,source_len,&source);
+  if(status!=Status::Ok) return status;
+  status=copy_path(target_path,target_len,&target);
+  if(status!=Status::Ok) { mm::kfree(source); return status; }
+  {
+    sync::MutexGuard guard(g_vfs);
+    Node from_parent{},to_parent{};
+    StringView from_name,to_name;
+    status=walk_parent(source_fs,source_base,StringView(source,source_len),&from_parent,&from_name);
+    if(status==Status::Ok) status=walk_parent(source_fs,target_base,StringView(target,target_len),&to_parent,&to_name);
+    if(status==Status::Ok && (from_name.empty() || to_name.empty())) status=Status::InvalidArgs;
+    if(status==Status::Ok) {
+      auto from=source_fs->lookup(from_parent,from_name);
+      if(from.is_err()) status=map(from.error());
+      else {
+        auto to=source_fs->lookup(to_parent,to_name);
+        if(to.is_err() && to.error()!=FsError::NotFound) status=map(to.error());
+        else if(to.is_ok() && to.value().id!=from.value().id && is_open(global_id(mount_of(source_fs),to.value().id)))
+          status=Status::Busy;
+        else {
+          auto moved=source_fs->rename(from_parent,from_name,to_parent,to_name);
+          status=moved.is_ok() ? Status::Ok : map(moved.error());
+        }
+      }
+    }
+  }
+  mm::kfree(target); mm::kfree(source);
+  return status;
 }
 
 }  // namespace kernel::fs

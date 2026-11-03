@@ -4,11 +4,11 @@
 #include <time.h>
 #include <signal.h>
 typedef struct __pthread* pthread_t;
-typedef struct { int unused; } pthread_attr_t;
+typedef struct { size_t stack_size; int detach_state; } pthread_attr_t;
 typedef struct { volatile uint32_t state; int type; uintptr_t owner; uint32_t depth; } pthread_mutex_t;
 typedef struct { int type; } pthread_mutexattr_t;
-typedef struct { volatile uint32_t seq; } pthread_cond_t;
-typedef struct { int unused; } pthread_condattr_t;
+typedef struct { volatile uint32_t seq; clockid_t clock; } pthread_cond_t;
+typedef struct { clockid_t clock; } pthread_condattr_t;
 typedef struct { volatile uint32_t state; } pthread_once_t;
 typedef struct {
   pthread_mutex_t gate;
@@ -20,19 +20,29 @@ typedef struct { int unused; } pthread_rwlockattr_t;
 typedef uint32_t pthread_key_t;
 #define PTHREAD_KEYS_MAX 128
 #define PTHREAD_DESTRUCTOR_ITERATIONS 4
-#define PTHREAD_RWLOCK_INITIALIZER {PTHREAD_MUTEX_INITIALIZER, {0}, 0, 0}
+#define PTHREAD_STACK_MIN 16384
+#define PTHREAD_RWLOCK_INITIALIZER {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0, 0}
 #define PTHREAD_MUTEX_INITIALIZER {0, 0, 0, 0}
 #define PTHREAD_MUTEX_NORMAL 0
 #define PTHREAD_MUTEX_RECURSIVE 1
-#define PTHREAD_COND_INITIALIZER {0}
+#define PTHREAD_COND_INITIALIZER {0, CLOCK_REALTIME}
+#define PTHREAD_CREATE_JOINABLE 0
+#define PTHREAD_CREATE_DETACHED 1
 #define PTHREAD_ONCE_INIT {0}
 #ifdef __cplusplus
 extern "C" {
 #endif
 int pthread_create(pthread_t* t, const pthread_attr_t* attr, void* (*fn)(void*), void* arg);
+int pthread_attr_init(pthread_attr_t* attr);
+int pthread_attr_destroy(pthread_attr_t* attr);
+int pthread_attr_setstacksize(pthread_attr_t* attr, size_t size);
+int pthread_attr_getstacksize(const pthread_attr_t* attr, size_t* size);
+int pthread_attr_setdetachstate(pthread_attr_t* attr, int state);
+int pthread_attr_getdetachstate(const pthread_attr_t* attr, int* state);
 int pthread_join(pthread_t t, void** ret);
 int pthread_detach(pthread_t t);
 pthread_t pthread_self(void);
+int pthread_equal(pthread_t left, pthread_t right);
 __attribute__((noreturn)) void pthread_exit(void* ret);
 int pthread_mutex_init(pthread_mutex_t* m, const pthread_mutexattr_t* a);
 int pthread_mutexattr_init(pthread_mutexattr_t* a);
@@ -44,6 +54,10 @@ int pthread_mutex_lock(pthread_mutex_t* m);
 int pthread_mutex_trylock(pthread_mutex_t* m);
 int pthread_mutex_unlock(pthread_mutex_t* m);
 int pthread_cond_init(pthread_cond_t* c, const pthread_condattr_t* a);
+int pthread_condattr_init(pthread_condattr_t* attr);
+int pthread_condattr_destroy(pthread_condattr_t* attr);
+int pthread_condattr_setclock(pthread_condattr_t* attr, clockid_t clock);
+int pthread_condattr_getclock(const pthread_condattr_t* attr, clockid_t* clock);
 int pthread_cond_destroy(pthread_cond_t* c);
 int pthread_cond_wait(pthread_cond_t* c, pthread_mutex_t* m);
 int pthread_cond_signal(pthread_cond_t* c);

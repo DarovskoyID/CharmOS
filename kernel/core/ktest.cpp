@@ -1083,6 +1083,10 @@ void test_runtime_json() {
   run_with_start("bin/runtime_json", "runtime_json");
   pass();
 }
+void test_base_runtime() {
+  run_with_start("bin/base_runtime", "base_runtime");
+  pass();
+}
 void test_runtime_https() {
   uint64_t deadline = platform::now_ns() + 20'000'000'000ull;
   while (!net::link_up()) {
@@ -1200,6 +1204,7 @@ constexpr Test kTests[] = {
     {"runtime_platform", &test_runtime_platform},
     {"runtime_cpp", &test_runtime_cpp},
     {"runtime_json", &test_runtime_json},
+    {"base_runtime", &test_base_runtime},
     {"runtime_https", &test_runtime_https},
     {"runtime_tpm", &test_runtime_tpm},
     {"runtime_none", &test_runtime_none},
@@ -1228,7 +1233,7 @@ bool needs_drivers() {
          g_selected == StringView("runtime_none") || g_selected == StringView("runtime_threads") ||
          g_selected == StringView("runtime_tls") || g_selected == StringView("runtime_https") ||
          g_selected == StringView("runtime_platform") || g_selected == StringView("runtime_cpp") ||
-         g_selected == StringView("runtime_json");
+         g_selected == StringView("runtime_json") || g_selected == StringView("base_runtime");
 }
 StringView selected() { return g_selected; }
 

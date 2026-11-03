@@ -107,6 +107,7 @@ namespace rights = abi::syscall::rights;
 using Handle = uint32_t;
 
 inline Status handle_close(Handle h) { return syscall1(Number::HandleClose, h).status; }
+inline SysResult handle_rights(Handle h) { return syscall1(Number::HandleRights,h); }
 inline SysResult handle_duplicate(Handle h, uint32_t r) {
   return syscall2(Number::HandleDuplicate, h, r);
 }
@@ -128,8 +129,16 @@ inline SysResult channel_read(Handle h, void* bytes, uint64_t cap, Handle* handl
                   reinterpret_cast<uint64_t>(handles), hcap, deadline);
 }
 inline constexpr uint64_t kForever = abi::syscall::kInfiniteDeadline;
+inline Status channel_query(Handle endpoint,abi::syscall::ChannelState* output) {
+  return syscall2(Number::ChannelQuery,endpoint,reinterpret_cast<uint64_t>(output)).status;
+}
+inline Status channel_shutdown(Handle endpoint,uint32_t directions=3) {
+  return syscall2(Number::ChannelShutdown,endpoint,directions).status;
+}
 
 inline SysResult vmo_create(uint64_t size) { return syscall1(Number::VmoCreate, size); }
+inline SysResult vmo_size(Handle h) { return syscall1(Number::VmoSize,h); }
+inline SysResult thread_priority(uint32_t priority=0) { return syscall1(Number::ThreadPriority,priority); }
 inline SysResult vmo_map(Handle h, uint32_t r) { return syscall2(Number::VmoMap, h, r); }
 inline Status vmo_unmap(uint64_t addr) { return syscall1(Number::VmoUnmap, addr).status; }
 
@@ -142,6 +151,13 @@ inline Status port_wait(Handle port, PortPacket* out, uint64_t deadline) {
 inline Status object_bind(Handle port, Handle h, uint64_t key) {
   return syscall3(Number::ObjectBind, port, h, key).status;
 }
+inline Status object_unbind(Handle port, Handle h, uint64_t key) {
+  return syscall3(Number::ObjectUnbind, port, h, key).status;
+}
+inline Status object_watch(Handle port, Handle h, uint64_t key, uint32_t mask) {
+  return syscall5(Number::ObjectWatch, port, h, key, mask, 0).status;
+}
+inline SysResult fs_identity(Handle h) { return syscall1(Number::FsIdentity,h); }
 
 // --- v1.3: файлы и каталоги (docs/abi/fs.md) -----------------------------------------
 inline SysResult fs_open(Handle dir, const char* path, uint64_t len, uint64_t flags) {
@@ -165,6 +181,13 @@ inline SysResult dir_read(Handle dir, void* buf, uint64_t cap, uint64_t cookie) 
 }
 inline Status fs_unlink(Handle dir, const char* path) {
   return syscall3(Number::FsUnlink, dir, reinterpret_cast<uint64_t>(path), length(path)).status;
+}
+inline Status fs_unlink_typed(Handle dir,const char* path,bool directory) {
+  return syscall5(Number::FsUnlinkTyped,dir,reinterpret_cast<uint64_t>(path),length(path),directory ? 1u : 0u,0).status;
+}
+inline Status fs_rename(Handle source_dir,const char* source,Handle target_dir,const char* target) {
+  return syscall6(Number::FsRename,source_dir,reinterpret_cast<uint64_t>(source),length(source),
+                   target_dir,reinterpret_cast<uint64_t>(target),length(target)).status;
 }
 inline Status file_resize(Handle f, uint64_t size) { return syscall2(Number::FileResize, f, size).status; }
 

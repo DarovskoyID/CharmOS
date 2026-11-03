@@ -142,24 +142,19 @@ bool udp_bind_port(uint64_t id, uint16_t port) {
 
 constinit uint16_t g_udp_ephemeral = 49152;
 
-bool ready(uint64_t id, uint32_t* packet) {
+bool ready(uint64_t id, uint32_t mask, uint32_t* events) {
+  *events=0;
   Sock s = get(id);
   if (s.kind == Kind::Udp) {
     sync::SpinGuard guard(g_lock);
     bool has = g_socks[id].udp != nullptr && g_socks[id].udp->count != 0;
-    *packet = has ? abi::syscall::kPacketSocketReadable : abi::syscall::kPacketSocketWritable;
-    return true;
+    *events=((has ? 1u : 0u)|2u)&mask;
+    return *events!=0;
   }
   if (s.kind != Kind::Listener && s.kind != Kind::Conn) return false;
-  if (tcp_readable(s.conn)) {
-    *packet = abi::syscall::kPacketSocketReadable;
-    return true;
-  }
-  if (s.kind == Kind::Conn && tcp_writable(s.conn)) {
-    *packet = abi::syscall::kPacketSocketWritable;
-    return true;
-  }
-  return false;
+  if ((mask&1u) && tcp_readable(s.conn)) *events|=1u;
+  if ((mask&2u) && s.kind == Kind::Conn && tcp_writable(s.conn)) *events|=2u;
+  return *events!=0;
 }
 
 void poller(void*) {
@@ -182,6 +177,8 @@ bool read_addr(uint64_t user, SockAddr* a) {
 }
 
 }  // namespace
+
+void poll_socket_watches() { ipc::poll_sockets(&ready); }
 
 Status net_cap(ipc::Cap** out) {
   return ipc::create_net(rights::kDuplicate | rights::kTransfer | rights::kRead | rights::kNetAll, out);

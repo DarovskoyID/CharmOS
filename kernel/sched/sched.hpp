@@ -121,6 +121,7 @@ void end_interruptible();
 
 // Приоритет потока (1..31); готовый поток переставляется в очереди.
 void set_priority(Thread* t, uint32_t priority);
+uint32_t get_priority(Thread* t);
 // Переключиться, если готов поток важнее текущего (после пробуждения,
 // из IPI и при выходе из системного вызова). Спинлоки не держать.
 void preempt_check();

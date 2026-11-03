@@ -7,6 +7,11 @@ endfunction()
 
 charmos_host_test(test_chromium_json test_chromium_json.cpp)
 
+add_library(native_path_test_impl OBJECT ${CMAKE_SOURCE_DIR}/user/libc/src/path.cpp)
+target_include_directories(native_path_test_impl PRIVATE ${CMAKE_SOURCE_DIR}/user/libc/include)
+target_compile_definitions(native_path_test_impl PRIVATE fnmatch=charm_fnmatch basename=charm_basename dirname=charm_dirname)
+charmos_host_test(test_libc_path test_libc_path.cpp $<TARGET_OBJECTS:native_path_test_impl>)
+
 charmos_host_test(test_format test_format.cpp)
 charmos_host_test(test_abi_boot test_abi_boot.cpp)
 target_link_libraries(test_abi_boot PRIVATE abi)

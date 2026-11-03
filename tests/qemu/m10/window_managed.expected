@@ -1,0 +1,3 @@
+managed window: resize generations, rollback, title, visibility and focus ok
+managed window: input after resize rendered
+managed window: closed

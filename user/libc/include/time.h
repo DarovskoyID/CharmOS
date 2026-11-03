@@ -27,12 +27,14 @@ struct tm* gmtime(const time_t* value);
 struct tm* localtime_r(const time_t* value, struct tm* result);
 struct tm* localtime(const time_t* value);
 time_t mktime(struct tm* value);
+time_t timegm(struct tm* value);
 double difftime(time_t end, time_t begin);
 void tzset(void);
 extern char* tzname[2];
 extern long timezone;
 extern int daylight;
 size_t strftime(char*, size_t, const char*, const struct tm*);
+char* strptime(const char* input, const char* format, struct tm* value);
 #ifdef __cplusplus
 }
 #endif

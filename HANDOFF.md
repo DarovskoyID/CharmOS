@@ -1,3 +1,434 @@
+# Актуальное продолжение (2026-10-29, WM v3 + Ozone canvas)
+
+ПРОВЕРЕНО: WM v3, user SDK create_managed/request_bounds/title/visibility/focus,
+асинхронная замена двух VMO с поколениями/откатом и FIFO64 с writable watch.
+Спека docs/abi/wm-v3.md. v2 сохранён. Window::create по умолчанию v2.
+Полная OS сборка managed-os-build.log, затем m10/window_managed PASS:
+resize cycles, short/no-map rollback, invalid generation disconnect,
+stalled consumer FIFO overflow isolation, input/repaint after resize.
+Первая проверка отказа ошиблась в тесте: VmoCreate требует page-aligned size;
+исправлен тест, НЕ ослаблены проверки сервера. managed-fix-build.log.
+managed-regression.log: PASS window_pixels, graphics_runtime, runtime_cpp,
+base_runtime, windows; graphics_runtime пересобрал только2 C++ и LINK.
+Снимок native-managed-window.png просмотрен: реальное окно400x220 после resize.
+
+НОВЫЙ ПРОВЕРЕННЫЙ ПАКЕТ: SurfaceOzoneCanvasCharmOS наследует настоящий
+upstream SurfaceOzoneCanvas. NativeWindowPresenterCharmOS владеет Window
+и FD watcher на UI sequence; immutable SkImage snapshot идёт с render thread,
+реальный FrameDone возвращает posted callback на render thread. Один pending
+swap, ошибочный viewport/damage/конкурентныйswap возвращает empty gfx::Size.
+RefCountedDeleteOnSequence удерживает UI владение. VSyncProvider nullptr:
+не выдаём estimated timer за scanout. Спека docs/abi/chromium-canvas.md.
+Новые source_set native_canvas + executable canvas_runtime в platform/BUILD.gn.
+Граф geometry — настоящий upstream target, не локальные копии реализации.
+Тест m10/canvas_runtime PASS, actual ELF strip+audit, resized480x280,
+inputA и Esc. Native pixel QA green24a148 x180/230,y270; goldf5c518 x430,y270;
+background111927 x140,y200. Снимок native-ozone-canvas.png просмотрен.
+
+tools/chromium/verify-canvas-block.sh воспроизводит prepare, GN, graph audit,
+ninja canvas_runtime, ELF audit, guest test. Первая попытка GN потребовала
+--root; исправлено. Затем38 компиляций прошли, но лог был перезаписан no-work:
+НЕ редактировать исполняемый shellscript во время его запуска — bash может
+перечитать смещённые строки и повторить команды. Результат гостевого теста
+подлинный, screenshot pixel QA зелёный. audit canvas closure session55545
+завершён0: no Rust,934 deps/4161 commands. Compiler/QEMU НЕ запущены.
+
+ДАЛЬШЕ: полного Ozone backend НЕТ. Canvas работает напрямую с presenter
+внутри процесса, это НЕ браузер и не готовый SurfaceFactory/PlatformWindow.
+Нужны PlatformWindow/delegate/inputtranslation, widget registry (uint32 IDs,
+не pointers), SurfaceFactory и OzonePlatform registration. WMv3 ещё не имеет
+capture/fullscreen/borderless/customcursor; не подменять их успехом/noop.
+Затем Mojo/engine IPC consumers, Blink/V8/сеть и браузер UI. Пользователь
+попросил довести до конца, тратить мало текста, НЕ компилировать мелкие
+правки: собирать завершёнными пакетами/при критической ошибке.
+
+# Предыдущее продолжение (2026-10-29, графический пакет)
+
+ГРАФИЧЕСКИЙ ПАКЕТ ПРОВЕРЕН: session49326 завершена0. Все ELF реально связаны,
+strip+audit, затем PASS m10/window_pixels, m10/graphics_runtime,
+browser/runtime_cpp, browser/base_runtime. Логи build/chromium/graphics-guest-*.log.
+Снимок настоящего окна build/chromium/native-skia.png (1280x800) просмотрен:
+реальные шрифты/фигуры/Native key A в WM, не макет и НЕ браузер/HTML.
+Конвертация через bundled Windows Python/Pillow (WSL Pillow не установлен).
+Компиляторов и QEMU после этих четырёх тестов нет. Следом отдельно m10/windows
+как регрессия изменения общего Window SDK; см. graphics-windows-regression.log.
+
+Последние исправления: native allocator_charmos UncheckedMalloc/Calloc/Free,
+шесть настоящих double hyperbolic через pinned third_party/fdlibm (LLVM units
+отсутствуют), errno/fenv фасад и гостевые проверки, свой process-local semaphore
+runtime (signal post, timeout, overflow, 1000 token handoffs, 8 workers),
+sig_atomic_t в signal.h. Все эти проверки реально прошли runtime_cpp.
+Изменение signal.h обоснованно пересобрало1904 зависимых единицы, НЕ повторять
+компилятор без изменений. Проверка ninja -n -d explain показала: изменение
+native libc/WM archives требует лишь3 LINK (без перекомпиляции C++). Все3
+ELF перелинкованы после последнего OS build. graphics-runtime-link.log,
+graphics-os-final.log, graphics-relink.log, graphics-native-archive-explain.log.
+
+VMO bugfix WM: проверяет размер обоих буферов до использования, освобождает
+частичные maps/ring при отказе, чистит окно при ошибке передачи Created.
+window_pixels реально тестирует короткий/неотображаемый буфер и нормальное
+окно после отказов. SDK резервирует buffer1 до первого FRAME_DONE1, иначе
+старый initial ACK мог бы повторно открыть уже отправленный второй буфер.
+Это правило v2 уточнено в docs/abi/wm.md, baseline clients начинают с0.
+WindowEventSourceCharmOS на настоящем Chromium UI pump проверен с restart
+из собственного callback, вводом A -> отображённый кадр и Stop из Esc callback.
+
+tools/chromium/verify-graphics-block.sh теперь воспроизводит проверку5 fixtures
+(последний windows добавлен после первого прохода). Не гонять всё без причины.
+WSL commands из PowerShell с вложенными $переменными в bash -lc могут терять
+значения (так первая попытка relink получила /out/charmos-platform). Для
+нетривиальных shell команд писать .sh и запускать напрямую: это уже исправлено
+в verify script. Ошибочные curl loops тоже могли терять $name; не считать их
+404/403 доказательством отсутствия спецификации. sem_wait.html сохранён подлинно.
+
+ДАЛЬШЕ: настоящий Ozone backend ещё НЕ написан. Остались PlatformWindow,
+SurfaceOzoneCanvas/SurfaceFactory с реальными frame ACK и thread ownership,
+UI input translation, затем Mojo/engine IPC consumers, Blink/V8 и браузер UI.
+WMv2 пока не имеет resize/title/show-hide/capture команд. Потребуется честное
+расширение протокола или явно ограниченный начальный native profile; не выдавать
+void setters/no-op за работающие функции. gfx AcceleratedWidget uint32 — не
+передавать native pointers через процессы. Для software/in-process GPU можно
+использовать защищённый registry; separate GPU process требует настоящего IPC.
+Текущий kernel/libc также не объявляют готовую executable/JIT reservation API;
+проверить перед включением V8. Полностью готового браузера по-прежнему НЕТ.
+
+Текущий пакет: реальный Chromium Skia CPU + C++ PNG/BMP/ICO/JPEG/WebP,
+FreeType, C++ HarfBuzz, Skottie/PDF/XMP без Rust. graphics-patches.py подключён
+к hash-checked prepare; изменения должны добавляться staged replacements,
+не редактировать уже применённые replacement-тексты: иначе защита vendor
+правильно отвергнет старую подготовленную версию. Лицензии сохранены/проверяются.
+Граф graphics_runtime: 932 зависимости, 4123 команды, без Rust; graphics-graph2.log.
+
+Сейчас активна session17351: graphics-build3.log, второй фактический проход
+компилятора (graphics-build2 остановился на GN до компиляции). НЕ запускать
+другую сборку/QEMU/prepare параллельно. Первый проход1429 шагов завершён,
+выявил malloc.h, ошибочный default macOS Skia для неизвестной ОС, mac utils
+и отсутствующий прямой //base у probe. Исправления: свой malloc_usable_size,
+SK_BUILD_FOR_UNIX (native libc POSIX, IS_LINUX/IS_APPLE всё ещё false), удаление
+mac/win utils, прямой deps//base. graphics-os2.log уже успешно.
+
+Добавлен настоящий setjmp/longjmp в libc arch/x86_64 по сохранённому C11 N1570
+и psABI (docs/abi/nonlocal-jumps.md), C11 PDF/источник/хеш в docs/specs.
+runtime_cpp новые проверки nonlocal_jump_checks.c и usable capacity пока
+НЕ запускались; expected обновлён. После graphics собрать full_runtime
+на той же args.gn напрямую ninja (не toggling graphics flag), strip/audit и
+tools/test.sh browser 150 runtime_cpp. Не забыть это: сейчас --graphics
+сам full_runtime не собирает.
+
+graphics_runtime создаёт настоящее WM окно, Skia raster, FreeType glyphs,
+PNG roundtrip+truncated stream, WindowEventSourceCharmOS на Chromium UI pump,
+проверяет key A -> новый кадр -> FRAME_DONE, потом Esc. Fixture m10/graphics_runtime
+ставит реальные шрифты и notices, сохраняет build/chromium/native-skia.ppm.
+EventSource owns readiness FD, unregister before close, callback может Stop/
+restart/delete source через WeakPtr. Это glue для будущего Ozone, НЕ Ozone backend.
+После успешной сборки tools/test.sh m10 150 window_pixels и graphics_runtime,
+получить/посмотреть снимок. Ozone/движок/браузерного окна по-прежнему НЕТ.
+Меньше вывода пользователю. Не повторять сборки по мелким изменениям.
+
+ПЕРВАЯ УСПЕШНАЯ БАЗА CHROMIUM: emutls-base.log 2204/2204 + link/audit,
+emutls-base-guest.log browser/base_runtime PASS. session1934 завершена0.
+В госте реально прошли strings/JSON/files/tasks/native IO pump, VMO mappings/
+restricted rights/child switch transfer, native process launch/query/waits,
+file allocation preserving contents/offset, metrics, SyncSocket partial reads/
+backpressure/shutdown и NativeChannel child payload+read-only VMO transfer.
+Теперь base_runtime ELF действительно есть в build/user/user/base_runtime.elf.
+Это доказанная база, НЕ браузер и НЕ отрисованный HTML.
+Полный runtime с compiler TLS/WatchFD тоже PASS (emutls-runtime-guest.log).
+Активных compiler/QEMU после пакета нет. Следующий большой пакет — GUI/Skia/
+Ozone и затем engine consumers; present_pixels и m10/window_pixels ещё не
+проверены. Не запускать компилятор ради этих ~100 строк в одиночку.
+
+НОВЕЙШЕЕ: emutls-os.log успешно. Первая GN ошибка удаления отсутствующего
+cxa_thread_atexit.cpp исправлена вторым staged patch (native target его и так
+не выбирает). В TLS тесте локально разрешён intentional -Wexit-time-destructors,
+иначе эти обязательные destructor probes отвергал Chromium -Werror. Это не
+подавление production ошибок. emutls-runtime.log/full ELF audit успешно;
+emutls-runtime-guest.log/runtime_cpp PASS, включая новый compiler TLS тест,
+одноразовые startup caps, все каналы и readiness FD. Теперь эти части ПРОВЕРЕНЫ.
+
+Активна session1934: emutls-base.log полный rebuild (2204 шагов), затем
+emutls-base-guest.log. Не запускать второй compiler/QEMU, не prepare vendor
+во время ninja. Сессии38679/64118 завершены, старые статусы ниже устарели.
+
+Пока base собирается, написан следующий GUI block без компиляции:
+Window::present_pixels с source size/stride/damage/format/alias validation,
+копированием полного кадра в owned backbuffer и RGBX/BGRX conversion,
+WouldBlock когда оба буфера заняты. SDK/docs обновлены. user/tests/window_pixels
+и m10/window_pixels fixture проверяют padded rows, conversion, invalid inputs,
+double buffer ownership, frame ACK через poll readiness и повторный present.
+Этот helper/GUI test ЕЩЁ НЕ СОБРАН и НЕ ПРОВЕРЕН; не перезапускать compiler
+после этих ~100 строк, продолжать связанный графический пакет.
+Исследованы native Ozone interfaces; CurrentUIThread уже поддерживает fd
+watcher на IS_OZONE (нет нужды патчить). SurfaceOzoneCanvas применим для
+software output. Но полноценный Ozone backend НЕ НАПИСАН. WM v2 пока без
+resize/title/capture протокола. Skia155 содержит обязательные Rust PNG и
+Fontations/прочиеcodec branches: для C++-only нужны реальные C++ backend,
+не просто выключение кодеков/шрифтов. В архиве есть C++ JPEG и FreeType,
+C++ libpng decoder на самом деле ЕСТЬ: third_party/skia/src/codec/SkPngCodec.cpp,
+include/codec/SkPngDecoder.h, src/encode/SkPngEncoderImpl.cpp. Предыдущий
+вывод об отсутствии ошибочен: поиск был обрезан. Также есть C++ BMP/ICO/JPEG
+и third_party/libpng. Нужно выбрать эти реальные backend в native GN вместо
+Rust branches, сохраняя лицензии. Браузер всё ещё далеко от готовности.
+
+Последующие регрессии emutls-threads-guest.log (m8/threads),
+emutls-signals-guest.log (m8/signals), emutls-windows-guest.log (m10/windows)
+прошли, session50687 завершена0. Активных сборок и QEMU нет.
+Для libpng ещё нужен настоящий setjmp/longjmp: реализации пока нет.
+Нормативный C11 N1570 найден: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf
+Перед реализацией сохранить в docs/specs и изучить 7.13 вместе с x86-64 psABI.
+
+ПОСЛЕДНЕЕ УКАЗАНИЕ: владелец просит МЕНЬШЕ ТЕКСТА/ТОКЕНОВ в выводе. Статусы
+короткие, логи целиком не печатать. На вопрос «почти готов?» прямо ответили НЕТ:
+окна/веб-страниц нет, остаются графика/ввод, IPC потребители движка, веб-движок/UI.
+
+channel-base.log: все native backends и libbase.a собрались. ipc_checks int->
+strict size исправлен (first(3u), first(1u)). channel-base-link.log дошёл до
+линковки: duplicate GetIdleWakeupsPerSecond; исправлен hash-checked patch
+process_metrics.cc (native исключён из upstream NOTIMPLEMENTED fallback).
+base-final-link.log повторил линковку и выявил НЕПОДДЕРЖИВАЕМЫЙ ELF TLS у
+Chromium base/Abseil. Браузер/base ELF всё ещё НЕТ. Старые сессии закончились.
+
+Решение без фальшивого PT_TLS/Linux TCB: LLVM -femulated-tls + собственный
+native runtime (docs/abi/compiler-tls.md написан перед кодом, ABI из pinned
+compiler-rt emutls.c). user/libc/src/emutls.cpp хранит aligned/per-thread
+instances по control pointer в приватном ThreadBlock, без общего TLS-слота на
+переменную; __cxa_thread_atexit[_impl] LIFO, C++ destructors до pthread keys,
+новые регистрации из key destructors тоже обрабатываются, storage очищается
+после всего. main TLS destructors до atexit/global; _Exit/kill без cleanup.
+CMake c INTERFACE и Chromium toolchain.py включают -femulated-tls (rt-only
+programs без libc не тронуты). libc++abi generic cxa_thread_atexit.cpp исключён,
+необходимо одно владение TLS lifetime. audit по-прежнему запрещает ELF TLS,
+его диагностическая строка теперь говорит ELF TLS, не compiler TLS.
+
+Новые compiler_tls_checks.cc + other TU: 8 concurrent threads, distinct
+addresses, initial values/zero/align256/cross-unit access, dynamic ctor once,
+LIFO 2->late3->1, key destructor creates4, cleanup 32 repeated pthread workers
+без live heap leaks; child main TLS teardown before atexit via exit42.
+ЕЩЁ НЕ ПРОВЕРЕНО. Native WatchFD/runtime test тоже ещё не был проверен.
+build-builtins.py кэширует 3 arithmetic helper объекта по inputs/headers и
+compiler metadata, чтобы build-platform больше не компилировал их всегда.
+
+СЕЙЧАС выполняется ОДИН критический пакет, session38679:
+emutls-os.log -> emutls-runtime.log -> emutls-runtime-guest.log ->
+emutls-base.log -> emutls-base-guest.log. with-cache.sh 1000 1000, root cwd.
+Замена toolchain revision из-за -femulated-tls требует один полный Chromium
+rebuild, не перезапускать compiler мелкими порциями. Следить за фазой и чинить
+всю группу ошибок, QEMU строго последовательно. НЕ править vendor cache
+через prepare пока ninja работает. Новые патчи до старта успешно подготовлены
+tls-platform-prepare.log. До этого доказаны runtime/channel/spawn/windows,
+но НЕ новый compiler-TLS профиль. Никаких заявлений о готовом браузере.
+
+Текущий пакет56545: runtime_cpp guest УСПЕШНО, m8/spawn УСПЕШНО,
+m10/windows УСПЕШНО. channel-base.log ещё собирается (1338 шагов после
+изменившихся общих заголовков), не запускать второй compiler/QEMU параллельно.
+Гость подтвердил heap/FD counters, concurrent startup take, ChannelQuery/
+shutdown/writable watches, stream300000 bytes/backpressure/partial reads,
+закрытие queued capabilities и blocked readers. Это уже проверено.
+
+ПОСЛЕ подготовки данного guest ELF, ещё БЕЗ сборки, написан следующий мост:
+charm_channel_watch_fd(endpoint,mask) -> native poll-only FD с owned narrow
+duplicate. Kind::ChannelWatch в libc, read/write/stat ENOTSUP, poll переводит
+настоящие channel readable/writable/closed packets. Это нужно для интеграции
+оконного event_handle в основной MessagePump/Ozone без отдельного потока.
+Новый runtime test/expected "channel readiness descriptors ..." ЕЩЁ НЕ
+скомпилирован и не запущен; текущий PASS относится к состоянию ДО этой строки.
+Следующую сборку не запускать ради этого одного моста; довести связанный GUI
+блок. Текущее base не использует новый API и может собраться с предыдущей libc.
+
+САМЫЙ НОВЫЙ блок: ABI1.18 ChannelQuery81/ChannelShutdown82, Endpoint read/write
+shutdown и Writable ObjectWatch (packet11), bound_mask, cleanup queued caps,
+wake readers/writers. docs/abi/channel-control.md написан перед кодом.
+Kernel startup send/recv тоже соблюдает закрытие и очередь64. Общий SDK
+charm/stream.hpp: borrowed bounded stream, частичные reads, native write waits
+с отменой подписок, абсолютные deadlines. Chromium sync_socket_charmos и
+NativeChannel с передачей реальных capabilities вместо BSD/SCM_RIGHTS/FD.
+Старый include UnixDomainSocket выбирает ТИПИЗИРОВАННЫЙ native интерфейс,
+поэтому непренесённые FD-потребители не смогут тихо трактовать FD как caps.
+PID credentials честно ENOTSUP; отправка копирует actual rights и сохраняет
+оригиналы. Есть base ipc_checks с shutdown/full queue/partial reads/child caps.
+
+Все новые GN/vendor патчи ДО malloc_dump_provider.h tracing macro успешно
+применены channel-platform-prepare.log. Macro native tracing добавлен позднее
+и применится при следующем prepare (без изменения native counter semantics).
+Активен ОДИН критический пакет, exec session56545:
+with-cache.sh 1000 1000 bash -c 'OS && host && full-runtime && runtime_cpp guest
+&& m8 spawn && m10 windows && --base && base_runtime guest'.
+Логи build/chromium/channel-{os,host,runtime,runtime-guest,spawn-guest,
+windows-guest,base,base-guest}.log. ОС успешно собрана, host31/31,
+full-runtime194/194+ELF audit успешно; в момент записи QEMU ещё выполняется.
+Не стартовать параллельный QEMU, не править vendor cache во время ninja.
+Не перезапускать компилятор по мелочам — дождаться всего пакета и чинить
+полные группы найденных ошибок. Полного браузера/окна пока нет.
+
+НОВЕЕ: base-sdk-os.log успешно, base-sdk-integration.log завершён exit1:
+1748/1750 шагов, 10 failed units. Native shared_memory/mapper, sys_info,
+native_library, process, launch, kill, file allocation и file_util_posix
+скомпилировались! Shared-memory switch тоже компилируется. Линковки ещё нет.
+Остались unix_domain_socket, sync_socket, process_metrics_posix, module_cache,
+stack_base_address/stack_copier/thread_delegate/stack_trace, malloc_dump_provider,
+плюс shared_memory_checks: redefinition writable. Последняя ошибка уже
+исправлена (новое имя writable_region), без повторной сборки.
+
+После этого накоплен следующий блок БЕЗ компиляции: libc атомарный счётчик
+живых allocation capacities и locked FD count; native process_metrics,
+module_cache (реальные linker text bounds), stack_trace (только настоящий
+один return address; нет ложного полного unwind), malloc_dump_provider
+(только live_block_capacity без фальшивых RSS). prepare-platform GN исключает
+POSIX-only diagnostic sources; StackSampler upstream и так возвращает nullptr
+для non-ChromeOS, так что signal copier не нужен. user.ld экспортирует границы
+text. Добавлены file_checks для preallocation/preserved bytes/offsets/accounting.
+Новый диагностический блок ещё НЕ применён в vendor cache и НЕ проверен.
+После него НЕ запускать новую сборку только ради проверки мелких изменений;
+сначала закрывать целую оставшуюся группу IPC (Unix domain/sync socket).
+
+Указание владельца: продолжать браузер до конца; НЕ компилировать мелкие
+пакеты, только при критической необходимости. Подагентов не запускать.
+Браузерного ELF/окна пока НЕТ; не утверждать готовность Chromium.
+
+Проверка SDK 1.0/ABI 1.16 ЗАВЕРШЕНА успешно: sdk-process-os.log,
+sdk-process-runtime.log, sdk-process-guest.log; в QEMU подтверждены права,
+ownership VMO, отмена ожиданий Process, приоритеты, лимиты argv/env/extras.
+Предупреждения ниже «SDK ещё не прогнан» относятся к более ранней записи.
+
+Следующий большой файловый блок тоже проверен одним критическим пакетом:
+fs-directory-os.log, fs-directory-host.log (31/31), fs-directory-runtime.log,
+fs-directory-guest.log (browser/runtime_cpp PASS). ABI 1.17: FsUnlinkTyped79,
+FsRename80, CrossDevice23. Настоящее ext2 regular rename (в том числе замена),
+inode identity, корректный порядок публикации directory records, fault-injection
+тесты сохранности данных, отсутствие утечек обычных операций. Directory rename
+и FAT rename явно Unsupported. НЕ journal/crash-atomic. libc openat/fstatat/
+unlinkat/renameat/fdopendir/dirfd, realpath с проверкой каждого компонента,
+limits.h, pathconf и честные неподдерживаемые Unix permission/symlink операции.
+Directory-relative '..' запрещён ENOTSUP. QEMU проверил урезанные права,
+open destination Busy, сохранность открытого source, владение DIR, realpath.
+
+prepare-platform.py успешно применяет native file allocation и file_util
+патчи (fs-platform-prepare.log), но сами Chromium base backends пока НЕ
+скомпилированы. Флаги build-platform теперь одинаковые для всех режимов,
+чтобы переключение диагностической цели не инвалидировало allocator buildflags.
+
+ПОСЛЕ этой проверки, ещё БЕЗ компиляции, написан SDK 1.1 startup capabilities:
+charm_take_start_handle(role>=0x10000), mutex/одноразовое владение, сохранение
+ролей и стабильные extra slots. Chromium shared_memory_switch сериализует
+полученную роль, а не parent handle/FD; LaunchOptions хранит shared_ptr owners
+и передаёт narrowed rights. Патчи hash-checked применились успешно в
+startup-platform-prepare.log. Добавлены guest concurrent-take child и base
+child tests readonly/unsafe mappings/owner copies/repeated take. ЕЩЁ НЕ ПРОГНАНЫ.
+
+Добавлен harness base_runtime (kernel test, QEMU fixture/args/expected) и
+копирование/audit ELF после успешной --base. До успешной линковки/гостевого
+запуска это только подготовленный harness, не доказательство готовности.
+Последний --base по-прежнему base-native-clock.log: старые ошибки Unix domain,
+sync_socket, optional profiling, process_metrics; новых native memory/process/
+file backend ещё не проверяли компилятором. Следующий --base должен быть одним
+проходом всего накопленного блока, затем править ошибки большими группами.
+
+# Последние указания и пакет SDK (2026-10-28, предыдущая запись)
+
+Владелец просит довести браузер ПОЛНОСТЬЮ до рабочего состояния в CharmOS,
+а общий API сделать пригодным для другого браузерного движка. Отдельно дважды
+потребовал НЕ запускать компилятор после мелких пакетов: пропускать обычные
+промежуточные сборки, запускать только при критической необходимости после
+большого связного блока. Последние ~2000 строк SDK/процессных адаптеров ниже
+ещё НЕ проверены компилятором; не утверждать, что браузер готов. Окна нет.
+
+До этого исправлен fnmatch, 31/31 host зелёные (vector-path-host.log), большой
+дифференциальный тест path-differential.log. Есть исключение для особенности
+glibc со '*\\/' и FNM_PATHNAME: native случай проверен отдельно. browser/runtime_cpp
+в vector-path-runtime-guest.log прошёл с readv/writev (включая атомарность pipe
+record из нескольких iovec), basename/dirname/fnmatch и старым проверенным
+пакетом stat/FsIdentity/NOFILE. Не путать с новыми SDK/ProcessView тестами!
+
+Новый связный пакет, без повторных сборок по просьбе владельца:
+- user/rt/include/charm/{handle,memory,process}.hpp: UniqueHandle, Mapping,
+  SharedMemory, ProcessView. README с примерами и явным владением/правами.
+- docs/abi/application-sdk.md: ABI 1.16, VmoSize=76, ThreadPriority=77,
+  HandleRights=78, RuntimeQuery(8)=Job ceiling, отмена Process/Thread/Job binds
+  через существующий ObjectUnbind. Документация написана перед реализацией.
+- Kernel/read-only metadata и current-thread priority реализованы, но последнее
+  sdk-os.log доказывает только более ранний промежуточный пакет без HandleRights
+  и без новых отмен Process/Thread/Job! Пересобрать и проверить перед заявлением.
+- ВАЖНО: приоритеты в ядре УЖЕ существовали (ThreadSetPriority=58, 1..31),
+  исходная новая native thread-заготовка ошибочно считала их отсутствующими.
+  Исправлено: background/utility/default/presentation/audio/realtime =
+  4/8/16/20/24/28 с реальным Job ceiling; главный поток теперь тоже поддержан.
+- Perfetto PagedMemory использует общий SDK. Новые SDK-тесты в runtime_checks
+  проверяют ownership/real sizes/readonly rights/moves/process deadline cleanup,
+  priority inheritance и ошибки лимитов запуска. ЕЩЁ НЕ ПРОГНАНЫ.
+- Chromium shared_memory_{mapper,region} native: реальные VMO, точные права и
+  размер при TakeOrFail, readonly conversion, registry полных mappings для
+  offset views. Новые base-тесты shared_memory_checks.cc ЕЩЁ НЕ ПРОГНАНЫ.
+- process_charmos/kill_charmos/launch_charmos: native capabilities вместо PID,
+  int64 ProcessHandle (0 invalid, -1 current pseudo, >0 uint32 kernel handle),
+  явные native LaunchOptions, duplicate before transfer, deadline waits. Никаких
+  fork/exec/UID/waitpid. Не экспортировать неподдерживаемый CloseSuperfluousFds.
+- sys_info_charmos/native_library_charmos: реальные CPU/RAM/ABI identity;
+  disk/residency unknown возвращает nullopt, dynamic loading — ENOTSUP.
+  Необязательный Purge native возвращает false до изменения shared state.
+- libc charm_spawn исправлен от молчаливого усечения argv/env/extras и underflow
+  own-handle count при overflow; ошибки копирования authority теперь возвращаются.
+  charm_wait использует ProcessView. Эти изменения ЕЩЁ НЕ ПРОГНАНЫ.
+- Window добавлены width/height/event_handle (borrowed readiness handle);
+  close обнуляет размеры. Сетевой/оконный ABI не менялся.
+
+Следующий критический check после этого большого блока: OS + full-runtime и
+browser/runtime_cpp для нового ABI/SDK/спавна. Затем один --base проход всего
+накопленного пакета; он по-прежнему имеет ещё не перенесённые file_util,
+Unix-domain/sync-socket, профилировщик/stack trace и process_metrics зависимости.
+Последний реально завершённый --base = base-native-clock.log, до SDK backend:
+clock/rand/thread + native IO pump успешно компилировались, но линковки нет.
+Новые base backend и тесты пока только написаны. Нельзя отключать core функции
+или добавлять фиктивно успешные заглушки ради линковки. Полный браузер всё ещё
+требует Ozone/Skia, renderer/IPC/network интеграции и последующих компонентов.
+
+# Актуальное состояние браузера 2026-10-28
+
+Запрос владельца: довести нативный Chromium до появления браузера в CharmOS.
+Полного браузерного ELF и окна пока нет; M10/порт Chromium не закрыты.
+Продолжать связными пакетами. Ниже старые записи сохраняются как история,
+их перечень отсутствующих интерфейсов уже частично устарел.
+
+За последний пакет реализованы и проверены в QEMU: настоящие channel-backed
+pipe/pipe2 с backpressure/ACK и разделяемыми описаниями, poll через отменяемые
+kernel port watches, частные anonymous/file mmap с реальными read-only fault
+проверками, mkstemp/mkostemp/mkdtemp, UTC strptime/timegm, uname/sysconf,
+Perfetto guarded PagedMemory, память/число CPU через RuntimeQuery. ABI 1.14:
+ObjectUnbind=73, ObjectWatch=74; RuntimeQuery 5/6 managed total/free frames,
+7 actual CPU count (селектор 4 остаётся периодом учёта планировщика!).
+Потоки libc v3: pthread attributes/custom stacks, join/detach, reaper по
+настоящему ThreadExited, monotonic condition attributes, pthread_equal.
+Detached stacks освобождаются после выхода kernel thread, не заранее.
+
+Доказательства: build/chromium/native-pthread-guest.log (browser/runtime_cpp,
+включая 128 detach и ограничение утечки физических страниц, custom 512KiB
+stack с 320KiB touch, monotonic cond); native-mapping-guest.log;
+native-watch-https.log (TLS 1.2/1.3, HTTP, отрицательные сертификаты и poll);
+native-watch-{threads,signals,spawn,libc,preempt,windows}.log; 30/30 host в
+native-query-host.log. Регрессии m8/m10 были ДО pthread v3/FsIdentity, повторить.
+
+Последний собранный пакет ОС: native-fs-identity-os.log, успешно. ABI 1.15:
+FsIdentity=75 возвращает реальный mount/node ID. libc stat v3=56 байт,
+dev/ino реальны, atime/ctime=0 unavailable; lstat эквивалентен stat (symlinks
+отсутствуют), futimes честно ENOTSUP. Реальные get/setrlimit NOFILE с soft/hard,
+ограничения fd_alloc/dup/dup2; STACK=64KiB bootstrap, CORE=0. Новые guest-тесты
+идентичности и NOFILE добавлены в runtime_checks.cc, ЕЩЁ НЕ ПРОГНАНЫ.
+
+Новые Chromium native sources message_pump_charmos.{h,cc}, files_comparison.cc,
+memory_metrics.cc интегрированы exact/hash-checked prepare-platform.py.
+Нативный IO/UI pump использует pipe/poll, shared watch state для уничтожения
+controller в callback, nested Run и delayed work. Пока не проверен в госте.
+Последний запуск --base: build/chromium/base-native-io.log (в работе при этой
+записи); предыдущий base-native-mapping.log не дошёл до линковки. Дальше:
+разобрать новый build log, прогнать full runtime/guest для FsIdentity/rlimit,
+реализовать настоящие платформенные backend //base, затем оставшиеся browser
+IPC/process/Ozone/Skia/network компоненты. Не подменять Linux и не глушить
+недостающие операции успешными заглушками. Только C++, без Rust.
+
+WSL cache доступен через tools/chromium/with-cache.sh 1000 1000 bash -c '...'
+(запуск wsl -u root): монтирование живёт в namespace, Windows напрямую source
+не видит. В WSL нет rg, использовать grep/sed. Не запускать prepare-platform
+одновременно с ninja, не запускать несколько QEMU одновременно.
+
 # Актуальное уточнение 2026-10-17
 
 ## Уточнение владельца 2026-10-17: только C++
@@ -433,3 +864,25 @@ m8 libc/threads/signals/spawn, m10 editor/files_nav/windows (libc общая).
 Логи build/chromium/native-platform-*.log, fd-v2-m10.log. Пакет закоммичен.
 Следующее: пересобрать //base (--base) с уже записанными исправлениями
 prepare-platform.py и закрывать оставшиеся группы ошибок настоящим кодом.
+
+## Продолжение Chromium 2026-10-28
+Повторный --base: build/chromium/base-resume.log; сборка завершилась ошибками
+платформы (112 выполненных шагов из 700 доступных), браузерного ELF пока нет.
+Добавлены timegm с нормализацией UTC и проверками границ/ошибок и native
+Perfetto PlatformThreadId=pid_t / GetThreadId=gettid вместо pthread_t-указателя.
+Патч Perfetto воспроизводимый, проверяет SHA-256 upstream. Full runtime явно
+зависит от штатной генерации флагов Perfetto; Abseil tests отключены и для
+этого профиля, поскольку они требуют Rust. Исходная незакоммиченная настройка
+enable_perfetto_trace_processor_httpd=false сохранена.
+
+Проверены: пересборка ОС; полный native C++ runtime и ELF audit; QEMU
+browser/runtime_cpp (включая UTC DST hint, null/overflow и Perfetto ID главного
+и четырёх рабочих потоков); m8/libc; 30/30 host. Логи utc-os-build.log,
+utc-runtime-build.log, utc-runtime-guest.log, utc-libc-guest.log в build/chromium.
+Повторный --base после изменений пишет build/chromium/base-after-utc.log.
+Он завершился exit 1 после 1449/2037 шагов: 16 failed compile units,
+оставшиеся цели заблокированы зависимостями. Ошибки timegm и преобразования
+Perfetto pthread_t в число устранены; полный base до линковки не дошёл.
+Оставшиеся интерфейсы: mmap, pipe/poll, временные файлы, uname, access,
+signal/dynamic-symbolize, CCTZ и собственный backend base. Окна браузера нет;
+M10 и порт Chromium не закрыты.
