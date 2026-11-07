@@ -80,6 +80,7 @@ size_t strxfrm(char* out, const char* src, size_t n) {
   if (n) memcpy(out,src,length<n ? length+1 : n);
   return length;
 }
+int isascii(int c) { return (c & ~0x7f) == 0; }
 int iscntrl(int c) { return (c>=0 && c<32) || c==127; }
 int isgraph(int c) { return c>32 && c<127; }
 int isblank(int c) { return c==' ' || c=='\t'; }

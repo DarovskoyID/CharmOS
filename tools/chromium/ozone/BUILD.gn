@@ -1,0 +1,66 @@
+source_set("native_canvas") {
+  sources = [
+    "../native_window_presenter_charmos.cc",
+    "../native_window_presenter_charmos.h",
+    "../surface_ozone_canvas_charmos.cc",
+    "../surface_ozone_canvas_charmos.h",
+    "../window_event_source_charmos.cc",
+    "//ui/ozone/public/surface_ozone_canvas.cc",
+  ]
+  include_dirs = [ "$charmos_repo/user/libwm/include" ]
+  public_deps = [ "//base", "//skia", "//ui/gfx/geometry" ]
+}
+source_set("ozone_charmos") {
+  sources = [
+    "../input_translator_charmos.cc",
+    "../input_translator_charmos.h",
+    "../native_window_registry_charmos.cc",
+    "../native_window_registry_charmos.h",
+    "../ozone_platform_charmos.cc",
+    "../ozone_platform_charmos.h",
+    "../platform_screen_charmos.cc",
+    "../platform_screen_charmos.h",
+    "../platform_window_charmos.cc",
+    "../platform_window_charmos.h",
+    "../surface_factory_charmos.cc",
+    "../surface_factory_charmos.h",
+  ]
+  include_dirs = [ "$charmos_repo/user/libwm/include" ]
+  defines = [ "OZONE_IMPLEMENTATION" ]
+  public_deps = [ ":native_canvas" ]
+  deps = [
+    "//base",
+    "//skia",
+    "//ui/base",
+    "//ui/base/cursor",
+    "//ui/base/ime",
+    "//ui/display",
+    "//ui/display/types",
+    "//ui/events",
+    "//ui/events:dom_keycode_converter",
+    "//ui/events/ozone/layout",
+    "//ui/events/platform",
+    "//ui/gfx",
+    "//ui/gfx/geometry",
+    "//ui/ozone:ozone_base",
+    "//ui/ozone/common",
+    "//ui/platform_window",
+  ]
+}
+executable("ozone_runtime") {
+  sources = [ "../ozone_runtime.cc", "../certificate_checks_charmos.cc" ]
+  include_dirs = [ "$charmos_repo/user/libwm/include" ]
+  deps = [
+    ":ozone_charmos",
+    "//build/charmos:numeric_runtime",
+    "//net",
+    "//ui/display",
+    "//ui/events",
+    "//ui/ozone:platform",
+  ]
+  libs = [
+    "$charmos_repo/build/user/user/libwm/libwm_client.a",
+    "$charmos_repo/build/user/lib/input/libinput.a",
+    "$charmos_repo/build/user/user/libc.a",
+  ]
+}

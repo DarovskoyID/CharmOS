@@ -1,0 +1,3 @@
+Native V8: full collection ok
+Native V8: JavaScript evaluation ok (arithmetic, closures, loops, objects)
+Native V8: clean shutdown ok

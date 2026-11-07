@@ -50,6 +50,52 @@ TEST(paging_map_2m) {
   CHECK(flags == (arch::x86_64::kMapWrite | arch::x86_64::kMapNoExec));
 }
 
+TEST(paging_protect_existing_leaf_without_allocation) {
+  Pool pool(4);  // No frames remain after the first mapping.
+  PageTables pt;
+  CHECK(pt.init(&Pool::alloc,&pool,0));
+  CHECK(pt.map_4k(kHi,0x123000,arch::x86_64::kMapWrite|arch::x86_64::kMapNoExec));
+  CHECK(pool.used==4);
+  CHECK(pt.protect_4k(kHi,0));  // RW/NX -> read-only executable.
+  uint64_t phys=0,flags=0;
+  CHECK(pt.translate(kHi+17,&phys,&flags) && phys==0x123011 && flags==0);
+  CHECK(pt.protect_4k(kHi,arch::x86_64::kMapWrite|arch::x86_64::kMapNoExec));
+  CHECK(pt.translate(kHi,&phys,&flags) && phys==0x123000 &&
+        flags==(arch::x86_64::kMapWrite|arch::x86_64::kMapNoExec));
+  CHECK(!pt.protect_4k(kHi+1,0));
+  CHECK(!pt.protect_4k(kHi+4096,0));
+  CHECK(pool.used==4);
+  CHECK(pt.unmap_4k(kHi)==0x123000);
+  CHECK(!pt.protect_4k(kHi,0));
+  Pool large_pool(3);
+  PageTables large;
+  CHECK(large.init(&Pool::alloc,&large_pool,0));
+  CHECK(large.map_2m(0x200000,0x400000,arch::x86_64::kMapNoExec));
+  CHECK(!large.protect_4k(0x201000,0));
+  CHECK(large.translate(0x201000,&phys,&flags) && phys==0x401000 &&
+        flags==arch::x86_64::kMapNoExec);
+}
+
+TEST(paging_inaccessible_leaf_retains_ownership_and_restores) {
+  Pool pool(4);
+  PageTables pt;
+  CHECK(pt.init(&Pool::alloc,&pool,0));
+  constexpr uint64_t denied=arch::x86_64::kMapInaccessible|arch::x86_64::kMapNoExec;
+  CHECK(pt.map_4k(kHi,0x123000,denied));
+  uint64_t phys=0,flags=0;
+  CHECK(!pt.translate(kHi,&phys,&flags));
+  CHECK(!pt.map_4k(kHi,0x456000,0));
+  CHECK(pt.protect_4k(kHi,arch::x86_64::kMapWrite|arch::x86_64::kMapNoExec));
+  CHECK(pt.translate(kHi+17,&phys,&flags) && phys==0x123011 &&
+        flags==(arch::x86_64::kMapWrite|arch::x86_64::kMapNoExec));
+  CHECK(pt.protect_4k(kHi,denied));
+  CHECK(!pt.translate(kHi,&phys,&flags));
+  CHECK(pt.unmap_4k(kHi)==0x123000);
+  CHECK(pt.map_4k(kHi,0x456000,denied));
+  CHECK(pool.used==4);
+  CHECK(pt.unmap_4k(kHi)==0x456000);
+}
+
 TEST(paging_rejects_double_map_and_misalignment) {
   Pool pool(64);
   PageTables pt;
@@ -132,4 +178,30 @@ TEST(paging_unmap_4k) {
   CHECK(pt.unmap_4k(0x400000) == 0);       // уже снято
   CHECK(pt.unmap_4k(0x7f0000000000ull) == 0);  // таблиц нет
   CHECK(pt.map_4k(0x400000, 0xa000, 0));    // слот снова свободен
+}
+
+TEST(paging_remap_inaccessible_marker) {
+  Pool pool(64);
+  PageTables pt;
+  pt.init(&Pool::alloc, &pool, 0);
+  const uint64_t va = 0x400000;
+  const uint64_t user_noexec =
+      arch::x86_64::kMapUser | arch::x86_64::kMapNoExec;
+  // A lazy VMO alias starts as a non-present marker with physical address 0.
+  CHECK(pt.map_4k(va, 0, user_noexec | arch::x86_64::kMapInaccessible));
+  uint64_t phys = 0, flags = 0;
+  CHECK(!pt.translate(va, &phys, &flags));
+  // Another alias committed a real frame; restoring access must install it.
+  CHECK(pt.remap_4k(va, 0xa000, user_noexec));
+  CHECK(pt.translate(va, &phys, &flags) && phys == 0xa000);
+  CHECK((flags & arch::x86_64::kMapUser) != 0);
+  CHECK((flags & arch::x86_64::kMapInaccessible) == 0);
+  // Making it inaccessible again keeps the leaf; a second alias commit with a
+  // different frame must replace the stale physical address.
+  CHECK(pt.protect_4k(va, user_noexec | arch::x86_64::kMapInaccessible));
+  CHECK(!pt.translate(va, &phys, &flags));
+  CHECK(pt.remap_4k(va, 0xb000, user_noexec));
+  CHECK(pt.translate(va, &phys, &flags) && phys == 0xb000);
+  CHECK(pt.unmap_4k(va) == 0xb000);
+  CHECK(!pt.remap_4k(va, 0xc000, user_noexec));  // no leaf
 }

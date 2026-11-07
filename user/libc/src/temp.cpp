@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -45,6 +46,32 @@ extern "C" int mkostemp(char* pattern, int flags) {
   return -1;
 }
 extern "C" int mkstemp(char* pattern) { return mkostemp(pattern, 0); }
+// tmpfile: создаём временный файл и сразу снимаем имя — дескриптор продолжает
+// работать, а файл исчезает при закрытии/перезагрузке (как в POSIX).
+extern "C" FILE* tmpfile(void) {
+  const char* dir = getenv("TMPDIR");
+  if (!dir || !*dir) dir = "/tmp";
+  char pattern[256];
+  int length = snprintf(pattern, sizeof pattern, "%s/charmos-XXXXXX", dir);
+  int fd = -1;
+  if (length > 0 && static_cast<size_t>(length) < sizeof pattern) fd = mkostemp(pattern, O_CLOEXEC);
+  if (fd < 0) {
+    // Минимальный образ может не содержать /tmp; используем текущий каталог.
+    strcpy(pattern, "charmos-XXXXXX");
+    fd = mkostemp(pattern, O_CLOEXEC);
+  }
+  if (fd < 0) return nullptr;
+  int saved = errno;
+  (void)unlink(pattern);
+  FILE* file = fdopen(fd, "w+");
+  if (!file) {
+    saved = errno;
+    (void)close(fd);
+    errno = saved;
+    return nullptr;
+  }
+  return file;
+}
 extern "C" char* mkdtemp(char* pattern) {
   char* suffix = suffix_of(pattern);
   if (!suffix) return nullptr;

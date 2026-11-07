@@ -23,12 +23,19 @@
 #define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
 #define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
 struct stat {
-  off_t st_size;
-  mode_t st_mode;
-  time_t st_mtime;
   dev_t st_dev;
   ino_t st_ino;
-  time_t st_atime, st_ctime;
+  mode_t st_mode;
+  nlink_t st_nlink;
+  uid_t st_uid;
+  gid_t st_gid;
+  rdev_t st_rdev;
+  off_t st_size;
+  blksize_t st_blksize;
+  blkcnt_t st_blocks;
+  time_t st_atime;
+  time_t st_mtime;
+  time_t st_ctime;
 };
 #ifdef __cplusplus
 extern "C" {
@@ -39,6 +46,11 @@ int fstatat(int directory,const char* path,struct stat* st,int flags);
 int lstat(const char* path, struct stat* st);
 int mkdir(const char* path, mode_t mode);
 int chmod(const char* path,mode_t mode);
+int fchmod(int fd, mode_t mode);
+int fchown(int fd, uid_t owner, gid_t group);
+#include <sys/time.h>
+int utimes(const char* path, const struct timeval times[2]);
+int futimes(int fd, const struct timeval times[2]);
 #ifdef __cplusplus
 }
 #endif

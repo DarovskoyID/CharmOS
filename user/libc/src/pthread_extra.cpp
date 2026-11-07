@@ -129,4 +129,9 @@ int pthread_rwlock_unlock(pthread_rwlock_t* lock) {
   pthread_mutex_unlock(&lock->gate);
   return result;
 }
+
+int pthread_setname_np(pthread_t, const char*) {
+  // The kernel has no thread-name operation; do not report a change.
+  return ENOTSUP;
+}
 }

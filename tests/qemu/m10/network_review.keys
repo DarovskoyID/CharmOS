@@ -1,0 +1,6 @@
+#wait network compatibility: readiness, descriptors, honest errors and resolver ok
+network_addresses
+#wait network addresses: IPv4/IPv6 parsing, canonical text, bounds and transport distinction ok
+network_compatibility console
+#wait network compatibility: console capability isolation ok
+svc poweroff

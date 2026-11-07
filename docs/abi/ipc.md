@@ -86,6 +86,10 @@
 `channel_create` с правами концов: `Duplicate | Transfer | Read | Write`.
 `vmo_create`: `Duplicate | Transfer | Read | Write | Map`.
 
+Более поздние расширения ABI: `VmoProtect=83` (v1.19, `executable-memory.md`)
+и `VmoReserve=84` (v1.21, `lazy-vmo.md`; тот же VMO-авторитет, но физические
+кадры выделяются при commit, а не при создании).
+
 `abi_version` после реализации возвращает `1.1`.
 
 ## 7. Отзыв

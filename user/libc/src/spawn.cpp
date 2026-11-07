@@ -250,6 +250,28 @@ int sigprocmask(int how, const sigset_t* set, sigset_t* old) {
   if (old != nullptr) *old = res.value;
   return 0;
 }
+int sigaltstack(const stack_t* ss, stack_t* old_ss) {
+  // Querying the absent alternate stack is supported. Installing a stack
+  // cannot succeed until the kernel implements alternate-stack delivery.
+  if (ss && ss->ss_flags!=SS_DISABLE) {
+    if (ss->ss_flags!=0) return fail_errno(EINVAL);
+    return fail_errno(ENOTSUP);
+  }
+  if (old_ss != nullptr) {
+    old_ss->ss_sp = nullptr;
+    old_ss->ss_flags = SS_DISABLE;
+    old_ss->ss_size = 0;
+  }
+  return 0;
+}
+int sigaction(int signo, const struct sigaction* act, struct sigaction* old) {
+  // The kernel's signal() dispatcher does not implement siginfo/context or
+  // sigaction masks/flags. Leave the caller's output untouched on failure.
+  (void)act;
+  (void)old;
+  if ((signo<=0 || signo>=NSIG) && signo!=SIGPROF) return fail_errno(EINVAL);
+  return fail_errno(ENOTSUP);
+}
 int pthread_sigmask(int how, const sigset_t* set, sigset_t* old) {
   int saved_errno = errno;
   int result = sigprocmask(how, set, old);

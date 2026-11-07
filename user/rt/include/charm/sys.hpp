@@ -137,10 +137,17 @@ inline Status channel_shutdown(Handle endpoint,uint32_t directions=3) {
 }
 
 inline SysResult vmo_create(uint64_t size) { return syscall1(Number::VmoCreate, size); }
+inline SysResult vmo_reserve(uint64_t size) { return syscall1(Number::VmoReserve, size); }
 inline SysResult vmo_size(Handle h) { return syscall1(Number::VmoSize,h); }
 inline SysResult thread_priority(uint32_t priority=0) { return syscall1(Number::ThreadPriority,priority); }
 inline SysResult vmo_map(Handle h, uint32_t r) { return syscall2(Number::VmoMap, h, r); }
 inline Status vmo_unmap(uint64_t addr) { return syscall1(Number::VmoUnmap, addr).status; }
+inline Status vmo_unmap_range(uint64_t addr, uint64_t size) {
+  return syscall2(Number::VmoUnmapRange, addr, size).status;
+}
+inline Status vmo_protect(uint64_t addr, uint64_t size, uint32_t r) {
+  return syscall3(Number::VmoProtect, addr, size, r).status;
+}
 
 // --- v1.2: порты (docs/abi/driver.md §4) -----------------------------------------
 using abi::syscall::PortPacket;

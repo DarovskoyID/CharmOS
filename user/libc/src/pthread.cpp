@@ -1,6 +1,8 @@
 // pthread поверх потоков ядра и futex (docs/abi/process.md §4).
 #include <errno.h>
 #include <pthread.h>
+#include <sched.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -14,7 +16,7 @@ static_assert(sizeof(pthread_mutex_t) == 24 && __builtin_offsetof(pthread_mutex_
 namespace libc {
 namespace {
 
-constexpr uint64_t kStack = 256 * 1024;
+constexpr uint64_t kStack = 2 * 1024 * 1024;  // V8 worker threads need > 256 KiB
 Lock reaper_init_lock;
 Lock registration_lock;
 Handle reaper_port;
@@ -157,7 +159,7 @@ int pthread_detach(pthread_t t) {
 
 int pthread_attr_init(pthread_attr_t* attr) {
   if (!attr) return EINVAL;
-  *attr={kStack,PTHREAD_CREATE_JOINABLE}; return 0;
+  *attr={kStack,PTHREAD_CREATE_JOINABLE,nullptr}; return 0;
 }
 int pthread_attr_destroy(pthread_attr_t* attr) { return attr ? 0 : EINVAL; }
 int pthread_attr_setstacksize(pthread_attr_t* attr,size_t size) {
@@ -177,6 +179,30 @@ int pthread_attr_getdetachstate(const pthread_attr_t* attr,int* state) {
   *state=attr->detach_state; return 0;
 }
 
+// V8 запрашивает границы стека текущего потока для консервативного сканирования.
+// Для потоков, созданных pthread_create, границы известны (VMO стека); у
+// главного/bootstrap-потока V8-стек принадлежит ядру, поэтому честно EINVAL —
+// V8 корректно обрабатывает отказ (ObtainCurrentThreadStackStart → nullptr).
+int pthread_getattr_np(pthread_t t, pthread_attr_t* attr) {
+  if (!t || !attr) return EINVAL;
+  if (!t->stack_size) return EINVAL;
+  attr->stack_size=static_cast<size_t>(t->stack_size);
+  attr->stack_address=reinterpret_cast<void*>(t->stack_top-t->stack_size);
+  attr->detach_state=t->lifecycle==1 ? PTHREAD_CREATE_DETACHED : PTHREAD_CREATE_JOINABLE;
+  return 0;
+}
+int pthread_attr_getstack(const pthread_attr_t* attr,void** stackaddr,size_t* stacksize) {
+  if (!attr || !stackaddr || !stacksize || !attr->stack_address) return EINVAL;
+  *stackaddr=attr->stack_address;
+  *stacksize=attr->stack_size;
+  return 0;
+}
+int pthread_attr_getguardsize(const pthread_attr_t* attr,size_t* guardsize) {
+  if (!attr || !guardsize) return EINVAL;
+  *guardsize=0;  // стек CharmOS — VMO без отдельной guard-страницы
+  return 0;
+}
+
 pthread_t pthread_self(void) { return static_cast<pthread_t>(current_thread()); }
 int pthread_equal(pthread_t left, pthread_t right) { return left==right; }
 
@@ -192,6 +218,27 @@ void pthread_exit(void* ret) {
 }
 
 int sched_yield(void) { charm::yield(); return 0; }
+int sched_get_priority_min(int policy) {
+  return (policy == SCHED_FIFO || policy == SCHED_RR) ? 1 : 0;
+}
+int sched_get_priority_max(int policy) {
+  return (policy == SCHED_FIFO || policy == SCHED_RR) ? 99 : 0;
+}
+int pthread_setschedparam(pthread_t t, int policy, const struct sched_param* param) {
+  (void)t; (void)policy; (void)param;
+  return ENOTSUP;  // CharmOS has no POSIX scheduler policies yet.
+}
+int sched_setscheduler(pid_t pid, int policy, const struct sched_param* param) {
+  (void)pid; (void)policy; (void)param;
+  return ENOTSUP;
+}
+int pthread_kill(pthread_t t, int signo) {
+  if (!t) return EINVAL;
+  if ((signo<0 || signo>=NSIG) && signo!=SIGPROF) return EINVAL;
+  // No thread-directed signal operation exists. pthread errors are returned
+  // directly and must not overwrite errno, including for a signal-0 query.
+  return ENOTSUP;
+}
 int pthread_mutexattr_init(pthread_mutexattr_t* a) { a->type = PTHREAD_MUTEX_NORMAL; return 0; }
 int pthread_mutexattr_destroy(pthread_mutexattr_t*) { return 0; }
 int pthread_mutexattr_settype(pthread_mutexattr_t* a, int type) {

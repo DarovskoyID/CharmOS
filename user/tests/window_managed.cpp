@@ -97,7 +97,8 @@ extern "C" int main() {
   VERIFY(legacy.create("Legacy compatibility",64,32)==charm::Status::Ok);
   VERIFY(legacy.protocol_version()==2 && legacy.set_title("unsupported")==charm::Status::NotSupported &&
          legacy.request_bounds(0,0,80,40)==charm::Status::NotSupported &&
-         legacy.set_visible(false)==charm::Status::NotSupported && legacy.activate()==charm::Status::NotSupported);
+         legacy.set_visible(false)==charm::Status::NotSupported && legacy.activate()==charm::Status::NotSupported &&
+         legacy.set_capture(true)==charm::Status::NotSupported);
   VERIFY(Paint(legacy,0x234e70) && Await(legacy,[&] { return legacy.pixels(1)!=nullptr; }));
   legacy.close();
 
@@ -112,6 +113,7 @@ extern "C" int main() {
   VERIFY(window.set_visible(true,false)==charm::Status::Ok &&
          Await(window,[&] { return window.visible(); }) && !window.active());
   VERIFY(window.activate()==charm::Status::Ok && Await(window,[&] { return window.active(); }));
+  VERIFY(window.set_capture(true)==charm::Status::Ok && Await(window,[&] { return window.captured(); }));
   VERIFY(Paint(window,0x234e70));
   VERIFY(window.request_bounds(40,120,360,180)==charm::Status::Ok && window.configuration_pending());
   VERIFY(window.request_bounds(40,120,361,181)==charm::Status::WouldBlock);
@@ -138,11 +140,22 @@ extern "C" int main() {
   VERIFY(Await(window,[&] { return window.x()==static_cast<int32_t>(display.work.width-window.width()) &&
       window.y()==display.work.y+static_cast<int32_t>(display.title_height); }));
   VERIFY(window.set_visible(false)==charm::Status::Ok &&
-         Await(window,[&] { return !window.visible() && !window.active(); }));
+         Await(window,[&] { return !window.visible() && !window.active() && !window.captured(); }));
   VERIFY(window.set_visible(true)==charm::Status::Ok &&
          Await(window,[&] { return window.visible() && window.active(); }));
   VERIFY(window.activate(false)==charm::Status::Ok && Await(window,[&] { return !window.active(); }));
   VERIFY(window.activate()==charm::Status::Ok && Await(window,[&] { return window.active(); }));
+  VERIFY(window.set_capture(true)==charm::Status::Ok && Await(window,[&] { return window.captured(); }));
+  charm::gui::Window other;
+  VERIFY(other.create_managed("Capture focus loss",64,32,abi::wm::kCreateInactive)==charm::Status::Ok);
+  VERIFY(other.set_capture(true)==charm::Status::Ok);
+  abi::wm::WindowEvent denied{};
+  VERIFY(other.wait(&denied,charm::now_ns()+5000000000ull)==charm::Status::Ok &&
+         denied.type==abi::wm::kCaptureChanged && !denied.value && !other.captured());
+  VERIFY(other.activate()==charm::Status::Ok && Await(other,[&] { return other.active(); }));
+  VERIFY(Await(window,[&] { return !window.active() && !window.captured(); }));
+  other.close();
+  VERIFY(Await(window,[&] { return window.active(); }));
 
   charm::gui::Window rogue;
   VERIFY(rogue.create_managed("Invalid generation",64,32,
@@ -155,8 +168,9 @@ extern "C" int main() {
   VERIFY(Backpressure());
   VERIFY(window.set_position(120,180)==charm::Status::Ok &&
          Await(window,[&] { return window.x()==120 && window.y()==180; }));
+  VERIFY(window.set_capture(true)==charm::Status::Ok && Await(window,[&] { return window.captured(); }));
   printf("managed window: resize generations, rollback, title, visibility and focus ok\n");
-  bool submitted=false,rendered=false;
+  bool submitted=false,rendered=false,outside_motion=false,outside_click=false;
   uint64_t deadline=charm::now_ns()+30000000000ull;
   for(;;) {
     abi::wm::WindowEvent event{};
@@ -166,8 +180,16 @@ extern "C" int main() {
     if(event.type==abi::wm::kInput) {
       abi::syscall::InputEvent input{};
       while(window.next_input(&input)) {
+        bool outside=input.x<0 || input.y<0 || input.x>=static_cast<int32_t>(window.width()) ||
+                     input.y>=static_cast<int32_t>(window.height());
+        if(input.type==abi::syscall::kInputMotion && outside) outside_motion=true;
+        if(input.type==abi::syscall::kInputButton && input.value==1 && outside) {
+          VERIFY(outside_motion && window.captured());
+          outside_click=true;
+          printf("managed window: captured pointer outside content ok\n");
+        }
         if(input.type!=abi::syscall::kInputKey || input.value!=1) continue;
-        if(input.code==0x04 && !submitted) { VERIFY(Paint(window,0xf5c518)); submitted=true; }
+        if(input.code==0x04 && !submitted) { VERIFY(outside_click && Paint(window,0xf5c518)); submitted=true; }
         if(input.code==0x29) {
           VERIFY(rendered);
           printf("managed window: closed\n");

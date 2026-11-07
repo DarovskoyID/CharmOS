@@ -1,0 +1,13 @@
+Native files: private snapshots, unaligned views, cleanup and shared-write rejection ok
+Native certificates: trusted chain, issuer, hostname, expiry and signature ok
+Native Ozone: C++ structured HTTP parser ok
+Native Ozone: ICU4C canonicalization and unmatched language fallback ok
+Native Ozone: HID, punctuation, modifier ownership and text ok
+Native Ozone: render thread factory lookup ok
+Native Ozone: registered window and software factory ok
+Native Ozone: delegate resize ready for input
+Native Ozone: keyboard raw and text events rendered
+Native Ozone: pointer button and wheel events ok
+Native Ozone: closed
+screen: pixel 280,270 = 24a148
+screen: pixel 330,270 = f5c518

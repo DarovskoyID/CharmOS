@@ -1,0 +1,4 @@
+network compatibility: readiness, descriptors, honest errors and resolver ok
+network addresses: IPv4/IPv6 parsing, canonical text, bounds and transport distinction ok
+network compatibility: console capability isolation ok
+network compatibility: readiness, descriptors, honest errors and resolver ok

@@ -52,6 +52,16 @@ Status<VmError> AddressSpace::map_phys(uint64_t virt, uint64_t phys, uint64_t fl
 
 void AddressSpace::unmap(uint64_t virt) { (void)pt_.unmap_4k(virt); }
 
+bool AddressSpace::protect(uint64_t virt, uint64_t flags) {
+  if (virt >= abi::syscall::kUserTop) return false;
+  return pt_.protect_4k(virt, flags | arch::x86_64::kMapUser);
+}
+
+bool AddressSpace::protect_phys(uint64_t virt, uint64_t phys, uint64_t flags) {
+  if (virt >= abi::syscall::kUserTop) return false;
+  return pt_.remap_4k(virt, phys, flags | arch::x86_64::kMapUser);
+}
+
 void AddressSpace::destroy() {
   pt_.destroy_lower_half(&free_frame, nullptr);
   free_frames(pt_.root());

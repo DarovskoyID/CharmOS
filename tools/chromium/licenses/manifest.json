@@ -123,6 +123,10 @@
     "source": "base/third_party/superfasthash/LICENSE",
     "sha256": "90b2201c340cee36b40a443f949d9eb416f0a0d204c32d350aff87fedeb67ae8"
   },
+  "quiche.txt": {
+    "source": "net/third_party/quiche/src/LICENSE",
+    "sha256": "845022e0c1db1abb41a6ba4cd3c4b674ec290f3359d9d3c78ae558d4c0ed9308"
+  },
   "modp-b64.txt": {
     "source": "third_party/modp_b64/LICENSE",
     "sha256": "d47e8390fb0d7ad4a18f26aedd6283c7ab6b5b4fabab536ccb4db7f9f6d90c08"

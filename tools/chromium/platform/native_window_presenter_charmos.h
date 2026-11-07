@@ -18,7 +18,8 @@ class NativeWindowPresenterCharmOS final
   using SwapCallback=SurfaceOzoneCanvas::SwapBuffersCallback;
   using EventCallback=WindowEventSourceCharmOS::Callback;
   explicit NativeWindowPresenterCharmOS(scoped_refptr<base::SequencedTaskRunner> ui_runner);
-  charm::Status Initialize(const char* title,uint32_t width,uint32_t height,EventCallback observer);
+  charm::Status Initialize(const char* title,uint32_t width,uint32_t height,EventCallback observer,
+                           uint32_t flags=0);
   void Close();
   charm::Status RequestBounds(const gfx::Rect& bounds);
   charm::gui::Window& window();

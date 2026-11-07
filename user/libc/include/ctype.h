@@ -15,6 +15,7 @@ int ispunct(int c);
 int iscntrl(int c);
 int isgraph(int c);
 int isblank(int c);
+int isascii(int c);
 int toupper(int c);
 int tolower(int c);
 #ifdef __cplusplus

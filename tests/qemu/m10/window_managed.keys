@@ -1,4 +1,8 @@
 #wait managed window: resize generations, rollback, title, visibility and focus ok
+#monitor mouse_move 300 200
+#monitor mouse_button 1
+#monitor mouse_button 0
+#wait managed window: captured pointer outside content ok
 #monitor sendkey a
 #wait managed window: input after resize rendered
 #monitor screendump /mnt/a/CharmOS/build/chromium/native-managed-window.ppm

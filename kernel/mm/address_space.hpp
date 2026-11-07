@@ -23,6 +23,11 @@ class AddressSpace {
   lib::core::Status<VmError> map_phys(uint64_t virt, uint64_t phys, uint64_t flags);
   // Снимает отображение, не освобождая фрейм. TLB сбрасывает вызывающий.
   void unmap(uint64_t virt);
+  bool protect(uint64_t virt, uint64_t flags);
+  // Меняет и физ. страницу, и права существующего листа (present или
+  // inaccessible-маркер). Нужно для ленивого VMO: другой alias мог выделить
+  // фрейм, пока здесь стоял маркер с физ. адресом 0. TLB сбрасывает вызывающий.
+  bool protect_phys(uint64_t virt, uint64_t phys, uint64_t flags);
 
   uint64_t root() const { return pt_.root(); }
 

@@ -13,10 +13,10 @@ NativeWindowPresenterCharmOS::NativeWindowPresenterCharmOS(
 }
 NativeWindowPresenterCharmOS::~NativeWindowPresenterCharmOS() { Close(); }
 charm::Status NativeWindowPresenterCharmOS::Initialize(
-    const char* title,uint32_t width,uint32_t height,EventCallback observer) {
+    const char* title,uint32_t width,uint32_t height,EventCallback observer,uint32_t flags) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if(window_.id()) return charm::Status::InvalidArgs;
-  auto status=window_.create_managed(title,width,height);
+  auto status=window_.create_managed(title,width,height,flags);
   if(status!=charm::Status::Ok) return status;
   observer_=std::move(observer);
   if(!events_.Start(&window_,base::BindRepeating(&NativeWindowPresenterCharmOS::OnEvent,

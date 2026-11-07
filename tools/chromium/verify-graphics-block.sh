@@ -5,7 +5,7 @@ cd "$root"
 mountpoint -q build/chromium/linux-cache || { echo 'Run through with-cache.sh' >&2; exit 2; }
 version="$(python3 -c 'import json; print(json.load(open("tools/chromium/upstream.json"))["chromium"]["version"])')"
 native_source="build/chromium/linux-cache/release/chromium-$version"
-output="$native_source/out/charmos-platform"
+output="$native_source/out/charmos-native"
 ninja -C "$output" -j4 graphics_runtime full_runtime base_runtime > build/chromium/graphics-relink.log 2>&1
 for item in graphics_runtime:graphics_runtime full_runtime:runtime_cpp base_runtime:base_runtime; do
   from_name=${item%:*}

@@ -24,6 +24,8 @@ class Window {
   Status set_title(const char* title);
   Status set_visible(bool visible,bool activate=true);
   Status activate(bool active=true);
+  Status set_capture(bool captured);
+  bool captured() const { return captured_; }
   void close();
   Status present(uint32_t buffer, Damage damage);
   Status present_pixels(const void* source,size_t source_bytes,uint32_t stride_bytes,
@@ -59,7 +61,7 @@ class Window {
   uint32_t pending_width_=0,pending_height_=0;
   uint32_t* pending_pixels_[2]={};
   WindowDisplay display_{};
-  bool visible_=false,active_=false;
+  bool visible_=false,active_=false,captured_=false;
   abi::syscall::InputRingHeader* ring_ = nullptr;
   abi::syscall::InputEvent* input_ = nullptr;
 };

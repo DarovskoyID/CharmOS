@@ -25,3 +25,7 @@ Portions of this software are copyright © 1996-2026 The FreeType Project
 (https://freetype.org). All rights reserved.
 The bundled Space Grotesk and JetBrains Mono assets retain their OFL notices
 in assets/fonts and alongside the installed fonts in the graphics test image.
+
+The native network profile uses QUICHE's existing C++ structured-header parser
+instead of the optional Rust SFV bridge. Its BSD license is retained in
+quiche.txt; no host-network implementation is substituted.

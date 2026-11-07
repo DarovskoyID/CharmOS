@@ -16,6 +16,7 @@ class UniqueHandle {
   }
   static UniqueHandle adopt(Handle handle) { return UniqueHandle(handle); }
   Handle get() const { return handle_; }
+  bool is_valid() const { return handle_!=0; }
   explicit operator bool() const { return handle_!=0; }
   Handle release() { Handle result=handle_; handle_=0; return result; }
   void reset(Handle replacement=0) {

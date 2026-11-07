@@ -4,7 +4,7 @@ root="$(cd "$(dirname "$0")/../.." && pwd -P)"
 cd "$root"
 python3 tools/chromium/prepare-platform.py
 source="$root/build/chromium/linux-cache/release/chromium-$(python3 -c 'import json; print(json.load(open("tools/chromium/upstream.json"))["chromium"]["version"])')"
-output="$source/out/charmos-platform"
+output="$source/out/charmos-native"
 "$source/buildtools/linux64/gn" gen "$output" --root="$source" --fail-on-unused-args --root-target=//build/charmos:base_port
 python3 tools/chromium/audit-cpp-graph.py "$source" "$output" canvas_runtime
 ninja -C "$output" -j4 canvas_runtime > build/chromium/canvas-build.log 2>&1

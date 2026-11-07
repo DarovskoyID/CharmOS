@@ -27,8 +27,9 @@ constexpr uint8_t kMouseAlways1 = 1u << 3, kMouseXSign = 1u << 4, kMouseYSign = 
 constexpr uint8_t kMouseXOverflow = 1u << 6, kMouseYOverflow = 1u << 7;
 
 constinit lib::input::Set2Decoder g_kbd = {};
-constinit uint8_t g_mouse[3] = {};
+constinit uint8_t g_mouse[4] = {};
 constinit uint8_t g_mouse_len = 0;
+constinit uint8_t g_mouse_size = 3;  // 4 при включённом колесе (Intellimouse)
 constinit uint8_t g_buttons = 0;
 
 // «Писать в 60h/64h только при пустых буферах» (Programming Considerations).
@@ -87,6 +88,14 @@ void mouse_packet() {
     }
   }
   g_buttons = buttons;
+  if (g_mouse_size == 4) {
+    // IntelliMouse: байт 4 — Z (колесо), 4-битное дополнение до двух,
+    // плюс состояния 4-й/5-й кнопок. Вверх — положительное значение.
+    int32_t dz = static_cast<int32_t>(g_mouse[3] & 0x0f) -
+                 ((g_mouse[3] & 0x08) != 0 ? 16 : 0);
+    // Соглашение input.md/UI: колесо «вверх» — положительное значение.
+    if (dz != 0) push(abi::syscall::kInputWheel, 0, -dz, 0, 0);
+  }
 }
 
 void irq_handler(arch::x86_64::InterruptFrame&) {
@@ -99,7 +108,7 @@ void irq_handler(arch::x86_64::InterruptFrame&) {
       // Ресинхронизация: первый байт пакета всегда с битом 3.
       if (g_mouse_len == 0 && (b & kMouseAlways1) == 0) continue;
       g_mouse[g_mouse_len++] = b;
-      if (g_mouse_len == 3) {
+      if (g_mouse_len == g_mouse_size) {
         g_mouse_len = 0;
         mouse_packet();
       }
@@ -152,7 +161,21 @@ bool ps2_init() {
   // F0 02 — набор 2, F4 — сканировать (IBM HITR, «Keyboards», Commands).
   bool kbd = kbd_command(kKbdSelectScanSet) && kbd_command(2) && kbd_command(kKbdEnable);
   if (!kbd) kprint("ps2: keyboard did not acknowledge setup\n");
-  bool mouse = command(k::kEnableAux) && mouse_command(kMouseSetDefaults) && mouse_command(kMouseEnableReporting);
+  bool mouse = command(k::kEnableAux) && mouse_command(kMouseSetDefaults);
+  if (mouse) {
+    // Intellimouse (колесо): «магическая» последовательность частот 200/100/80
+    // переключает мышь на 4-байтные пакеты, затем F2 отдаёт id (3 = с колесом).
+    // Простая 3-кнопочная мышь последовательность принимает, но id остаётся 0.
+    const bool sequence = mouse_command(0xf3) && mouse_command(200) &&
+                          mouse_command(0xf3) && mouse_command(100) &&
+                          mouse_command(0xf3) && mouse_command(80) &&
+                          mouse_command(0xf2);
+    if (sequence) {
+      uint8_t id = 0;
+      if (read_byte(&id, 200'000'000) && id == 3) g_mouse_size = 4;
+    }
+    mouse = mouse_command(kMouseEnableReporting);
+  }
   for (uint8_t junk; read_byte(&junk, 5'000'000);) {
   }
   uint8_t vector = platform::alloc_device_vector(&irq_handler);

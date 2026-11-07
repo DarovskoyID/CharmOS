@@ -1,0 +1,5 @@
+#wait charm:/$
+v8_runtime
+#wait Native V8: clean shutdown ok
+#wait charm:/$
+svc poweroff

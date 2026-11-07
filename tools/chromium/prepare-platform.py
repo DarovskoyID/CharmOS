@@ -7,6 +7,10 @@ import shutil
 import shlex
 import subprocess
 import re
+import sys
+
+if sys.argv[1:] not in ([], ["--check-only"]):
+    raise SystemExit("usage: prepare-platform.py [--check-only]")
 
 repo = Path(__file__).resolve().parents[2]
 cache = repo / "build/chromium/linux-cache"
@@ -432,6 +436,22 @@ patches = {
         "8a22f6575188bd4a8af218746301b442900356d0ad5b92e5747ac1d5e3a7a8dc",
         [("#  elif defined(__wasi__) || defined(__EMSCRIPTEN__)\n#    define _LIBCPP_USING_GETENTROPY",
           "#  elif defined(__wasi__) || defined(__EMSCRIPTEN__) || defined(__charmos__)\n#    define _LIBCPP_USING_GETENTROPY")]),
+    # <fstream> upstream gates its whole body on _LIBCPP_HAS_FILESYSTEM because
+    # std::filesystem::path overloads used to live there. In C++23 those are
+    # generic templates, and CharmOS deliberately keeps std::filesystem off (no
+    # symlink/metadata/space API in the VFS). Keying only on localization keeps
+    # std::ofstream/ifstream available without enabling std::filesystem.
+    "third_party/libc++/src/include/fstream": (
+        "06fe77c2aa77b870368999315dd67a035fc423ee6470788ec503e8568db798cc",
+        [("#  if _LIBCPP_HAS_FILESYSTEM && _LIBCPP_HAS_LOCALIZATION",
+          "#  if _LIBCPP_HAS_LOCALIZATION")]),
+    # The explicit file-stream instantiations live in the library (the header
+    # declares `extern template`). Gate them the same way as the header so the
+    # strong definitions are actually emitted for CharmOS.
+    "third_party/libc++/src/src/ios.instantiations.cpp": (
+        "056091dc3a95f5e6a978fb7c0f4f41dce9affe9d84de16597cc90a008a73f597",
+        [("\n#if _LIBCPP_HAS_FILESYSTEM\ntemplate class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_ifstream<char>;",
+          "\n#if _LIBCPP_HAS_LOCALIZATION\ntemplate class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_ifstream<char>;")]),
     "buildtools/third_party/libc++/__config_site": (
         "fcac9dc8ea709997ab8b43af6c4e4e2a3674531c6f6303ca42eaf1e3fe189064",
         [("#define _LIBCPP_HAS_FILESYSTEM 1",
@@ -498,7 +518,17 @@ patches = {
           "  _default_toolchain = \"//build/charmos:clang_x64\"\n"
           "} else if (target_os == \"fuchsia\") {"),
          ("is_android = current_os == \"android\"",
-          "is_charmos = current_os == \"charmos\"\nis_android = current_os == \"android\"")]),
+          "is_charmos = current_os == \"charmos\"\nis_android = current_os == \"android\""),
+         ("is_charmos = current_os == \"charmos\"\n",
+          "is_charmos = current_os == \"charmos\"\n"
+          "declare_args() {\n"
+          "  charmos_build_base = false\n"
+          "  charmos_build_graphics = false\n"
+          "  charmos_build_v8 = false\n"
+          "  charmos_build_blink = false\n"
+          "}\n"),
+         ("  charmos_build_graphics = false\n",
+          "  charmos_build_graphics = false\n  charmos_repo = \"\"\n")]),
     "build/build_config.h": (
         "c6e3501edea0833a2ef1b50f5cd27e151d58198af0523fa4d91ebd62a1be2039",
         [("#if defined(ANDROID)\n#define OS_ANDROID 1",
@@ -683,9 +713,41 @@ graphics = runpy.run_path(str(repo / "tools/chromium/graphics-patches.py"))["gra
 if set(graphics).intersection(patches):
     raise SystemExit("Duplicate graphics patch ownership")
 patches.update(graphics)
+mojo = runpy.run_path(str(repo / "tools/chromium/mojo-patches.py"))["mojo_patches"]()
+if set(mojo).intersection(patches):
+    raise SystemExit("Duplicate Mojo patch ownership")
+patches.update(mojo)
+v8 = runpy.run_path(str(repo / "tools/chromium/v8-patches.py"))["v8_patches"]()
+if set(v8).intersection(patches):
+    raise SystemExit("Duplicate V8 patch ownership")
+patches.update(v8)
+blink = runpy.run_path(str(repo / "tools/chromium/blink-patches.py"))["blink_patches"]()
+if set(blink).intersection(patches):
+    raise SystemExit("Duplicate Blink patch ownership")
+patches.update(blink)
 base_replacements.append((
     '      "//build/charmos/sync_socket_charmos.cc",',
     '      "//build/charmos/sync_socket_charmos.cc",\n      "//build/charmos/allocator_charmos.cc",'))
+base_replacements.extend([
+    ('if (enable_rust) {\n  component("i18n") {',
+     'if (enable_rust || is_charmos) {\n  component("i18n") {'),
+    ('if (enable_rust || is_charmos) {\n  component("i18n") {',
+     'if (enable_rust || is_charmos || charmos_repo != "") {\n  component("i18n") {'),
+    ('  if (is_charmos) {\n    sources -= [',
+     '  if (is_charmos) {\n    sources = filter_exclude(sources, ['),
+    ('  if (is_charmos) {\n    sources = filter_exclude(sources, [',
+     '  if (is_charmos) {\n    charmos_original_sources = sources\n    sources = []\n    sources = filter_exclude(charmos_original_sources, ['),
+    ('      "posix/unix_domain_socket.cc",\n    ]\n    sources += [',
+     '      "posix/unix_domain_socket.cc",\n    ])\n    sources += ['),
+    ('if (enable_rust) {\n  test("base_perftests") {',
+     'if (enable_rust || charmos_repo != "") {\n  test("base_perftests") {'),
+    ('if (enable_rust) {\n  source_set("base_stack_sampling_profiler_test_util") {',
+     'if (enable_rust || charmos_repo != "") {\n  source_set("base_stack_sampling_profiler_test_util") {'),
+])
+base_replacements.append((
+    '      "//build/charmos/allocator_charmos.cc",',
+    '      "//build/charmos/allocator_charmos.cc",\n'
+    '      "//build/charmos/base_paths_charmos.cc",'))
 for name, (digest, replacements) in patches.items():
     target, backup = source / name, originals / name
     current = target.read_bytes()
@@ -710,6 +772,9 @@ for name, (digest, replacements) in patches.items():
         if restored.encode() != original:
             raise SystemExit("Refusing to replace unknown local vendor edits: " + name)
     operations.append((target, backup, original, modified))
+if sys.argv[1:] == ["--check-only"]:
+    print(f"Verified {len(operations)} pinned patch contexts; no files changed")
+    raise SystemExit(0)
 for target, backup, original, modified in operations:
     backup.parent.mkdir(parents=True, exist_ok=True)
     if not backup.exists():
@@ -750,6 +815,14 @@ if not revision_file.exists() or revision_file.read_text() != revision_content:
 for path in overlay.iterdir():
     if path.is_file():
         output = destination / path.name
+        if not output.exists() or output.read_bytes() != path.read_bytes():
+            shutil.copyfile(path, output)
+ozone_overlay = repo / "tools/chromium/ozone"
+ozone_destination = destination / "ozone"
+ozone_destination.mkdir(exist_ok=True)
+for path in ozone_overlay.iterdir():
+    if path.is_file():
+        output = ozone_destination / path.name
         if not output.exists() or output.read_bytes() != path.read_bytes():
             shutil.copyfile(path, output)
 json_checks = repo / "tests/host/test_chromium_json.cpp"

@@ -2,3 +2,6 @@
 /build*/
 /.claude/settings.local.json
 /tests/host/data/acpi/
+
+__pycache__/
+*.pyc

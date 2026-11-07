@@ -4,7 +4,7 @@
 #include <time.h>
 #include <signal.h>
 typedef struct __pthread* pthread_t;
-typedef struct { size_t stack_size; int detach_state; } pthread_attr_t;
+typedef struct { size_t stack_size; int detach_state; void* stack_address; } pthread_attr_t;
 typedef struct { volatile uint32_t state; int type; uintptr_t owner; uint32_t depth; } pthread_mutex_t;
 typedef struct { int type; } pthread_mutexattr_t;
 typedef struct { volatile uint32_t seq; clockid_t clock; } pthread_cond_t;
@@ -70,9 +70,14 @@ int pthread_rwlock_wrlock(pthread_rwlock_t* lock);
 int pthread_rwlock_tryrdlock(pthread_rwlock_t* lock);
 int pthread_rwlock_trywrlock(pthread_rwlock_t* lock);
 int pthread_rwlock_unlock(pthread_rwlock_t* lock);
+int pthread_setname_np(pthread_t t, const char* name);
+int pthread_getattr_np(pthread_t t, pthread_attr_t* attr);
+int pthread_attr_getstack(const pthread_attr_t* attr, void** stackaddr, size_t* stacksize);
+int pthread_attr_getguardsize(const pthread_attr_t* attr, size_t* guardsize);
 int pthread_key_create(pthread_key_t* key, void (*destructor)(void*));
 int pthread_key_delete(pthread_key_t key);
 int pthread_sigmask(int how, const sigset_t* set, sigset_t* old);
+int pthread_kill(pthread_t t, int signo);
 int pthread_setspecific(pthread_key_t key, const void* value);
 void* pthread_getspecific(pthread_key_t key);
 #ifdef __cplusplus

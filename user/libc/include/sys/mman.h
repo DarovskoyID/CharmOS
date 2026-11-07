@@ -11,6 +11,7 @@
 #define MAP_FIXED 0x10
 #define MAP_ANONYMOUS 0x20
 #define MAP_ANON MAP_ANONYMOUS
+#define MAP_NORESERVE 0x4000  /* принято и игнорируется: CharmOS не резервирует swap */
 #define MAP_FAILED ((void*)-1)
 #define MADV_NORMAL 0
 #define MADV_DONTNEED 4
@@ -25,6 +26,10 @@ int munmap(void* address, size_t size);
 int mprotect(void* address, size_t size, int protection);
 int madvise(void* address, size_t size, int advice);
 int msync(void* address, size_t size, int flags);
+int mlock(const void* address, size_t size);
+int munlock(const void* address, size_t size);
+int mlockall(int flags);
+int munlockall(void);
 #ifdef __cplusplus
 }
 #endif

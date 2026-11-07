@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <sys/utsname.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -299,6 +300,7 @@ int getrlimit(int resource, struct rlimit* limit) {
   }
   if (resource==RLIMIT_STACK) { *limit={65536,65536}; return 0; }
   if (resource==RLIMIT_CORE) { *limit={0,0}; return 0; }
+  if (resource==RLIMIT_DATA) { *limit={RLIM_INFINITY,RLIM_INFINITY}; return 0; }
   return fail_errno(EINVAL);
 }
 int setrlimit(int resource,const struct rlimit* limit) {
@@ -315,7 +317,17 @@ int setrlimit(int resource,const struct rlimit* limit) {
     return limit->rlim_cur==65536 && limit->rlim_max==65536 ? 0 : fail_errno(ENOTSUP);
   if (resource==RLIMIT_CORE)
     return !limit->rlim_cur && !limit->rlim_max ? 0 : fail_errno(EPERM);
+  if (resource==RLIMIT_DATA)
+    return limit->rlim_cur==RLIM_INFINITY && limit->rlim_max==RLIM_INFINITY
+               ? 0 : fail_errno(ENOTSUP);
   return fail_errno(EINVAL);
+}
+int getrusage(int who, struct rusage* usage) {
+  if (!usage) return fail_errno(EFAULT);
+  if (who!=RUSAGE_SELF && who!=RUSAGE_CHILDREN) return fail_errno(EINVAL);
+  // No peak-RSS or split user/system accounting exists. V8 handles an
+  // unavailable result; a successful all-zero snapshot would be fabricated.
+  return fail_errno(ENOTSUP);
 }
 
 int open(const char* path, int flags, ...) {
@@ -806,7 +818,7 @@ int fcntl(int fd, int command, ...) {
 }
 
 int fstat(int fd, struct stat* st) {
-  static_assert(sizeof(struct stat)==56 && __builtin_offsetof(struct stat,st_ino)==32);
+  static_assert(sizeof(struct stat)==96 && __builtin_offsetof(struct stat,st_ino)==8);
   if (!st) return fail_errno(EFAULT);
   FdLease lease(fd);
   Fd* f = lease.get();
@@ -828,6 +840,11 @@ int fstat(int fd, struct stat* st) {
   st->st_ino=identity.value&((uint64_t{1}<<56)-1);
   st->st_size = static_cast<off_t>(s.size);
   st->st_mode = s.type == fsabi::kTypeDirectory ? S_IFDIR | 0755 : S_IFREG | 0644;
+  st->st_nlink = 1;
+  st->st_uid = 0;
+  st->st_gid = 0;
+  st->st_blksize = 4096;
+  st->st_blocks = static_cast<blkcnt_t>((s.size + 511) / 512);
   st->st_mtime = static_cast<time_t>(s.mtime_ns / 1'000'000'000);
   return 0;
 }
@@ -850,6 +867,11 @@ int stat(const char* path, struct stat* st) {
   st->st_ino=identity.value&((uint64_t{1}<<56)-1);
   st->st_size = static_cast<off_t>(t.size);
   st->st_mode = dir ? S_IFDIR | 0755 : S_IFREG | 0644;
+  st->st_nlink = 1;
+  st->st_uid = 0;
+  st->st_gid = 0;
+  st->st_blksize = 4096;
+  st->st_blocks = static_cast<blkcnt_t>((t.size + 511) / 512);
   st->st_mtime = static_cast<time_t>(t.mtime_ns / 1'000'000'000);
   return 0;
 }
@@ -1062,5 +1084,22 @@ static pid_t runtime_id(uint64_t selector) {
 }
 pid_t getpid(void) { return runtime_id(0); }
 pid_t gettid(void) { return runtime_id(1); }
+uid_t geteuid(void) { return 0; }
+uid_t getuid(void) { return 0; }
+gid_t getgid(void) { return 0; }
+gid_t getegid(void) { return 0; }  // Суперпользователя нет: каждый — сам себе владелец.
+int getpeereid(int, uid_t*, gid_t*) {
+  // SO_PEERCRED/идентичность пира через сокет не поддержана (см. socket.md).
+  return fail_errno(ENOTSUP);
+}
+int gethostname(char* name, size_t size) {
+  if (name == nullptr) return fail_errno(EFAULT);
+  utsname identity{};
+  if (uname(&identity) < 0) return -1;
+  size_t n = strlen(identity.nodename) + 1;
+  if (size < n) return fail_errno(ENAMETOOLONG);
+  memcpy(name, identity.nodename, n);
+  return 0;
+}
 
 }  // extern "C"

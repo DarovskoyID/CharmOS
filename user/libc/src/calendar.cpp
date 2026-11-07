@@ -4,11 +4,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include "internal.hpp"
-static_assert(sizeof(tm) == 36 && sizeof(timeval) == 16 && __builtin_offsetof(timeval, tv_usec) == 8);
+static_assert(sizeof(tm) == 56 && __builtin_offsetof(tm, tm_gmtoff) == 40 &&
+              __builtin_offsetof(tm, tm_zone) == 48 && sizeof(timeval) == 16 &&
+              __builtin_offsetof(timeval, tv_usec) == 8);
 
 namespace {
 bool leap(int year) { return year % 4 == 0 && (year % 100 != 0 || year % 400 == 0); }
 }
+extern "C" clock_t clock(void) {
+  // CLOCKS_PER_SEC is 1e6; CharmOS has no separate process CPU accounting, so
+  // report monotonic microseconds. Used by third-party timing helpers.
+  return static_cast<clock_t>(charm::now_ns() / 1000);
+}
+
 extern "C" struct tm* gmtime_r(const time_t* value, struct tm* result) {
   if (!value || !result) { errno = EINVAL; return nullptr; }
   // Bound work and keep tm_year representable. UTC Gregorian years 1..9999.
@@ -32,6 +40,8 @@ extern "C" struct tm* gmtime_r(const time_t* value, struct tm* result) {
     days -= lengths[month] + (month == 1 && leap(year) ? 1 : 0); ++month;
   }
   out.tm_mon = month; out.tm_mday = static_cast<int>(days) + 1;
+  out.tm_gmtoff = 0;
+  out.tm_zone = "UTC";
   *result = out;
   return result;
 }

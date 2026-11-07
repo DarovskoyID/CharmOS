@@ -10,7 +10,7 @@
 namespace abi::syscall {
 
 inline constexpr uint16_t kVersionMajor = 1;
-inline constexpr uint16_t kVersionMinor = 18;
+inline constexpr uint16_t kVersionMinor = 22;
 
 // §5
 enum class Number : uint64_t {
@@ -102,6 +102,9 @@ enum class Number : uint64_t {
   FsRename = 80,
   ChannelQuery = 81,
   ChannelShutdown = 82,
+  VmoProtect = 83,  // v1.19, executable/W^X memory
+  VmoReserve = 84,  // v1.21, lazy VMO backing
+  VmoUnmapRange = 85,  // v1.22, partial unmap of an existing mapping
 };
 
 // display.md §2.1.
@@ -223,13 +226,14 @@ inline constexpr uint32_t kTransfer = 1u << 1;
 inline constexpr uint32_t kRead = 1u << 2;
 inline constexpr uint32_t kWrite = 1u << 3;
 inline constexpr uint32_t kMap = 1u << 4;
+inline constexpr uint32_t kExec = 1u << 5;  // v1.19: map VMO executable (W^X)
 inline constexpr uint32_t kAll = kDuplicate | kTransfer | kRead | kWrite | kMap;
 inline constexpr uint32_t kChannelDefault = kDuplicate | kTransfer | kRead | kWrite;
 inline constexpr uint32_t kPortDefault = kDuplicate | kTransfer | kRead | kWrite;
 inline constexpr uint32_t kDeviceDefault = kRead | kWrite | kMap;  // без Duplicate/Transfer
 inline constexpr uint32_t kInterruptDefault = kRead | kWrite;
 inline constexpr uint32_t kMmioDefault = kRead | kWrite | kMap;
-inline constexpr uint32_t kVmoDefault = kAll;
+inline constexpr uint32_t kVmoDefault = kAll | kExec;
 // v1.4 (docs/abi/socket.md §1): права хендла Net.
 inline constexpr uint32_t kNetConnect = 1u << 8;
 inline constexpr uint32_t kNetListen = 1u << 9;

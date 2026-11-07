@@ -1,0 +1,3 @@
+Native Mojo: capability endpoints, one-shot bootstrap, read-only VMO and child restart ok
+Native Mojo: normal/ipcz channels, large messages, capability batches, backpressure and rejection ok
+Native Mojo: public invitation, message pipe, shared-buffer transfer and process restart ok

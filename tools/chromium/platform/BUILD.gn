@@ -7,11 +7,6 @@ import("//build/config/linux/gtk/gtk.gni")
 import("//ui/qt/qt.gni")
 import("//build/config/locales.gni")
 
-declare_args() {
-  charmos_repo = ""
-  charmos_build_base = false
-  charmos_build_graphics = false
-}
 assert(charmos_repo != "", "Set charmos_repo to the native CharmOS checkout")
 
 gcc_toolchain("clang_x64") {
@@ -103,14 +98,42 @@ static_library("stdio_engine") {
 group("base_port") {
   deps = [ ":platform_smoke", ":full_runtime" ]
   if (charmos_build_base) {
-    deps += [ ":base_runtime" ]
+    deps += [ ":base_runtime", ":mojo_runtime" ]
+  }
+  if (charmos_build_v8) {
+    deps += [ ":v8_runtime" ]
+  }
+  if (charmos_build_blink) {
+    deps += [ ":blink_port" ]
   }
   if (charmos_build_graphics) {
-    deps += [ ":graphics_runtime", ":canvas_runtime" ]
+    deps += [ ":graphics_runtime", ":canvas_runtime", "//build/charmos/ozone:ozone_runtime" ]
+  }
+  deps += [ ":omitted_rust_audit" ]
+}
+
+# Disabled upstream Rust declarations are not implementations. Record any
+# reachable placeholder, even when its label (for example //crypto:tpm) does
+# not contain "rust". The audit must reject such a production dependency.
+generated_file("omitted_rust_audit") {
+  outputs = [ "$root_build_dir/charmos-omitted-rust.json" ]
+  output_conversion = "json"
+  data_keys = [ "charmos_omitted_rust" ]
+  deps = [ ":platform_smoke", ":full_runtime" ]
+  if (charmos_build_base) { deps += [ ":base_runtime", ":mojo_runtime" ] }
+  if (charmos_build_v8) { deps += [ ":v8_runtime" ] }
+  if (charmos_build_blink) { deps += [ ":blink_port" ] }
+  if (charmos_build_graphics) {
+    deps += [ ":graphics_runtime", ":canvas_runtime", "//build/charmos/ozone:ozone_runtime" ]
   }
 }
 
 if (charmos_build_base) {
+  executable("mojo_runtime") {
+    sources = [ "mojo_runtime.cc", "mojo_channel_checks.cc", "mojo_ipcz_checks.cc" ]
+    libs = [ "$charmos_repo/build/user/user/libc.a" ]
+    deps = [ "//base", ":numeric_runtime", "//mojo/public/cpp/platform", "//mojo/public/cpp/system", "//mojo/core/embedder" ]
+  }
   executable("base_runtime") {
     sources = [ "base_checks.cc", "message_pump_checks.cc", "shared_memory_checks.cc", "file_checks.cc", "ipc_checks.cc" ]
     libs = [ "$charmos_repo/build/user/user/libc.a" ]
@@ -118,27 +141,30 @@ if (charmos_build_base) {
   }
 }
 
+if (charmos_build_v8) {
+  executable("v8_runtime") {
+    sources = [ "v8_runtime.cc", "v8_platform_charmos.cc" ]
+    include_dirs = [ "//v8" ]
+    libs = [ "$charmos_repo/build/user/user/libc.a" ]
+    deps = [ "//v8", ":numeric_runtime" ]
+  }
+}
+
+if (charmos_build_blink) {
+  group("blink_port") {
+    # Graph/build root only. A runnable shell needs content and is a later step.
+    deps = [ "//third_party/blink/public:blink" ]
+  }
+
+  # Runnable browser shell. Kept separate from blink_port so the engine can be
+  # compiled and audited before the full content/browser link.
+  group("content_port") {
+    testonly = true
+    deps = [ "//content/shell:content_shell" ]
+  }
+}
+
 if (charmos_build_graphics) {
-  buildflag_header("ui_buildflags") {
-    header = "buildflags.h"
-    header_dir = "ui/base"
-    flags = [
-      "ENABLE_HIDPI=$enable_hidpi",
-      "ENABLE_MESSAGE_CENTER=$enable_message_center",
-      "USE_ATK=$use_atk",
-      "USE_XKBCOMMON=$use_xkbcommon",
-      "HAS_NATIVE_ACCESSIBILITY=$has_native_accessibility",
-      "HAS_PLATFORM_ACCESSIBILITY_SUPPORT=$has_platform_accessibility_support",
-      "USE_GTK=$use_gtk",
-      "USE_QT=$use_qt",
-      "ENABLE_PSEUDOLOCALES=$enable_pseudolocales",
-    ]
-  }
-  source_set("ui_features") {
-    sources = [ "//ui/base/ui_base_features.cc", "//ui/base/ui_base_features.h" ]
-    defines = [ "IS_UI_BASE_FEATURES_IMPL" ]
-    deps = [ ":ui_buildflags", "//base" ]
-  }
   executable("graphics_runtime") {
     sources = [ "graphics_runtime.cc", "window_event_source_charmos.cc" ]
     include_dirs = [ "$charmos_repo/user/libwm/include" ]
@@ -149,22 +175,10 @@ if (charmos_build_graphics) {
     ]
     deps = [ "//base", "//skia", ":numeric_runtime" ]
   }
-  source_set("native_canvas") {
-    sources = [
-      "native_window_presenter_charmos.cc",
-      "native_window_presenter_charmos.h",
-      "surface_ozone_canvas_charmos.cc",
-      "surface_ozone_canvas_charmos.h",
-      "window_event_source_charmos.cc",
-      "//ui/ozone/public/surface_ozone_canvas.cc",
-    ]
-    include_dirs = [ "$charmos_repo/user/libwm/include" ]
-    public_deps = [ "//base", "//skia", "//ui/gfx/geometry" ]
-  }
   executable("canvas_runtime") {
     sources = [ "canvas_runtime.cc" ]
     include_dirs = [ "$charmos_repo/user/libwm/include" ]
-    deps = [ ":native_canvas", ":numeric_runtime" ]
+    deps = [ "//build/charmos/ozone:native_canvas", ":numeric_runtime" ]
     libs = [
       "$charmos_repo/build/user/user/libwm/libwm_client.a",
       "$charmos_repo/build/user/lib/input/libinput.a",

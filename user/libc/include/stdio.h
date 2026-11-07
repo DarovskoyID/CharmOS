@@ -40,6 +40,7 @@ int getchar(void);
 int ungetc(int c, FILE* f);
 char* fgets(char* buf, int n, FILE* f);
 FILE* fopen(const char* path, const char* mode);
+FILE* tmpfile(void);
 FILE* fdopen(int fd, const char* mode);
 int fclose(FILE* f);
 size_t fread(void* buf, size_t size, size_t n, FILE* f);
@@ -49,12 +50,27 @@ int fseek(FILE* f, long off, int whence);
 long ftell(FILE* f);
 int fseeko(FILE*, off_t, int);
 off_t ftello(FILE*);
+#ifndef fopen64
+#define fopen64 fopen
+#endif
+#ifndef fseeko64
+#define fseeko64 fseeko
+#endif
+#ifndef ftello64
+#define ftello64 ftello
+#endif
 int fgetpos(FILE*, fpos_t*);
 int fsetpos(FILE*, const fpos_t*);
 void rewind(FILE*);
 void setbuf(FILE*, char*);
+#ifndef FILENAME_MAX
+#define FILENAME_MAX 4096
+#endif
 int sscanf(const char*, const char*, ...);
+FILE* freopen(const char* path, const char* mode, FILE* stream);
 int vsscanf(const char*, const char*, va_list);
+int fscanf(FILE* f, const char* fmt, ...) __attribute__((format(scanf, 2, 3)));
+int vfscanf(FILE* f, const char* fmt, va_list ap);
 int feof(FILE* f);
 int ferror(FILE* f);
 void clearerr(FILE* f);

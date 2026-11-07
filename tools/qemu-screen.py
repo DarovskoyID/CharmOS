@@ -10,12 +10,18 @@ import sys
 import time
 
 MON = "/tmp/charmos-mon"
-SHOT = "/tmp/charmos-shot.ppm"
+SHOT = f"/tmp/charmos-shot-{os.getpid()}.ppm"
 
 
 def screendump():
-    if os.path.exists(SHOT):
+    global SHOT
+    try:
         os.remove(SHOT)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        # Stale file owned by another user in the sticky /tmp; use a fresh name.
+        SHOT = f"/tmp/charmos-shot-{os.getpid()}-{time.time_ns()}.ppm"
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.connect(MON)
     s.settimeout(5)
@@ -34,6 +40,10 @@ def screendump():
     s.close()
     with open(SHOT, "rb") as f:
         data = f.read()
+    try:
+        os.remove(SHOT)
+    except OSError:
+        pass
     # PPM P6: "P6\n<w> <h>\n<max>\n" + RGB
     parts = data.split(b"\n", 3)
     assert parts[0] == b"P6", "not a P6 PPM"

@@ -24,6 +24,10 @@ add_library(c STATIC
   libc/src/cxx.cpp libc/src/locale.cpp libc/src/strftime.cpp libc/src/temp.cpp
   libc/src/strptime.cpp libc/src/system.cpp libc/src/mman.cpp libc/src/uio.cpp libc/src/path.cpp
   libc/src/realpath.cpp libc/src/file_policy.cpp libc/src/emutls.cpp
+  libc/src/net_interface.cpp libc/src/select.cpp libc/src/ioctl.cpp
+  libc/src/inet_address.cpp libc/src/netdb.cpp
+  libc/src/syscall.cpp libc/src/dlfcn.cpp libc/src/scanf.cpp
+  libc/src/compat.cpp
   libc/src/arch/x86_64/setjmp.S libc/src/semaphore.cpp)
 target_include_directories(c PUBLIC libc/include rt/include)
 target_link_libraries(c PUBLIC abi)
@@ -41,6 +45,8 @@ function(charmos_c_program name)
 endfunction()
 
 charmos_c_program(libc_test tests/libc_test.cpp)
+charmos_c_program(network_addresses tests/network_addresses.cpp)
+charmos_c_program(network_compatibility tests/network_compatibility.cpp)
 charmos_c_program(runtime_test tests/runtime_test.cpp)
 charmos_c_program(runtime_threads tests/runtime_threads.cpp)
 target_compile_options(runtime_threads PRIVATE -fthreadsafe-statics)

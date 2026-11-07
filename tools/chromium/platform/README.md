@@ -52,3 +52,18 @@ task loop and native input, and saves a screenshot. It is not a browser.
 Six double hyperbolic entrypoints absent from this archive's LLVM libc are
 backed by its pinned Chromium fdlibm implementation with native C errno
 handling. The additional source/header hashes and license are retained.
+
+`verify-browser-foundation.sh` keeps one native profile, compiles Ozone and
+Mojo together, audits both ELF files and then runs their guest fixtures plus
+the libc network regression. This avoids repeated graph/compile cycles for
+individual source edits. `prepare-platform.py --check-only` validates pinned
+patch contexts without changing a live vendor tree.
+
+Dependency-audit receipts hash every GN input and recursively included Ninja
+manifest, arguments, generation stamp and omitted-Rust report. Unchanged graphs
+can reuse the verified result after C++ edits. Changed or unrecognized inputs
+require the full audit; metadata timestamps alone never authorize cache reuse.
+
+The independent SDK also exposes `charm/network.hpp`: real interface/DNS
+snapshots and IPv4 name resolution through an explicitly borrowed Net
+capability. Other browser engines can use it without Chromium or host libc.

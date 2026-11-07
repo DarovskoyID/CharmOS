@@ -209,6 +209,11 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
       set_result(f, kernel::ipc::sys_vmo_create(f.rdi, &v), v);
       break;
     }
+    case Number::VmoReserve: {
+      uint64_t v = 0;
+      set_result(f, kernel::ipc::sys_vmo_reserve(f.rdi, &v), v);
+      break;
+    }
     case Number::VmoMap: {
       uint64_t v = 0;
       set_result(f, kernel::ipc::sys_vmo_map(static_cast<uint32_t>(f.rdi), f.rsi, &v), v);
@@ -216,6 +221,12 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
     }
     case Number::VmoUnmap:
       set_result(f, kernel::ipc::sys_vmo_unmap(f.rdi));
+      break;
+    case Number::VmoUnmapRange:
+      set_result(f, kernel::ipc::sys_vmo_unmap_range(f.rdi, f.rsi));
+      break;
+    case Number::VmoProtect:
+      set_result(f, kernel::ipc::sys_vmo_protect(f.rdi, f.rsi, f.rdx));
       break;
     case Number::PortCreate: {
       uint64_t v = 0;

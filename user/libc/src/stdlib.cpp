@@ -299,6 +299,7 @@ int atoi(const char* s) { return static_cast<int>(strtol(s, nullptr, 10)); }
 long atol(const char* s) { return strtol(s, nullptr, 10); }
 int abs(int v) { return v < 0 ? -v : v; }
 long labs(long v) { return v < 0 ? -v : v; }
+long long llabs(long long v) { return v < 0 ? -v : v; }
 div_t div(int numerator, int denominator) { return {numerator / denominator, numerator % denominator}; }
 ldiv_t ldiv(long numerator, long denominator) { return {numerator / denominator, numerator % denominator}; }
 lldiv_t lldiv(long long numerator, long long denominator) { return {numerator / denominator, numerator % denominator}; }
@@ -309,6 +310,12 @@ int rand(void) {
   return static_cast<int>((g_rand >> 1) & RAND_MAX);
 }
 void srand(unsigned seed) { g_rand = seed; }
+
+int rand_r(unsigned* seed) {
+  if (!seed) return 0;
+  *seed = *seed * 1103515245u + 12345u;
+  return static_cast<int>((*seed >> 1) & RAND_MAX);
+}
 
 void qsort(void* base, size_t n, size_t size, int (*cmp)(const void*, const void*)) {
   // Вставками: списки в утилитах короткие (правило 9).

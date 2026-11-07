@@ -8,8 +8,10 @@ namespace {
 constexpr uint64_t kPresent = 1ull << 0;
 constexpr uint64_t kWritable = 1ull << 1;
 constexpr uint64_t kPageSizeBit = 1ull << 7;           // PS в PDPTE/PDE
+constexpr uint64_t kAccessed = 1ull << 5;              // A (hardware-managed)
+constexpr uint64_t kDirty = 1ull << 6;                 // D (hardware-managed)
 constexpr uint64_t kAddrMask = 0x000ffffffffff000ull;  // биты 51:12
-constexpr uint64_t kLeafFlagMask = kMapWrite | kMapUser | kMapCacheDisable | kMapWriteCombine | kMapNoExec;
+constexpr uint64_t kLeafFlagMask = kMapWrite | kMapUser | kMapCacheDisable | kMapWriteCombine | kMapNoExec | kMapInaccessible;
 
 size_t index(uint64_t virt, int level) {  // level: 3 = PML4 … 0 = PT
   return static_cast<size_t>((virt >> (12 + 9 * level)) & 0x1ff);
@@ -62,12 +64,13 @@ bool PageTables::map_4k(uint64_t virt, uint64_t phys, uint64_t flags) {
     if (t == nullptr) return false;
   }
   uint64_t& e = t[index(virt, 0)];
-  if ((e & kPresent) != 0) return false;
-  e = phys | kPresent | (flags & kLeafFlagMask);
+  if ((e & (kPresent | kMapInaccessible)) != 0) return false;
+  e = phys | ((flags & kMapInaccessible) ? 0 : kPresent) | (flags & kLeafFlagMask);
   return true;
 }
 
 bool PageTables::map_2m(uint64_t virt, uint64_t phys, uint64_t flags) {
+  if (flags & kMapInaccessible) return false;
   if (virt % kLargePageSize != 0 || phys % kLargePageSize != 0) return false;
   uint64_t* t = table(pml4_);
   for (int level = 3; level > 1; --level) {
@@ -124,10 +127,54 @@ uint64_t PageTables::unmap_4k(uint64_t virt) {
     t = table(e & kAddrMask);
   }
   uint64_t& e = t[index(virt, 0)];
-  if ((e & kPresent) == 0) return 0;
+  if ((e & (kPresent | kMapInaccessible)) == 0) return 0;
   uint64_t phys = e & kAddrMask;
   e = 0;
   return phys;
+}
+
+bool PageTables::protect_4k(uint64_t virt, uint64_t flags) {
+  if (virt % kPageSize != 0) return false;
+  uint64_t* t = table(pml4_);
+  for (int level = 3; level > 0; --level) {
+    uint64_t e = t[index(virt, level)];
+    if ((e & kPresent) == 0 || (e & kPageSizeBit) != 0) return false;
+    t = table(e & kAddrMask);
+  }
+  uint64_t* entry = &t[index(virt, 0)];
+  uint64_t old = __atomic_load_n(entry, __ATOMIC_RELAXED);
+  do {
+    if ((old & (kPresent | kMapInaccessible)) == 0) return false;
+    uint64_t replacement = (old & ~(kLeafFlagMask | kPresent)) |
+        (flags & kLeafFlagMask) | ((flags & kMapInaccessible) ? 0 : kPresent);
+    // Preserve hardware-updated accessed/dirty bits. Update the leaf directly;
+    // clear Present only when inaccessible protection is actually requested
+    // (SDM Vol. 3A, paging entries and invalidation).
+    if (__atomic_compare_exchange_n(entry, &old, replacement, true,
+                                    __ATOMIC_RELEASE, __ATOMIC_RELAXED)) return true;
+  } while (true);
+}
+
+bool PageTables::remap_4k(uint64_t virt, uint64_t phys, uint64_t flags) {
+  if (virt % kPageSize != 0 || phys % kPageSize != 0) return false;
+  uint64_t* t = table(pml4_);
+  for (int level = 3; level > 0; --level) {
+    uint64_t e = t[index(virt, level)];
+    if ((e & kPresent) == 0 || (e & kPageSizeBit) != 0) return false;
+    t = table(e & kAddrMask);
+  }
+  uint64_t* entry = &t[index(virt, 0)];
+  uint64_t old = __atomic_load_n(entry, __ATOMIC_RELAXED);
+  do {
+    if ((old & (kPresent | kMapInaccessible)) == 0) return false;
+    uint64_t replacement = phys | (flags & kLeafFlagMask) |
+        ((flags & kMapInaccessible) ? 0 : kPresent);
+    // Preserve A/D only when the physical page does not change; a new page
+    // starts with fresh access state.
+    if ((old & kAddrMask) == (phys & kAddrMask)) replacement |= old & (kAccessed | kDirty);
+    if (__atomic_compare_exchange_n(entry, &old, replacement, true,
+                                    __ATOMIC_RELEASE, __ATOMIC_RELAXED)) return true;
+  } while (true);
 }
 
 bool PageTables::ensure_pml4_entry(size_t i) {
@@ -149,7 +196,7 @@ void PageTables::destroy_lower_half(PageFree free_page, void* ctx) {
         uint64_t pt_phys = pd[i2] & kAddrMask;
         uint64_t* pt = table(pt_phys);
         for (size_t i1 = 0; i1 < 512; ++i1) {
-          if ((pt[i1] & kPresent) != 0) free_page(ctx, pt[i1] & kAddrMask);
+          if ((pt[i1] & (kPresent | kMapInaccessible)) != 0) free_page(ctx, pt[i1] & kAddrMask);
         }
         free_page(ctx, pt_phys);
       }

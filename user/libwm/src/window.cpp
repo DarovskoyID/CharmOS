@@ -49,7 +49,7 @@ void Window::close() {
   if (ring_ != nullptr) (void)vmo_unmap(reinterpret_cast<uint64_t>(ring_));
   ring_ = nullptr; input_ = nullptr; id_ = 0; owned_[0] = owned_[1] = false;
   width_=0; height_=0; format_=0; x_=0; y_=0;
-  protocol_=0; generation_=0; display_={}; visible_=active_=false;
+  protocol_=0; generation_=0; display_={}; visible_=active_=captured_=false;
 }
 Status Window::create(const char* title, uint32_t width, uint32_t height) {
   return create_impl(title,width,height,wm::kVersion,0);
@@ -228,6 +228,12 @@ Status Window::activate(bool active) {
   wm::Activate request{wm::kActivate,id_,active ? 1u : 0u};
   return channel_write(channel_,&request,sizeof request,nullptr,0);
 }
+Status Window::set_capture(bool captured) {
+  if(!id_) return Status::InvalidArgs;
+  if(!supports(wm::kFeatureCapture)) return Status::NotSupported;
+  wm::SetCapture request{wm::kSetCapture,id_,captured ? 1u : 0u};
+  return channel_write(channel_,&request,sizeof request,nullptr,0);
+}
 Status Window::wait(wm::WindowEvent* event, uint64_t deadline) {
   if (event == nullptr || id_ == 0) return Status::InvalidArgs;
   wm::WindowEventV3 managed{};
@@ -236,7 +242,7 @@ Status Window::wait(wm::WindowEvent* event, uint64_t deadline) {
   if (!r.ok()) return r.status;
   uint32_t nh = static_cast<uint32_t>(r.value); close_handles(hs, nh);
   size_t bytes=protocol_==wm::kManagedVersion ? sizeof managed : sizeof *event;
-  uint32_t maximum=protocol_==wm::kManagedVersion ? wm::kVisibilityChanged : wm::kCloseRequest;
+  uint32_t maximum=protocol_==wm::kManagedVersion ? wm::kCaptureChanged : wm::kCloseRequest;
   if ((r.value >> 32) != bytes || nh != 0 || managed.base.window != id_ ||
       managed.base.type<wm::kFrameDone || managed.base.type>maximum) return Status::InvalidArgs;
   if(protocol_==wm::kManagedVersion) {
@@ -271,6 +277,9 @@ Status Window::wait(wm::WindowEvent* event, uint64_t deadline) {
   } else if(event->type==wm::kVisibilityChanged) {
     if(event->value>1) return Status::InvalidArgs;
     visible_=event->value!=0;
+  } else if(event->type==wm::kCaptureChanged) {
+    if(event->value>1) return Status::InvalidArgs;
+    captured_=event->value!=0;
   }
   return Status::Ok;
 }

@@ -50,7 +50,8 @@ FdLease sock(int fd) {
 extern "C" {
 
 int socket(int domain, int type, int) {
-  if (domain != AF_INET || (type != SOCK_STREAM && type != SOCK_DGRAM)) return fail_errno(EINVAL);
+  if (domain != AF_INET) return fail_errno(EAFNOSUPPORT);
+  if (type != SOCK_STREAM && type != SOCK_DGRAM) return fail_errno(EINVAL);
   Handle net = start_info().net;
   if (net == 0) return fail_errno(EACCES);
   auto r = charm::socket_open(net, type == SOCK_STREAM ? 1 : 2);
@@ -110,6 +111,38 @@ ssize_t recv(int fd, void* buf, size_t n, int flags) {
   return flags ? fail_errno(ENOTSUP) : read(fd, buf, n);
 }
 
+int socketpair(int domain, int, int, int*) {
+  // Unix-сокеты не реализованы: дескрипторы передаются по каналам ядра
+  // (docs/abi/ipc.md), а не через AF_UNIX/SCM_RIGHTS.
+  (void)domain;
+  return fail_errno(EAFNOSUPPORT);
+}
+
+ssize_t sendmsg(int fd, const struct msghdr* msg, int flags) {
+  auto f = sock(fd);
+  if (!f) return -1;
+  if (msg == nullptr) return fail_errno(EFAULT);
+  (void)flags;
+  // Separate writev writes cannot preserve native datagram boundaries.
+  return fail_errno(ENOTSUP);
+}
+
+ssize_t recvmsg(int fd, struct msghdr* msg, int) {
+  auto f = sock(fd);
+  if (!f) return -1;
+  if (msg == nullptr) return fail_errno(EFAULT);
+  // Needs a native atomic message receive, including flags and truncation.
+  return fail_errno(ENOTSUP);
+}
+
+int getsockname(int, struct sockaddr*, socklen_t*) {
+  return fail_errno(ENOTSUP);  // локальный адрес ещё не выдаёт ядро
+}
+
+int getpeername(int, struct sockaddr*, socklen_t*) {
+  return fail_errno(ENOTSUP);
+}
+
 int shutdown(int fd, int how) {
   auto f = sock(fd);
   if (!f) return -1;
@@ -122,30 +155,6 @@ int shutdown(int fd, int how) {
 int setsockopt(int fd, int, int, const void*, socklen_t) {
   auto f = sock(fd);
   return f ? fail_errno(ENOTSUP) : -1;
-}
-
-int inet_pton(int af, const char* src, void* dst) {
-  if (af != AF_INET) return -1;
-  uint32_t parts[4];
-  for (int i = 0; i < 4; ++i) {
-    if (*src < '0' || *src > '9') return 0;
-    uint32_t v = 0;
-    while (*src >= '0' && *src <= '9') v = v * 10 + static_cast<uint32_t>(*src++ - '0');
-    if (v > 255) return 0;
-    parts[i] = v;
-    if (i < 3 && *src++ != '.') return 0;
-  }
-  if (*src != '\0') return 0;
-  auto* out = static_cast<uint8_t*>(dst);
-  for (int i = 0; i < 4; ++i) out[i] = static_cast<uint8_t>(parts[i]);
-  return 1;
-}
-
-const char* inet_ntop(int af, const void* src, char* dst, socklen_t size) {
-  if (af != AF_INET) return nullptr;
-  const auto* b = static_cast<const uint8_t*>(src);
-  snprintf(dst, size, "%u.%u.%u.%u", b[0], b[1], b[2], b[3]);
-  return dst;
 }
 
 }  // extern "C"

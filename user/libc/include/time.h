@@ -9,17 +9,23 @@
 #define CLOCK_MONOTONIC_RAW 4
 #define CLOCK_BOOTTIME 7
 typedef int clockid_t;
+typedef long clock_t;
+#define CLOCKS_PER_SEC 1000000
 struct timespec {
   time_t tv_sec;
   long tv_nsec;
 };
 struct tm {
   int tm_sec, tm_min, tm_hour, tm_mday, tm_mon, tm_year, tm_wday, tm_yday, tm_isdst;
+  /* glibc/BSD-совместимые смещение и имя зоны (CharmOS — фиксированный UTC). */
+  long tm_gmtoff;
+  const char* tm_zone;
 };
 #ifdef __cplusplus
 extern "C" {
 #endif
 int clock_gettime(clockid_t clk, struct timespec* ts);
+clock_t clock(void);
 int nanosleep(const struct timespec* req, struct timespec* rem);
 time_t time(time_t* t);
 struct tm* gmtime_r(const time_t* value, struct tm* result);

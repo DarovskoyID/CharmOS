@@ -26,6 +26,8 @@ inline constexpr uint64_t kMapWriteCombine = 1ull << 3;
 // сброса (табл. 12-12). На каждом CPU одинаково, до любых WC-отображений.
 void init_pat();
 inline constexpr uint64_t kMapNoExec = 1ull << 63;
+// Non-present 4 KiB leaf owned by the OS, retaining its backing frame.
+inline constexpr uint64_t kMapInaccessible = 1ull << 9;
 
 // Выделяет одну страницу 4 КиБ (обнулять не обязан); возвращает её
 // физический адрес или 0 при нехватке памяти.
@@ -49,6 +51,13 @@ class PageTables {
   // Снимает отображение страницы 4 КиБ (таблицы не освобождаются). Возвращает
   // физ. адрес снятой страницы или 0, если её не было. TLB сбрасывает вызывающий.
   uint64_t unmap_4k(uint64_t virt);
+  // Update an existing 4 KiB leaf without unmapping or allocating tables.
+  // Caller serializes page-table changes and flushes TLBs after success.
+  bool protect_4k(uint64_t virt, uint64_t flags);
+  // Replace the physical page (and flags) of an existing present or
+  // inaccessible leaf. Needed when a lazy VMO alias commits pages after this
+  // address space installed a physical-address-zero marker. Caller flushes TLB.
+  bool remap_4k(uint64_t virt, uint64_t phys, uint64_t flags);
 
   // Физ. адрес и флаги листа, либо false, если не отображено.
   bool translate(uint64_t virt, uint64_t* phys, uint64_t* flags) const;

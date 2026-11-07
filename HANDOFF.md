@@ -1,4 +1,398 @@
-# Актуальное продолжение (2026-10-29, WM v3 + Ozone canvas)
+# Актуальное продолжение (2026-11-06): lazy VMO зелёный
+
+**Итог пакета 2026-11-06 (ABI v1.21, lazy VMO):** новый syscall
+`VmoReserve=84` создаёт VMO с нулевыми frame-индексами; физические кадры
+выделяются только при commit (map с доступом / mprotect / `vmo_frames`).
+Commit атомарный: кадры сначала аллоцируются и обнуляются во временный массив,
+при OOM VMO не меняется. `VmoProtect` перечитывает физический адрес из VMO
+(`PageTables::remap_4k`), поэтому alias, стоявший маркером с phys=0, видит
+страницу, выделенную другим alias. Уничтожение VMO освобождает только
+ненулевые записи. `vmo_frames` коммитит до выдачи адресов оборудованию.
+
+libc: anonymous/private `mmap(PROT_NONE)` использует `VmoReserve`; постраничный
+`zeroed`-бит позволяет `MAP_FIXED|PROT_NONE` не трогать нетронутую резервацию,
+а обнулять только dirty-runs. Документ — `docs/abi/lazy-vmo.md`.
+
+**ABI v1.22 (partial munmap):** `VmoUnmapRange=85` снимает листья выбранного
+диапазона внутри существующего VMO-маппинга, не удаляя запись Mapping и не
+освобождая фреймы VMO. libc ведёт постраничный `live`-бит: соседние страницы
+остаются доступны, `mprotect`/`MAP_FIXED` поверх дыры дают `ENOMEM`, повторный
+`munmap` дыры — no-op, полный `munmap` освобождает VMO. Физический discard
+(освобождение committed-страниц) остаётся будущей работой.
+
+**ПРОВЕРЕНО:** host `test_paging` (11 тестов, включая remap inaccessible
+marker → real frame → второй commit с другим frame); `runtime/runtime_none` и
+`runtime/runtime_cpu` (`lazy VMO reservation and alias commit ok`, 32 МиБ
+sparse reserve + alias; `partial munmap contract ok`); `m4/ipc`; строгий V8 gate
+(`m10/v8_runtime`) — полный GC, `Isolate::Dispose`, `V8::Dispose`,
+`DisposePlatform`, `pthread_join`, clean shutdown, host-check поздних fatal —
+на **штатных 512 МиБ** QEMU RAM (без `-m 2048M` и без ограничения CodeRange
+64 МиБ). Регрессия фундамента после lazy VMO: `m10/network_review`,
+`m10/ozone_runtime`, `m10/mojo_runtime` — все `ok` (07:27); повторно после
+ABI v1.22 — все `ok` (08:06).
+
+**Следующее:** освобождение committed-страниц (MADV_DONTNEED/discard) и
+произвольные fixed-резервации; `SetDataReadOnly`/JIT (PKU или scoped RWX),
+затем Blink/content, Chromium net adapter и UI.
+
+**Blink C++-профиль (2026-11-06):** граф Blink теперь **без Rust** —
+`//third_party/blink/public:blink` = 7206 зависимостей / 32607 команд, ни одной
+Rust-зависимости и ни одной Rust-команды (`build-platform.sh --blink-graph`).
+Для этого: XML переключён на C++/libxml2 `XMLDocumentParser`; `jxl`,
+`symphonia` и `dav1d/crabbyavif` отключены; `base32` и WebAudio FFT переписаны
+на C++ в `fft_frame`/`base32.cc`; `rust_crash` исключён; шаблон `rust_target`
+при `enable_rust=false` создаёт пустую C++-группу без Rust-кода. Дальше идёт
+`blink_port` compile и закрытие платформенных ошибок; content shell ещё не
+собран.
+
+**Blink compile 2026-11-07:** Rust parsers replaced by C++ in
+`build/charmos/{mpeg_audio_ffi,jpeg_parser_ffi}.{h,cc}`; WebGPU/TFLite/SwiftShader
+and host ALSA/Pulse are disabled for CharmOS; the libc gained the portable POSIX
+surface the media/GPU closure needs (stat fields, `sys/file.h`, `sys/auxv.h`,
+`utime.h`, `uchar.h`, `malloc`/futex constants, 64-bit stdio aliases). The
+`blink_port` group has passed >12k/20.5k compile edges; remaining errors are
+being closed iteratively.
+
+**No-Rust feature status 2026-11-07:** the XML path is the C++/libxml2 parser;
+font format detection is plain C++ SFNT scanning; Ed25519 signature checks use
+BoringSSL. IFT patching, ECDSA verification and signed-web-bundle parsing are
+compiled out/rejected rather than ported (they were Rust bridges). TFLite/WebNN,
+SwiftShader, ANGLE-WGPU/Dawn-Vulkan and host ALSA/Pulse are disabled for the
+software-only profile.
+
+**Verified 2026-11-07:** `blink_port` compiles to completion (5780/5780, 0
+errors); `--blink-graph` reports **7082 dependencies / 31236 commands, no Rust
+dependencies and no Rust compile commands**. Guest regressions after the libc
+ABI additions: `runtime` (cpu/none/threads/tpm) and `browser`
+(base_runtime/https/platform/runtime_cpp/runtime_json/tls) all `ok`. A
+`//content/shell:content_shell` build target (`content_port`) has been added for
+the next phase.
+
+**Blink-рекогносцировка 2026-11-06** (`tools/chromium/blink-recon.sh`):
+`//third_party/blink/public:blink` — 7223 зависимости, `//content/public/app:app`
+— 12171; тянут ui/gpu/media/device/cc/services. Rust: `temporal_capi`
+(отключается `v8_enable_temporal_support=false`), `jxl_rs`
+(`enable_jxl_decoder=false`) и безусловный `//third_party/rust/xml/v1` через
+`blink/renderer/core:xml_ffi`. Перед `--blink-graph` нужно выбрать политику:
+документированное исключение для upstream-Rust в Blink либо отключение/порт
+XML-парсера. Blink пока не начат.
+
+# Предыдущее продолжение (2026-11-06): ABI v1.20 и link dependencies
+
+**Итог последнего пакета 2026-11-06 — проверки зелёные.**
+ABI v1.20 PROT_NONE/zeroing replacement подтверждены runtime_none,
+runtime_cpu, host test_paging, строгим V8 GC/Dispose/join gate и m4/ipc.
+Исправление зависимостей линковки завершено: правило только у native
+toolchain (у host флага нет), Ninja сохраняет LLD depfile во внутренней
+базе и удаляет временный .d. test-link-dependencies.py читает `ninja -t deps`
+и реально доказывает: новая mtime только libc.a планирует LINK без CXX;
+исходная mtime восстанавливается finally. Этот тест и новый полный аудит
+графа PASS (1313 deps / 5854 commands, без Rust). После одноразовой
+пересборки ELF совпал побайтово с уже проверенным в госте, новый guest не
+требовался. Последний m4/ipc PASS после всех изменений; фоновых сборок нет.
+Финальный тест зависимостей и аудит выполнены последовательно после
+исправления теста чтения временного depfile; новую компиляцию не запускали.
+Для дальнейшего повтора есть verify-link-dependencies.sh --resume.
+
+Следующий большой шаг: lazy VMO backing. Начальный дизайн записан в
+docs/abi/lazy-vmo-draft.md (НЕ реализован): отдельный VmoReserve, backing
+при явном commit/mprotect, обновление физических адресов alias PTE,
+rollback OOM и known-zero tracking в libc, затем настоящий V8 gate на
+512 МиБ. Сейчас физическое выделение ещё eager, QEMU V8 всё ещё 2 ГиБ.
+Не объявлять этот draft реализацией. Partial munmap/общий MAP_FIXED,
+JIT/SetDataReadOnly, Blink/content, Chromium net adapter и UI впереди.
+
+**Следующий пакет 2026-11-06: ABI v1.20, настоящий PROT_NONE.**
+Неприсутствующие PTE с software-битом 9 сохраняют владельца фрейма; защита
+восстанавливается на месте, unmap удаляет и такие листья. Внутри приватной
+libc-области anonymous/private MAP_FIXED|PROT_NONE теперь обнуляет страницы
+и закрывает доступ, не меняя соседние страницы. Документ:
+docs/abi/inaccessible-memory.md. Физические кадры пока выделяются заранее.
+Проверены OS build, host test_paging, runtime_none/runtime_cpu и строгий
+V8 gate с новой libc: inaccessible-{os-build,host,none,cpu,v8-driver}.log
+в build/chromium; все PASS. Проверки подтверждают BadAddress при реальном
+user-copy из PROT_NONE, сохранение данных при обычном mprotect и нули при
+фиксированной замене. Права capability после None не повышаются.
+
+Обнаружен отдельный дефект: внешний libc.a не указан в зависимостях Ninja
+для native ELF. Текущий V8 был принудительно перелинкован перед гостем.
+Добавлен pinned-патч gcc_toolchain.gni: LLD --dependency-file + depfile для
+native link, а также verify-link-dependencies.sh/test-link-dependencies.py.
+Первый вариант ошибочно проверял current_os и задел host-генераторы;
+сборка остановлена, условие исправлено на invoker_toolchain_args.current_os.
+Промежуточная стадия сохранена для безопасного prepare уже изменённого дерева.
+Последняя проверка этого исправления выполняется отдельно; её PASS ещё
+нужно подтвердить. Логи link-dependencies-{gn,build,guest}.log.
+Скрипт требует LLD depfile с libc.a/user.ld, проверяет отсутствие флага у
+host toolchain и доказывает через ninja -n, что изменение только libc.a
+вызывает LINK без CXX. Если ELF изменился после правил, повторяет гостя.
+
+**2026-11-06, после перезагрузки:** строгий V8 gate прошёл с исходными
+проверками weak-context list: ArrayBuffer/исключения/JSON, полный GC,
+Dispose платформы и join без _exit; host-проверка поздних fatal ошибок PASS.
+Также прошли runtime/runtime_none и runtime/runtime_cpu со всеми правками
+capability/protection/signals/rusage; host test_paging PASS до перезагрузки.
+Команда verify-v8.sh --resume дала подтверждённый cache hit графа,
+пересобрала 436 шагов с CHARMOS_BUILD_JOBS=12 и прошла ELF audit.
+Логи: build/chromium/v8-build.log, build/test-m10-v8_runtime.serial,
+build/test-runtime-runtime_none.serial, build/test-runtime-runtime_cpu.serial.
+Следующий блок — реальные виртуальные резервации/освобождение/lazy VMO.
+
+**Последняя остановка: 2026-11-06, перезагрузка по просьбе пользователя.**
+Точные изменения, проверенное состояние и команда продолжения — в разделе
+«Остановка перед перезагрузкой — 2026-11-06» в конце этого файла.
+Строгий GC/Dispose gate ещё не пройден; ниже сохранён исторический JS smoke.
+
+## Предыдущий результат (2026-11-05): V8 выполняет JavaScript
+
+**ПРОВЕРЕНО 2026-11-05:** гость прошёл `m10/v8_runtime` — `Native V8: JavaScript
+evaluation ok (arithmetic, closures, loops, objects)`, затем `svc poweroff` и
+ACPI S5 (`ok m10/v8_runtime`). Это реальный V8 на CharmOS: изолятор, контекст,
+парсинг и исполнение JS (арифметика, `for..of` по массиву, замыкания, рекурсия,
+объекты). Профиль — **interpreter-only (`--jitless`)**, см. ограничения ниже.
+Канонический гейт — `tools/chromium/verify-v8.sh` — воспроизводит это целиком.
+
+**ПРОВЕРЕНО 2026-11-05:** канонический `tools/chromium/verify-browser-foundation.sh`
+зелёный целиком: OS-сборка, GN 38109 целей, графы Ozone (2450 deps/9425 команд) и
+Mojo (1444/6455) без Rust, оба ELF-аудита (static x86-64, без loader/TLS), и тесты
+`m10/network_review`, `m10/ozone_runtime`, `m10/mojo_runtime` — все `ok`.
+Повторный прогон после libc/V8-изменений — снова все три `ok`.
+
+**Плюс ABI v1.19 — W^X исполняемая память** (разблокировка V8/JIT): право
+`rights::kExec` (bit 5, включено в `kVmoDefault`), `VmoMap` с `kExec` (NX снят,
+W^X: `Write|Exec` в одном запросе отклоняется), новый syscall `VmoProtect=83`
+(смена прав существующего отображения с TLB-сбросом на всех CPU), libc
+`mmap(PROT_EXEC)` и `mprotect` (mmap RW → код → mprotect RX → исполнение).
+Проверено `runtime/runtime_none` и `runtime/runtime_cpu`: реальный код `mov
+eax,42;ret` записан, переведён в RX, выполнен (42), W+X отклонён с EINVAL.
+Документ — `docs/abi/executable-memory.md`.
+
+**V8 — зелёный smoke (interpreter-only).** Аргументы: `v8_enable_temporal_support=false`
+(убирает Rust `temporal_capi`), `v8_enable_pointer_compression=false`,
+`v8_enable_webassembly=false`, `v8_use_external_startup_data=false`,
+`cppgc_enable_caged_heap=false`/`cppgc_enable_larger_cage=false` (32 ГиБ cppgc cage
+не помещается в модель VMO). Граф V8 **Rust-free: 1313 deps / 5854 команды**.
+Добавлены: цель `v8_runtime` (реальные JS-выражения, запуск на потоке с 8 МиБ
+стеком), режим `build-platform.sh --v8-graph`, `package-v8.sh`, гостевая
+фикстура `tests/qemu/m10/v8_runtime`.
+
+Что потребовалось в libc/патчах:
+- `V8_OS_CHARMOS`/`V8_OS_POSIX` (`v8-patches.py`), `tm_gmtoff`/`tm_zone`,
+  `sys/syscall.h`+`syscall(__NR_gettid)`.
+- C++ iostreams: `<fstream>` больше не требует `std::filesystem` (ключ —
+  `_LIBCPP_HAS_LOCALIZATION`), explicit instantiations в `ios.instantiations.cpp`
+  включены тем же условием.
+- POSIX: `ucontext.h`/`stack_t`/`sigaltstack`/`mcontext_t`/`sigaction`,
+  `pthread_getattr_np`/`pthread_attr_getstack`/`pthread_attr_getguardsize`/
+  `pthread_kill`, `getrusage`/`RLIMIT_DATA`, `tmpfile`, `MAP_NORESERVE`.
+- `mmap`: `PROT_NONE` резервация, `MAP_FIXED|PROT_NONE` внутри существующего
+  маппинга (V8 decommit/red zones), частичный `munmap` принимается как no-op
+  (ядро не умеет дробить VMO; утечка ограничена выравниванием).
+- `madvise(MADV_DONTNEED)` — успешная подсказка (swap нет).
+- V8-платформенные заглушки CharmOS (`v8_platform_charmos.cc`): timezone UTC,
+  пустой список shared libraries, `SignalCodeMovingGC`, `AdjustSchedulingParams`,
+  stack trace stubs, `powl`.
+- V8 `OS::CanReserveAddressSpace()=false` → emulated `VirtualAddressSubspace`
+  (аллоцируется выровненным `mmap`, сегменты — mprotect/decommit).
+- `SetDataReadOnly` (заморозка `v8_flags`) пропускается: mprotect страниц образа
+  пока не поддержан.
+- CodeRange ограничен 64 МиБ через `ResourceConstraints` (по умолчанию x64
+  резервирует 512 МиБ, а ядро выделяет физические кадры VMO сразу).
+- JSDispatchTable резервирует 256 МиБ → гостевой сценарий запускает QEMU с
+  `-m 2048M` (`tools/qemu/v8_runtime.args`).
+
+**Ограничения, не выдавать за большее:** JIT выключен (`--jitless`) — V8 x64
+хочет RWX-страницы code range, а CharmOS держит W^X; включение JIT требует
+PKU/RWX-политики ядра. Профайлер (SIGPROF) зарегистрирован, но сигнал не
+генерируется. Teardown изолятора пропускается (`_exit`) из-за debug-check в
+финальном GC. Blink/content/UI ещё не портированы.
+
+Канонический гейт V8 — `tools/chromium/verify-v8.sh` (OS-сборка, `--v8-graph`,
+ninja, ELF-аудит, `m10/v8_runtime`); контракт и ограничения —
+`docs/abi/v8-runtime.md`.
+
+Что закрыто в этом пакете:
+- **GPU-стек убран из software-only графа** (было ~600 ошибок). `//ui/ozone/common`
+  тянул `//ui/gl`→ANGLE→SwiftShader/dawn/Vulkan/glslang/LLVM. В `graphics-patches.py`:
+  для `is_charmos` убраны EGL/GL-источники и `//ui/gl*`, `angle_shared_libvulkan`
+  выключен, Vulkan-loader не линкуется, `ozone_platform_headless=false`. Граф ~9400
+  команд, Rust нет.
+- **Сетевые заголовки/функции libc**: `net/if.h`, `netinet/tcp.h`+`tcp_info`,
+  `ifaddrs.h`, `resolv.h`, `sys/un.h`, `sys/select.h`, `sys/ioctl.h`, `memory.h`;
+  `socketpair/sendmsg/recvmsg/getsockname/getpeername`, `gethostname/geteuid/getpeereid`,
+  `isascii/llabs/pthread_setname_np`, `select()` поверх poll, `ioctl`, `res_ninit`,
+  errno `EDQUOT/EUSERS/ENXIO`, multicast и BSD-типы.
+- **Mojo native capability** (`mojo-patches.py`): `PlatformHandle::kCapability` /
+  `MOJO_PLATFORM_HANDLE_TYPE_CHARMOS_CAPABILITY=7`, shared memory/каналы через
+  VMO-капабилити, не FD/`ScopedFDPair`/`SCM_RIGHTS`; `IPC::ParamTraits<long>` для
+  `int64_t==long`. FD-based broker (`mojo/core/broker_posix.cc`) для CharmOS
+  отключён через `SHARED_MEMORY_SERVICE_REQUIRED()` — иначе он падал на
+  `fcntl(F_GETFL)` по капабилити; память — прямые VMO, капабилити — по каналу.
+- **Сертификаты**: `chrome_root_store_only=true` → встроенный Chrome Root Store
+  (`CreateBuiltinWithChromeRootStore`), без системного хранилища и Rust-TPM.
+- **Разные `#error`/`strict_cast`/`WARNING`** ветки для CHARMOS; `PLATFORM_CHARMOS`.
+- **PS/2 колесо (ядро, `kernel/input/ps2.cpp`)**: добавлено включение IntelliMouse
+  (magic 200/100/80, id 3), 4-байтные пакеты, `kInputWheel` («вверх» = +). Без этого
+  гостевой тест не получал wheel. Отладочные `printf` в `wm.cpp` удалены.
+
+**Не сделано/не выдавать за готовое:** это НЕ браузер. V8 выполняет JS только в
+interpreter-режиме (JIT/W^X — отдельная задача), профайлер неактивен. Впереди
+Blink/content (настоящие HTML/CSS/JS-страницы), UI браузера, реальные сетевые
+запросы/DNS/TLS end-to-end.
+
+# Предыдущее продолжение (2026-11-04)
+
+Пользователь попросил продолжать браузер после оценки чужой работы4/10.
+Предпочтения: минимум текста; сборка только завершёнными пакетами, без
+перезапуска компилятора после мелких правок. Не запускать субагентов.
+
+Проверено: полная OS сборка review2-os-build.log; QEMU m10/network_review PASS
+(review2-network-guest.log). Исправлены libc select/ioctl, фиктивные интерфейсы
+и DNS state, pthread_setname_np, ложная sendmsg/recvmsg реализация через readv/
+writev. inet_address.cpp/netdb.cpp реально включены в libc, старые inet удалены.
+NetInfo общий net_info.hpp, реальный net0/index1 и DNS ядра. IPv6 — только
+форматирование/парсинг, не транспорт. Сеть/TLS ОС существовали раньше.
+
+АКТИВНО: session80314 — with-cache verify-browser-foundation.sh, driver
+build/chromium/review5-foundation-driver.log; compiler build/chromium/foundation-build.log,
+out/charmos-native. ~1700/2111 пересобираемых/новых единиц, ошибок пока нет.
+Не запускать
+одновременно другой compiler, QEMU или prepare. Ждать завершения и собрать
+весь список ошибок. GN уже успешен:38108targets, C++ audit2450deps/9424commands,
+без Rust; новый Mojo audit1444deps/6455commands тоже PASS (Ozone9425commands).
+Предыдущая полная
+Ozone compile5176/5230 закончилась только multicast types/constants и3
+unreachable warnings; все исправлены общим пакетом. Первый GN выявил host
+//crypto:tpm из нового root-store generator;
+профиль без Rust теперь исключает настоящий неподдерживаемый TPM и в host
+утилите, без ослабления audit. Chromium sourcecache может отмонтироваться при
+остановке WSL; запускать через with-cache.sh 1000 1000.
+
+ТЕКУЩАЯ сборка проверяет: CHROME_ROOT_STORE_ONLY=true, настоящий Chrome-only
+verifier, offline certificate_checks_charmos.cc, native variations enum1000,
+исправленные gfx/legacy IPC/dragdrop platform branches. Оригинальные staged
+patches сохранены, новые преобразования дописаны вконец graphics_patches().
+Legacy IPC больше не сообщает успех с пустой памятью. Цель — ozone_runtime
+link+ELFaudit+QEMU; driver сам упакует icudtl.dat и публичные test PEM через
+package-certificate-fixtures.py, затем guest. Не редактировать running shell.
+
+В ТЕКУЩИЙ ПАКЕТ УЖЕ СКОПИРОВАН, НО ЕЩЁ НЕ ПРОВЕРЕН В ГОСТЕ Mojo:
+mojo-patches.py расширен native endpoint
+bootstrap по ролям0x50000000..0x5fffffff, собственный ChannelCharmOS в
+platform/mojo_channel_charmos.cc, framing v1 (см docs/abi/chromium-mojo.md),
+корректные native counts/rights shared buffer; shared_memory_charmos.cc
+TakeOrFail возвращает unexpected при невалидном объекте/нулевом размере.
+Новые mojo_runtime.cc, mojo_channel_checks.cc, mojo_ipcz_checks.cc проверяют
+typed ownership, child bootstrap/restart, large5MiB,20caps, backpressure,
+concurrent writers, malformed frames, public invitations/message pipes/VMO.
+Есть target в platform/BUILD.gn, strict audit whitelist, verify-mojo-block.sh
+и QEMU m10/mojo_runtime fixture. verify-browser-foundation.sh уже пересобралOS,
+подготовил единый профиль, прогнал оба audit и компилирует обе цели. Далее
+сам выполнитELFaudit, упаковку ресурсов иQEMU network_review/ozone_runtime/
+mojo_runtime. Не редактировать работающий shellscript.
+Добавлен независимыйSDK charm/network.hpp, libc используетего; localhost::1
+и AI_ADDRCONFIG дляmappedv4 исправлены. network_review теперь последовательный:
+service cNet, addressesизshell, compatibilityизshell сявнымNoNetпроверкой.
+Новый --check-only в prepare проверяет276 pinned patch contexts беззаписи,
+прошёлдообщейпересборки. verify-mojo держит тот же --ozone-graph профиль.
+Два новых C++ файла проверки сначала падали на incomplete CertNetFetcher и
+capturing lambda в BindRepeating; оба исправлены, успешно скомпилированы.
+Затем linker выявил5missing symbols: PathProviderPosix и Abseil allocator/
+threadidentity/semaphores. Исправлено цельным пакетом: base_paths_charmos.cc
+реально возвращает существующие configured directories, FILE_EXE/MODULE
+честно false (kernel не выдаёт exe path). DIR_ASSETS=/bin override остаётся.
+Abseil low_level_alloc.h pinned patch включает allocator на настоящем native
+anonymous mmap, отключает async-signal-safe arena. Не включён глобальный
+ABSL_HAVE_MMAP, так как native subset не равен всемуPOSIX. Для этого core
+header пришлось пересобрать2111 units (включаяhostgenerators); не прерывать.
+mojo_channel_checks теперь форсирует contention и timeout AbseilMutex.
+gethostname теперь берётuname.nodename (unset "(none)"), а не выдуманныйcharmos;
+network_review дополнен соответствующим контрактом.
+
+Ускорение аудитов: graph_cache.py + audit-cpp-graph.py receipts соSHA256всех
+GNinputs, Ninja manifests, args/stamp/omittedRust иpolicyhash; 5 тестовPASS.
+Фактический snapshot25082 inputs~5.71sec. Старые reports текущегоaudit НЕ имеют
+graph_snapshot: в первой версииcache не учлиdirectories в GNdepfile. Исправлено
+hash directory membership; нужен следующий полныйaudit дляnewreceipt, далее
+CPP-only cachehits. Нельзя заявлять, что реальныйcachehitуже проверен!
+graph_cache.py --is-current OUTPUT REPORT[...] готов для безопасной проверки
+freshness передresume. ПОСЛЕ окончания pipeline поправить verify-browser-
+foundation.sh --resume: сейчас он безусловноskipGN; нужно послеprepare
+использовать --is-current, еслинетсовпадающегоreceipt — повторить normalGN.
+НЕ редактироватьshellпокаонработает. Подготовитьcacheprooftestsзатемвсе
+criticalCPPfixes однопакетно. ДокументыABIиREADMEдополнены.
+
+Новых push/commit не делали. Браузер ещё не готов: нет Blink/V8/content/UI.
+
+# Предыдущее продолжение (2026-11-03, ревью чужого Ozone)
+
+Пользователь: ревью работы другой модели и довести браузер до конца; затем
+спросил оценку. Ответили в commentary4/10 с конкретными найденными ошибками;
+РАБОТУ НЕ ОСТАНАВЛИВАТЬ. Подробный журнал BROWSER-REVIEW.md.
+Другой агент закоммитил исходный проверенный пакет ddffba0, добавил remote,
+написал untracked полный Ozone, но ни разу успешно его не собрал. Историю и
+изменения сохранили. Никаких новых push/commit в этом продолжении не делали.
+
+Исправлены в repo: HID->DomCode через USBpage07+converter; punctuation штатная,
+левый/правый modifiers независимы; event translation отдаёт отдельный vector
+до delegate dispatch и weakcheck после каждого (убран UAF char после raw).
+Threadsafe presenter lookup отдельно от UI-only registry; Close убираетwidget.
+Boundscoalescing сохраняет последний resize, не теряет WouldBlock; разные
+pendingstates bounds/visibility. WindowDisplay неправильные work_width поля
+исправлены. Таймер intFail->void, pixel keys+expected порядок исправлены.
+SDK/WMcapture реально завершён и включён в Ozone SetCapture/ReleaseCapture.
+WM nativeAlt теперь доставляется приложениям. WM capture feature16/t10/event110.
+
+ПРОВЕРЕНО: review-os-build.log полная OS сборка; review-managed-guest.log
+PASS m10/window_managed (включая отказ чужому окну, потерю capture при
+скрытии/фокусе и настоящий mouse motion/button вне400x220 содержимого).
+Первый GN исправления: неоднозначный breakpad patch; неверный puffinSHA.
+Вместо удаления breakpad tools выбран настоящий .elf suffix в copy_exe;
+у puffin точные unique contexts и .elf. Остальной старый staged patch history
+сохранён, новые transforms добавлять после старых, иначе prepare отвергаетcache.
+Одна команда GN теперь делает38117 targets из4412files примерно213сек
+(это declarations, не компиляции). Проверка Ozone closure строгая, GNdesc
+ошибка больше НЕ превращается в fake-success пустого deps.
+
+Реальный audit выявил Rustsfv в //net. Выбран СУЩЕСТВУЮЩИЙ upstream C++
+QUICHE fallback в net/http/structured_headers.cc; нет заглушек. Лицензия
+tools/chromium/licenses/quiche.txt иmanifest добавлены. Последний audit:
+2646deps/10848commands, Rust отсутствует.
+
+АКТИВНАЯ СБОРКА: session93055 (WSL with-cache verify-ozone-block.sh),
+build/chromium/review-ozone-driver.log, build/chromium/ozone-build.log.
+Ninja -k0 -j4 ozone_runtime в out/charmos-native (НОВЫЙ полныйprofile).
+Не запускать параллельно другой compiler/QEMU/prepare. Старый out/charmos-platform
+baseline остаётся, verify-ozone раньше ошибочно читалего — исправлено.
+Последнее состояние: ~7000/10848, compile продолжает собирать ВСЕ ошибки -k0.
+Известны ошибки: ICU language_tag не имеет public ICU dep (исправлено в repo),
+CBOR USE_CBOR_RUST true (выбран настоящий C++ parser), crypto TPM Rust headers
+(неподдерживаемый TPM parser исключён; fake software provider возвращает nullptr).
+Не хватает in6_addr/sockaddr_storage/AF_INET6/netdb.h/gethostname/getsockname,
+native cert selection. Mojo уже падает в core_ipcz/shared_buffer/
+platform_handle_utils/cpp system на .fd/readonly_fd у настоящего UniqueHandle.
+Нужен реальный typed PlatformHandle/native channel/bootstrap/VMO adapter;
+не добавлять fake AF_UNIX/SCM_RIGHTS или casts capability->FD.
+Driver после compile попробует ELF audit+QEMU; не редактировать running shell!
+
+ВАЖНО: ПОСЛЕ запуска session93055 в repo добавлены ещё исправления, пока НЕ
+скопированные prepare в cache: native IcuBridge::normalizer всегда выбирает
+реальный ICU4C (иначе featureflag может deref nullptr), runtime NFC/NFD/NFKC и
+HTTP QUICHE проверки, прямой //net dep runtime, QUICHElicensemanifest. Текущая
+первая компиляция НЕ содержит их. После полного сбора ошибок потребуется
+prepare+GN/rebuild вместе со всеми необходимыми critical fixes. Не выдавать
+текущую проверку за финальную. Нативные ICU adapters уже в cache исправлены:
+private LocaleMatcher ctor ->builder.build, setNoDefaultLocale; ICU namespace
+alias; incompleteImpl; types/functions. Runtime запускает InitializeICU и
+пакетирует настоящий icudtl.dat в/bin, копия изpinned treeвbuild/user/user.
+
+Оставшееся: фактически собрать/проверить Ozone и его новые регрессии, затем
+Mojo nativecapability consumers (docs/abi/chromium-mojo.md пока ТОЛЬКОспека),
+Blink/V8/network/browser. Fullscreen/borderless/customcursor ещёunsupported.
+Это по-прежнему НЕ готовый браузер. Пользователь требует мало текста,
+не компилировать после мелких200строк, только завершёнными пакетами.
+
+# Предыдущее продолжение (2026-10-29, WM v3 + Ozone canvas)
 
 ПРОВЕРЕНО: WM v3, user SDK create_managed/request_bounds/title/visibility/focus,
 асинхронная замена двух VMO с поколениями/откатом и FIFO64 с writable watch.
@@ -886,3 +1280,51 @@ Perfetto pthread_t в число устранены; полный base до ли
 Оставшиеся интерфейсы: mmap, pipe/poll, временные файлы, uname, access,
 signal/dynamic-symbolize, CCTZ и собственный backend base. Окна браузера нет;
 M10 и порт Chromium не закрыты.
+## Остановка перед перезагрузкой — 2026-11-06
+
+Пользователь попросил перезагрузить ПК. Текущая проверка остановлена;
+активных ninja/clang/QEMU/python проверки после остановки не осталось.
+Изменения сохранены в рабочем дереве, коммиты не создавались.
+
+Повторное ревью V8 обнаружило и исправило:
+- повышение прав read-only VMO через VmoProtect; предел исходной capability
+  сохраняется после закрытия хендла, диапазоны проверяются без переполнения;
+- отказ HandleDuplicate копировать законный kExec; запрет исполнения MMIO;
+- неверный общий учёт защиты при mprotect части mmap: теперь постраничный;
+- временное снятие PTE при смене защиты: новая protect_4k обновляет лист
+  атомарно, сохраняет accessed/dirty и не выделяет таблицы;
+- фиктивный успех sigaction/sigaltstack/pthread_kill/getrusage: неподдерживаемые
+  действия теперь честно возвращают ENOTSUP, выходные структуры не портятся.
+  Запрос отсутствующего alternate stack и SS_DISABLE поддерживаются.
+
+V8-проба возвращает штатные Isolate::Dispose/V8::Dispose/DisposePlatform и
+pthread_join вместо _exit; добавлены ArrayBuffer/исключения/JSON/полный GC.
+Обходы трёх проверок weak native-context list отменены воспроизводимыми
+обратными стадиями v8-patches.py. Сценарий ждёт clean shutdown после join,
+возврат shell; v8_runtime.check.py дополнительно отклоняет позднее падение.
+
+Проверено: первая версия запрета повышения прав + постраничного учёта прошла
+runtime/runtime_none; последний полный OS build прошёл; новый host test_paging
+PASS. Первый native V8 build с Dispose слинковал ELF и прошёл ELF audit
+(review-v8-build.log), но helper завершился EOF после изменения его текста
+во время исполнения. Не менять выполняемые shell-скрипты! Этот проход НЕ
+содержал последних GC/JS-расширений и не запускался в госте.
+
+Последний запуск verify-v8.sh --resume остановлен на graph_cache.py
+--is-current (прочитал >1.5 ГиБ входов за несколько минут), до компиляции и
+гостя. prepare уже применил последние изменения. Поэтому строгий V8 gate
+и расширенные runtime_none/runtime_cpu пока НЕ подтверждены. Старый
+build/chromium/v8-build.log всё ещё от прежнего запуска, не считать новым.
+
+Продолжить (WSL, с правами root для mount cache):
+`wsl -d Ubuntu -u root --cd /mnt/a/CharmOS -- bash tools/chromium/with-cache.sh 1000 1000 env CHARMOS_BUILD_JOBS=12 bash tools/chromium/verify-v8.sh --resume`
+После завершения компиляции/гостя последовательно:
+`bash tools/test.sh runtime 100 runtime_none`
+`bash tools/test.sh runtime 100 runtime_cpu`
+Не запускать QEMU параллельно с компилятором. Не править prepare/vendor или
+исполняемые shell-скрипты во время сборки. Затем обновить proof/status docs.
+
+Остаются реальные PROT_NONE/MAP_FIXED/partial munmap и lazy VMO; нынешние
+no-op нарушают контракт и могут сохранять целые выровненные аллокации без
+ограничения суммарной утечки. W^X не ослаблялся, PKU/RWX не выбран.
+SetDataReadOnly ещё no-op. Blink/content/Chromium net adapter/UI ещё не готовы.

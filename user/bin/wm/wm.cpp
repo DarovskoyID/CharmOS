@@ -131,6 +131,7 @@ int g_zn = 0;
 Client g_cl[kMaxClients];
 uint32_t g_next_id = 1;
 int g_focus = -1;
+int g_capture = -1;
 Rect g_cursor;
 Rect g_damage{};
 Rect g_regions[16]{};
@@ -139,7 +140,8 @@ Rect g_hot{};
 bool hot(Rect r) { return r.x == g_hot.x && r.y == g_hot.y && r.w == g_hot.w && r.h == g_hot.h; }
 Handle g_port;
 int g_drag = -1;  // окно, которое тащат за заголовок
-bool g_alt = false, g_launcher = false;
+unsigned g_alt = 0;
+bool g_launcher = false;
 bool g_quick = false, g_russian = false;
 char g_quick_notice[128]{};
 unsigned g_shift = 0;
@@ -152,6 +154,8 @@ uint32_t g_query_len = 0;
 int g_launcher_selected = 0;
 uint32_t g_preference_generation = 0;
 bool g_preferences_saved = true;
+
+void release_capture();
 
 void load_preferences() {
   charm::ui::Preferences chosen{};
@@ -374,6 +378,7 @@ void wallpaper_build() {
 void damage(Rect r);
 
 void launcher_toggle(bool quick = false) {
+  if(!g_launcher) release_capture();
   g_launcher = !g_launcher;
   g_quick = quick;
   g_quick_notice[0] = 0;
@@ -386,6 +391,7 @@ void launcher_toggle(bool quick = false) {
 }
 
 void control_toggle() {
+  if(!g_control) release_capture();
   g_control = !g_control; g_launcher = false;
   g_drag = -1;
   damage(g_s.all()); printf("wm: control %s\n", g_control ? "open" : "closed");
@@ -754,8 +760,16 @@ void raise(int wi) {
   damage(g_win[wi].frame);
 }
 
+void release_capture() {
+  if(g_capture<0) return;
+  int wi=g_capture;
+  g_capture=-1;
+  if(g_win[wi].used) send_event(g_win[wi].client,wm::kCaptureChanged,g_win[wi].id,0);
+}
+
 void set_focus(int wi) {
   if (wi == g_focus) return;
+  if(g_capture>=0 && g_capture!=wi) release_capture();
   if (g_focus >= 0 && g_win[g_focus].used) {
     send_event(g_win[g_focus].client, wm::kFocus, g_win[g_focus].id, 0);
     damage(g_win[g_focus].frame);
@@ -812,6 +826,7 @@ void focus_top_visible() {
 void minimize(int wi) {
   if (wi < 0 || !g_win[wi].used || g_win[wi].minimized) return;
   Window& w = g_win[wi];
+  if(g_capture==wi) release_capture();
   w.minimized = true;
   if(g_cl[w.client].version==wm::kManagedVersion) send_event(w.client,wm::kVisibilityChanged,w.id,0);
   if (g_drag == wi) g_drag = -1;
@@ -823,6 +838,7 @@ void minimize(int wi) {
 void destroy_window(int wi) {
   Window& w = g_win[wi];
   bool focused = g_focus == wi;
+  if(g_capture==wi) release_capture();
   if (focused) set_focus(-1);
   printf("wm: window %u destroyed\n", w.id);
   damage(w.frame);
@@ -1102,6 +1118,18 @@ void client_message(int ci) {
       if(wi<0 || request.active>1) { g_cl[ci].failed=true; return; }
       if(request.active) { raise(wi); set_focus(wi); }
       else if(g_focus==wi) set_focus(-1);
+    } else if(managed && type==wm::kSetCapture && len==sizeof(wm::SetCapture)) {
+      const auto& request=*reinterpret_cast<wm::SetCapture*>(msg);
+      int wi=find_window(ci,request.window);
+      if(wi<0 || request.captured>1) { g_cl[ci].failed=true; return; }
+      if(request.captured && g_focus==wi && !g_win[wi].minimized && !g_launcher && !g_control && g_drag<0) {
+        if(g_capture!=wi) release_capture();
+        g_capture=wi;
+      } else if(!request.captured && g_capture==wi) {
+        release_capture();
+        continue;
+      }
+      send_event(ci,wm::kCaptureChanged,request.window,g_capture==wi ? 1u : 0u);
     } else {
       g_cl[ci].failed=true;
       return;
@@ -1136,7 +1164,8 @@ void door_message(Handle door) {
     g_cl[ci].used=true; g_cl[ci].ch=hs[0]; g_cl[ci].version=m.version;
     wm::WelcomeV3 welcome{{wm::kWelcome,m.version,g_s.bgrx ? sc::kDisplayBgrx : sc::kDisplayRgbx,
                           g_s.width,g_s.height},kTitle,0,kPanel,g_s.width,g_s.height-kPanel,
-                         wm::kFeatureTitle|wm::kFeatureBounds|wm::kFeatureVisibility|wm::kFeatureActivation};
+                         wm::kFeatureTitle|wm::kFeatureBounds|wm::kFeatureVisibility|wm::kFeatureActivation|
+                         wm::kFeatureCapture};
     uint32_t bytes=m.version==wm::kManagedVersion ? sizeof welcome : sizeof welcome.base;
     if(send_message(ci,&welcome,bytes)!=Status::Ok) g_cl[ci].failed=true;
     rearm_client(ci);
@@ -1161,7 +1190,10 @@ void input_event(const sc::InputEvent& e) {
       if (g_launcher) return;
     }
     if (g_control && e.value != 0 && e.code == 0x29) { control_toggle(); return; }
-    if (e.code == 0xe2 || e.code == 0xe6) { g_alt = e.value != 0; return; }
+    if (e.code == 0xe2 || e.code == 0xe6) {
+      unsigned bit=e.code==0xe2 ? 1u : 2u;
+      if(e.value) g_alt|=bit; else g_alt&=~bit;
+    }
     if (g_alt && e.value == 1 && e.code == 0x2c) { launcher_toggle(true); return; }
     if (g_launcher && g_alt && e.value == 1 && e.code == 0x3d) { launcher_toggle(); return; }
     if (g_control) {
@@ -1253,12 +1285,19 @@ void input_event(const sc::InputEvent& e) {
       damage(old_hot); damage(next_hot);
     }
     if (g_drag < 0 && !g_launcher && !g_control) {
-      int wi = window_at(g_cursor.x, g_cursor.y);
-      if (wi >= 0 && content(g_win[wi]).contains(g_cursor.x, g_cursor.y)) {
+      int wi = g_capture>=0 ? g_capture : window_at(g_cursor.x, g_cursor.y);
+      if (wi >= 0 && (g_capture==wi || content(g_win[wi]).contains(g_cursor.x, g_cursor.y))) {
         auto fe = e; Rect c = content(g_win[wi]);
         fe.x = g_cursor.x - c.x; fe.y = g_cursor.y - c.y; forward(wi, fe);
       }
     }
+    return;
+  }
+  if(g_capture>=0 && (e.type==sc::kInputButton || e.type==sc::kInputWheel)) {
+    auto event=e;
+    Rect bounds=content(g_win[g_capture]);
+    event.x=g_cursor.x-bounds.x; event.y=g_cursor.y-bounds.y;
+    forward(g_capture,event);
     return;
   }
   if (e.type == sc::kInputButton && e.value == 1 && e.code == 1 && g_cursor.y < kPanel) {

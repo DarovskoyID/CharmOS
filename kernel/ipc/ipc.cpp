@@ -245,6 +245,42 @@ T* alloc_zeroed(size_t size) {
 
 proc::Process* me() { return proc::current_process(); }
 
+// Caller holds g_lock. Commits missing frames in [first, first+count) as one
+// all-or-nothing step: allocate and zero into a temporary array, then publish
+// into the VMO. Existing committed frames are preserved. A failure leaves the
+// VMO unchanged, so the caller can reject the protection change without
+// exposing partially committed pages.
+Status commit_vmo_pages(Vmo* v, uint64_t first, uint64_t count) {
+  if (v->mmio || count == 0) return Status::Ok;
+  if (first > v->pages || count > v->pages - first) return Status::InvalidArgs;
+  uint64_t missing = 0;
+  for (uint64_t i = 0; i < count; ++i) {
+    if (v->frames[first + i] == 0) ++missing;
+  }
+  if (missing == 0) return Status::Ok;
+  auto mem = mm::kmalloc(missing * sizeof(uint64_t));
+  if (mem.is_err()) return Status::NoMemory;
+  auto* fresh = static_cast<uint64_t*>(mem.value());
+  uint64_t got = 0;
+  while (got < missing) {
+    auto f = mm::alloc_frames();
+    if (f.is_err()) break;
+    __builtin_memset(mm::phys_to_virt<void>(f.value()), 0, kPageSize);
+    fresh[got++] = f.value();
+  }
+  if (got != missing) {
+    for (uint64_t i = 0; i < got; ++i) mm::free_frames(fresh[i]);
+    mm::kfree(fresh);
+    return Status::NoMemory;
+  }
+  uint64_t next = 0;
+  for (uint64_t i = 0; i < count; ++i) {
+    if (v->frames[first + i] == 0) v->frames[first + i] = fresh[next++];
+  }
+  mm::kfree(fresh);
+  return Status::Ok;
+}
+
 // --- дерево происхождения ---------------------------------------------------------------
 
 void link_child(Cap* parent, Cap* c) {
@@ -424,7 +460,9 @@ void release_object(Object* obj) {
     if (v->dma_dev != nullptr && v->dma_dev->domain != nullptr && v->iova != 0) {
       pci::iommu::unmap(v->dma_dev->domain, v->iova, v->pages);
     }
-    for (uint64_t i = 0; i < v->pages && !v->mmio; ++i) mm::free_frames(v->frames[i]);
+    for (uint64_t i = 0; i < v->pages && !v->mmio; ++i) {
+      if (v->frames[i] != 0) mm::free_frames(v->frames[i]);  // 0 = uncommitted (lazy)
+    }
     mm::kfree(v->frames);
     Device* dev = v->dma_dev;
     Job* charged = v->charged;
@@ -781,7 +819,7 @@ Status sys_handle_close(uint32_t h) {
 }
 
 Status sys_handle_duplicate(uint32_t h, uint64_t new_rights, uint64_t* out) {
-  if ((new_rights & ~uint64_t{rights::kAll | rights::kNetAll | rights::kSignal | rights::kSpawn}) != 0) {
+  if ((new_rights & ~uint64_t{rights::kAll | rights::kExec | rights::kNetAll | rights::kSignal | rights::kSpawn}) != 0) {
     return Status::InvalidArgs;
   }
   sync::SpinGuard guard(g_lock);
@@ -1097,7 +1135,11 @@ Status sys_channel_shutdown(uint32_t handle,uint32_t directions) {
   return Status::Ok;
 }
 
-Status sys_vmo_create(uint64_t size, uint64_t* out) {
+// Creates a VMO object and installs a handle. eager=true commits and zeroes
+// every frame immediately (historical VmoCreate). eager=false leaves zero
+// frame entries: physical pages are acquired only when a mapping/protection
+// actually needs them (VmoReserve / lazy backing).
+Status create_vmo(uint64_t size, bool eager, uint64_t* out) {
   if (size == 0 || size % kPageSize != 0 || size > abi::syscall::kVmoMaxSize) {
     return Status::InvalidArgs;
   }
@@ -1112,17 +1154,19 @@ Status sys_vmo_create(uint64_t size, uint64_t* out) {
     job_uncharge_memory(job, pages);
     return Status::NoMemory;
   }
-  for (uint64_t i = 0; i < pages; ++i) {
-    auto f = mm::alloc_frames();
-    if (f.is_err()) {
-      for (uint64_t k = 0; k < i; ++k) mm::free_frames(frames[k]);
-      mm::kfree(frames);
-      mm::kfree(v);
-      job_uncharge_memory(job, pages);
-      return Status::NoMemory;
+  if (eager) {
+    for (uint64_t i = 0; i < pages; ++i) {
+      auto f = mm::alloc_frames();
+      if (f.is_err()) {
+        for (uint64_t k = 0; k < i; ++k) mm::free_frames(frames[k]);
+        mm::kfree(frames);
+        mm::kfree(v);
+        job_uncharge_memory(job, pages);
+        return Status::NoMemory;
+      }
+      __builtin_memset(mm::phys_to_virt<void>(f.value()), 0, kPageSize);
+      frames[i] = f.value();
     }
-    __builtin_memset(mm::phys_to_virt<void>(f.value()), 0, kPageSize);
-    frames[i] = f.value();
   }
   v->base.type = Type::Vmo;
   v->size = size;
@@ -1151,10 +1195,22 @@ Status sys_vmo_create(uint64_t size, uint64_t* out) {
   return Status::Ok;
 }
 
+Status sys_vmo_create(uint64_t size, uint64_t* out) {
+  return create_vmo(size, true, out);
+}
+
+Status sys_vmo_reserve(uint64_t size, uint64_t* out) {
+  return create_vmo(size, false, out);
+}
+
 Status sys_vmo_map(uint32_t h, uint64_t req, uint64_t* out) {
-  if ((req & ~uint64_t{rights::kRead | rights::kWrite}) != 0 || (req & rights::kRead) == 0) {
-    return Status::InvalidArgs;  // исполнения нет; запись без чтения x86 не умеет
+  if ((req & ~uint64_t{rights::kRead | rights::kWrite | rights::kExec}) != 0 ||
+      (req != 0 && (req & rights::kRead) == 0)) {
+    return Status::InvalidArgs;  // запись без чтения x86 не умеет
   }
+  // W^X: одновременная запись и исполнение запрещены; исполнение — только
+  // через отдельное отображение/смену прав (vmo_protect).
+  if ((req & rights::kWrite) != 0 && (req & rights::kExec) != 0) return Status::InvalidArgs;
   sync::SpinGuard guard(g_lock);
   proc::Process* p = me();
   Cap* c = lookup(p, h);
@@ -1164,11 +1220,20 @@ Status sys_vmo_map(uint32_t h, uint64_t req, uint64_t* out) {
     return Status::AccessDenied;
   }
   auto* v = reinterpret_cast<Vmo*>(c->obj);
+  if (v->mmio && (req & rights::kExec) != 0) return Status::NotSupported;
+  // Lazy VMO: an accessible mapping needs real, zeroed pages. Inaccessible
+  // mappings only install ownership markers and may stay uncommitted.
+  if (req != 0) {
+    Status committed = commit_vmo_pages(v, 0, v->pages);
+    if (committed != Status::Ok) return committed;
+  }
   if (v->size > kMapLimit - p->ipc.map_next) return Status::NoMemory;
   auto* m = alloc_zeroed<Mapping>(sizeof(Mapping));
   if (m == nullptr) return Status::NoMemory;
   uint64_t addr = p->ipc.map_next;
-  uint64_t flags = arch::x86_64::kMapNoExec | ((req & rights::kWrite) != 0 ? arch::x86_64::kMapWrite : 0);
+  uint64_t flags = (req == 0 ? arch::x86_64::kMapInaccessible : 0) |
+                   ((req & rights::kWrite) != 0 ? arch::x86_64::kMapWrite : 0) |
+                   ((req & rights::kExec) != 0 ? 0 : arch::x86_64::kMapNoExec);
   if (v->mmio) flags |= v->wc ? arch::x86_64::kMapWriteCombine : arch::x86_64::kMapCacheDisable;
   for (uint64_t i = 0; i < v->pages; ++i) {
     if (v->frames[i] == kMmioHole) continue;
@@ -1225,6 +1290,81 @@ Status sys_vmo_unmap(uint64_t addr) {
   }
   finish_pending(pend);
   return Status::Ok;
+}
+
+// v1.22: снимает листья [addr, addr+size) внутри существующего отображения VMO,
+// не освобождая сами фреймы (они принадлежат VMO до его уничтожения) и не
+// удаляя запись Mapping. Доступ к снятым страницам снова падает, mprotect на них
+// отвергается. Полный vmo_unmap по-прежнему забирает всё отображение.
+Status sys_vmo_unmap_range(uint64_t addr, uint64_t size) {
+  if (!size || (addr & (kPageSize - 1)) != 0 || (size & (kPageSize - 1)) != 0)
+    return Status::InvalidArgs;
+  if (addr >= abi::syscall::kUserTop || size > abi::syscall::kUserTop - addr)
+    return Status::InvalidArgs;
+  uint64_t cpus = 0;
+  {
+    sync::SpinGuard guard(g_lock);
+    proc::Process* p = me();
+    Mapping* m = p->ipc.mappings;
+    while (m != nullptr &&
+           !(addr >= m->addr && addr - m->addr < m->size &&
+             size <= m->size - (addr - m->addr))) m = m->next_in_proc;
+    if (m == nullptr) return Status::InvalidArgs;
+    for (uint64_t off = 0; off < size; off += kPageSize) p->space.unmap(addr + off);
+    cpus = __atomic_load_n(&p->cpus, __ATOMIC_ACQUIRE);
+  }
+  for (uint32_t cpu = 0; cpu < smp::kMaxCpus; ++cpu) {
+    if ((cpus & (1ull << cpu)) != 0) smp::flush_tlb(cpu);
+  }
+  return Status::Ok;
+}
+
+// v1.19: меняет права существующего отображения VMO (W^X). Исполняемая память
+// (V8/JIT) получается так: mmap RW → запись кода → vmo_protect RX. Страницы уже
+// были видны, поэтому после переотображения нужен сброс TLB на всех CPU.
+Status sys_vmo_protect(uint64_t addr, uint64_t size, uint64_t req) {
+  Status result = Status::Ok;
+  if ((req & ~uint64_t{rights::kRead | rights::kWrite | rights::kExec}) != 0 ||
+      (req != 0 && (req & rights::kRead) == 0)) return Status::InvalidArgs;
+  if ((req & rights::kWrite) != 0 && (req & rights::kExec) != 0) return Status::InvalidArgs;
+  if (!size || (addr & (kPageSize - 1)) != 0 || (size & (kPageSize - 1)) != 0)
+    return Status::InvalidArgs;
+  if (addr >= abi::syscall::kUserTop || size > abi::syscall::kUserTop - addr)
+    return Status::InvalidArgs;
+  uint64_t flags = (req == 0 ? arch::x86_64::kMapInaccessible : 0) |
+                   ((req & rights::kWrite) != 0 ? arch::x86_64::kMapWrite : 0) |
+                   ((req & rights::kExec) != 0 ? 0 : arch::x86_64::kMapNoExec);
+  {
+    sync::SpinGuard guard(g_lock);
+    proc::Process* p = me();
+    Mapping* m = p->ipc.mappings;
+    while (m != nullptr &&
+           !(addr >= m->addr && addr - m->addr < m->size &&
+             size <= m->size - (addr - m->addr))) m = m->next_in_proc;
+    if (m == nullptr) return Status::InvalidArgs;
+    if (m->vmo->mmio) return Status::NotSupported;
+    // Closing a handle keeps its mapping (and Cap) alive; the original
+    // authority remains the ceiling for every subsequent protection change.
+    if ((req & ~uint64_t{m->via->rights}) != 0) return Status::AccessDenied;
+    uint64_t first = (addr - m->addr) / kPageSize;
+    uint64_t count = size / kPageSize;
+    if (req != 0) {
+      Status committed = commit_vmo_pages(m->vmo, first, count);
+      if (committed != Status::Ok) return committed;
+    }
+    for (uint64_t off = 0; off < size; off += kPageSize) {
+      uint64_t va = addr + off;
+      uint64_t index = first + off / kPageSize;
+      // Refresh the physical address from the VMO: another alias may have
+      // committed a page after this address space installed a zero marker.
+      if (!p->space.protect_phys(va, m->vmo->frames[index], flags)) {
+        result = Status::InvalidArgs;
+        break;
+      }
+    }
+  }
+  for (uint32_t cpu = 0; cpu < smp::cpu_count(); ++cpu) smp::flush_tlb(cpu);
+  return result;
 }
 
 // --- порты ------------------------------------------------------------------------------
@@ -2169,6 +2309,11 @@ Status vmo_frames(Cap* vmo, uint64_t* out, uint64_t max, uint64_t* pages) {
   if (vmo->obj->type != Type::Vmo) return Status::WrongType;
   auto* v = reinterpret_cast<Vmo*>(vmo->obj);
   if (v->mmio) return Status::WrongType;
+  // Consumers export these frames to hardware; an uncommitted zero entry must
+  // never be mistaken for physical address zero. Commit the whole VMO so every
+  // reported page has a real, zeroed frame.
+  Status committed = commit_vmo_pages(v, 0, v->pages);
+  if (committed != Status::Ok) return committed;
   *pages = v->pages;
   for (uint64_t i = 0; i < v->pages && i < max; ++i) out[i] = v->frames[i];
   return Status::Ok;

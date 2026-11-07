@@ -16,7 +16,8 @@ uint32_t RightsFor(PlatformSharedMemoryRegion::Mode mode) {
 expected<PlatformSharedMemoryRegion,PlatformSharedMemoryRegion::TakeError>
 PlatformSharedMemoryRegion::TakeOrFail(ScopedPlatformSharedMemoryHandle handle,
                                       Mode mode,size_t size,const UnguessableToken& guid) {
-  if(!handle || !size || size>abi::syscall::kVmoMaxSize) return PlatformSharedMemoryRegion();
+  if(!handle) return unexpected(TakeError::kInvalidNativeHandle);
+  if(!size || size>abi::syscall::kVmoMaxSize) return unexpected(TakeError::kNativeSizeMismatch);
   auto permissions=CheckPlatformHandlePermissionsCorrespondToMode(handle.get(),mode,size);
   if(!permissions.has_value()) return unexpected(permissions.error());
   return PlatformSharedMemoryRegion(std::move(handle),mode,size,guid);

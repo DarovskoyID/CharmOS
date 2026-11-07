@@ -139,3 +139,22 @@ capabilities. A receive buffer smaller than a message fails without consuming it
 Unix FDs, SCM_RIGHTS, Unix path sockets and sender PID credentials are not
 emulated; credential requests fail ENOTSUP. Existing FD consumers must port
 their ownership types explicitly before using this native transport.
+
+## Additive syscall ABI 1.22
+
+85 `VmoUnmapRange(addr, size)`: removes page-table leaves for
+`[addr, addr+size)` inside one existing VMO mapping without deleting the
+mapping record or freeing VMO frames. The range must be page-aligned and
+contained in the mapping. Access to the removed pages faults; `mprotect` over
+them fails. A later full `VmoUnmap` tears down the remaining mapping and
+releases the VMO. libc partial `munmap` uses this and tracks per-page
+`live` state so a hole cannot be protected or replaced.
+
+## Additive syscall ABI 1.21
+
+84 `VmoReserve(size)`: like `VmoCreate`, but physical frames are not allocated
+until commit (an accessible map, `VmoProtect`, or kernel `vmo_frames`).
+Returns a VMO handle with the same rights and 1 GiB size limit; the Job memory
+quota is charged for the virtual size. Zero frame entries are never exposed as
+physical address zero. See `lazy-vmo.md` for commit, alias and OOM rules.
+`VmoCreate` keeps eager allocation and is unchanged.

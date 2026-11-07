@@ -630,4 +630,9 @@ void perror(const char* s) {
   else fprintf(stderr, "%s\n", strerror(errno));
 }
 
+FILE* freopen(const char* path, const char* mode, FILE* stream) {
+  if (stream != nullptr) fclose(stream);
+  return fopen(path, mode);
+}
+
 }  // extern "C"
