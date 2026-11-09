@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="810" viewBox="0 0 1200 810" role="img" aria-labelledby="t d"><title id="t">CharmOS / архитектура</title><desc id="d">Схема ответственности, не граф вызовов: userspace-драйверы используют Device / DMA / IRQ через ядро.</desc><rect width="1200" height="810" rx="18" fill="#111318"/><g font-family="Segoe UI,Arial,sans-serif"><text x="40" y="52" font-size="28" font-weight="700" fill="#f3d34a">CharmOS / архитектура</text>
+<rect x="40" y="85" width="1120" height="82" rx="12" fill="#20252f" stroke="#465060"/><text x="64" y="117" fill="white" font-size="22">Приложения и службы</text><text x="64" y="146" fill="#c3cad5" font-size="17">Files · Edit · Calc · shell · init · logd · pkgd · Chromium port</text>
+<path d="M600 171v17m-6-6 6 6 6-6" fill="none" stroke="#f3d34a" stroke-width="2"/>
+<rect x="40" y="195" width="1120" height="82" rx="12" fill="#20252f" stroke="#465060"/><text x="64" y="227" fill="white" font-size="22">Пользовательская среда</text><text x="64" y="256" fill="#c3cad5" font-size="17">C++ SDK · собственная libc · libwm / libui · компоновщик WM</text>
+<path d="M600 281v17m-6-6 6 6 6-6" fill="none" stroke="#f3d34a" stroke-width="2"/>
+<rect x="40" y="305" width="1120" height="82" rx="12" fill="#20252f" stroke="#465060"/><text x="64" y="337" fill="white" font-size="22">Процессы-драйверы</text><text x="64" y="366" fill="#c3cad5" font-size="17">virtio · AHCI / NVMe · Ethernet · xHCI / HID / storage · HDA</text>
+<path d="M600 391v17m-6-6 6 6 6-6" fill="none" stroke="#f3d34a" stroke-width="2"/>
+<rect x="40" y="415" width="1120" height="82" rx="12" fill="#20252f" stroke="#465060"/><text x="64" y="447" fill="white" font-size="22">Граница ядра: syscalls и capabilities</text><text x="64" y="476" fill="#c3cad5" font-size="17">Хендлы и права · каналы · порты событий · VMO · Device</text>
+<path d="M600 501v17m-6-6 6 6 6-6" fill="none" stroke="#f3d34a" stroke-width="2"/>
+<rect x="40" y="525" width="1120" height="82" rx="12" fill="#20252f" stroke="#465060"/><text x="64" y="557" fill="white" font-size="22">Гибридное ядро</text><text x="64" y="586" fill="#c3cad5" font-size="17">Память · процессы / SMP / scheduler · VFS / cache · TCP / UDP / DNS</text>
+<path d="M600 611v17m-6-6 6 6 6-6" fill="none" stroke="#f3d34a" stroke-width="2"/>
+<rect x="40" y="635" width="1120" height="82" rx="12" fill="#20252f" stroke="#465060"/><text x="64" y="667" fill="white" font-size="22">Платформа x86-64</text><text x="64" y="696" fill="#c3cad5" font-size="17">UEFI boot → kernel · paging · APIC / IRQ · ACPI · PCI / VT-d</text>
+<text x="40" y="785" font-size="16" fill="#b6bdc9">Схема ответственности, не граф вызовов: userspace-драйверы используют Device / DMA / IRQ через ядро.</text></g></svg>

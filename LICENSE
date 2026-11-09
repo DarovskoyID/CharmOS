@@ -1,21 +1,65 @@
-MIT License
+CharmOS — Proprietary Evaluation License, version 1.0
+Effective date: 2026-11-09
+Copyright (c) 2026 DarovskoyID. All rights reserved.
 
-Copyright (c) 2026 DarovskoyID
+1. Scope and ownership
+These terms apply only to original CharmOS code, documentation and artwork
+whose copyright is owned by DarovskoyID (the "Owner") and which are supplied
+under these terms (the "Materials"). Ownership is not transferred.
+This is a proprietary evaluation license, not an open-source license.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+2. Limited permission to view
+The Owner permits a recipient with lawful access to view and read the
+Materials solely to evaluate the Owner's technical work, including recruitment
+and portfolio review. A recipient may privately communicate review findings
+to the Owner or the recruiting team assessing the Owner. This permission does
+not authorize executing, building, modifying, incorporating or deploying the
+Materials, or reproducing source excerpts in a separate publication.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+3. Rights reserved
+Except for section 2, the exceptions in sections 4–6, or a separate written
+permission from the Owner, no license is granted to use, run, build, copy,
+modify, adapt, merge, redistribute, publish, sublicense, sell, commercialize
+or create derivative works of the Materials, in whole or in part. This
+restriction applies to both commercial and noncommercial activity. Public
+visibility, access to a repository, and possession of a copy do not grant
+additional permission. No patent or trademark license is granted.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+4. Hosting services and mandatory law
+These terms do not restrict rights that cannot lawfully be excluded, or rights
+the Owner grants under the applicable terms of a hosting service. In
+particular, publication on GitHub is subject to GitHub's terms, including
+applicable viewing and in-service forking rights. Those rights are not a
+separate authorization from the Owner for external redistribution, execution,
+modification or deployment. Technical copies necessary for an authorized
+view or for the hosting service to operate are permitted within that scope.
+
+5. Third-party materials
+Third-party software, fonts, specifications and other third-party materials
+are excluded. Their respective licenses and notices remain controlling;
+this license neither revokes nor restricts rights granted by their owners.
+See plans/LICENSING.md, assets/fonts and tools/chromium/licenses. These
+locations are navigation aids, not a representation of a complete inventory.
+
+6. Earlier licenses
+These terms are prospective. They do not revoke rights already granted under
+MIT or another license for previously licensed copies or versions. They do not
+purport to remove an independently applicable earlier license from unchanged
+material. A recipient relying on an earlier grant must establish its scope
+and comply with its conditions. Git history is not rewritten by this notice.
+
+7. Separate permission
+Any use outside the limited evaluation permission requires a separate written
+agreement with the Owner. Contact the Owner through the profile or repository
+from which the Materials were obtained. No permission is implied by silence.
+
+8. Disclaimer
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE MATERIALS ARE PROVIDED
+"AS IS", WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
+TO THAT SAME EXTENT, THE OWNER SHALL NOT BE LIABLE FOR CLAIMS, DAMAGES OR
+OTHER LIABILITY ARISING FROM THE MATERIALS OR THEIR USE.
+
+9. Language
+This English text is the controlling license. Russian descriptions elsewhere
+in the repository explain the policy but do not expand the permission.
