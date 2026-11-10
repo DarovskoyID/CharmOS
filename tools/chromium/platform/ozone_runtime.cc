@@ -62,21 +62,21 @@ bool CheckInputTranslation() {
     return translator.Translate(input);
   };
   auto a=key(4,1);
-  if(a.size()!=2 || a[0]->AsKeyEvent()->code()!=ui::DomCode::US_A ||
-     a[1]->AsKeyEvent()->GetCharacter()!=u'a') return false;
+  if(a.size()!=1 || a[0]->AsKeyEvent()->code()!=ui::DomCode::US_A ||
+     a[0]->AsKeyEvent()->GetCharacter()!=u'a') return false;
   key(0xe1,1); key(0xe5,1); key(0xe1,0);
   auto shifted=key(4,1);
-  if(shifted.size()!=2 || shifted[1]->AsKeyEvent()->GetCharacter()!=u'A') return false;
+  if(shifted.size()!=1 || shifted[0]->AsKeyEvent()->GetCharacter()!=u'A') return false;
   key(0xe5,0);
   auto apostrophe=key(0x34,1);
-  if(apostrophe.size()!=2 || apostrophe[1]->AsKeyEvent()->GetCharacter()!=u'\'') return false;
+  if(apostrophe.size()!=1 || apostrophe[0]->AsKeyEvent()->GetCharacter()!=u'\'') return false;
   key(0xe0,1);
   if(key(4,1).size()!=1) return false;
   translator.ResetPressedState();
-  if(key(4,1).size()!=2 || !key(0xff,1).empty()) return false;
+  if(key(4,1).size()!=1 || !key(0xff,1).empty()) return false;
   translator.set_russian(true);
   auto russian=key(4,1);
-  return russian.size()==2 && russian[1]->AsKeyEvent()->GetCharacter()==u'ф';
+  return russian.size()==1 && russian[0]->AsKeyEvent()->GetCharacter()==u'ф';
 }
 class Runtime;
 
@@ -206,8 +206,8 @@ class Runtime {
     if (event->IsKeyEvent()) {
       auto* key = event->AsKeyEvent();
       if (key->type() == ui::EventType::kKeyPressed && key->code() == ui::DomCode::US_A) {
-        if (key->is_char()) text_a_ = key->GetCharacter() == u'a';
-        else raw_a_ = true;
+        raw_a_ = true;
+        text_a_ = key->GetCharacter() == u'a';
         if (phase_ == 3 && raw_a_ && text_a_) Draw();
       }
       if (key->type() == ui::EventType::kKeyPressed && key->code() == ui::DomCode::ESCAPE) {

@@ -5,4 +5,6 @@
 -drive if=none,id=d0,format=raw,file=build/disk-browser.img
 -device virtio-blk-pci,drive=d0,disable-legacy=on,iommu_platform=on
 -nic none
+-netdev user,id=n0
+-device e1000,netdev=n0
 -monitor unix:/tmp/charmos-mon,server,nowait

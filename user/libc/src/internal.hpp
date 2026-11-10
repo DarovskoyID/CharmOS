@@ -56,6 +56,10 @@ struct Fd {
   uint32_t refs;  // dup делит запись
   Lock position_lock;
   void* state;
+  // Однобайтовый возврат для recv(MSG_PEEK): CharmOS не имеет peek в ABI,
+  // поэтому байт вычитывается заранее и отдаётся следующим чтением.
+  bool peeked;
+  uint8_t peek_byte;
 };
 constexpr int kMaxFds = 256;
 Fd* fd_get(int fd);

@@ -140,7 +140,7 @@ bool udp_bind_port(uint64_t id, uint16_t port) {
   return udp_listen(port, &udp_dispatch);
 }
 
-constinit uint16_t g_udp_ephemeral = 49152;
+constinit uint16_t g_ephemeral_port = 49152;
 
 bool ready(uint64_t id, uint32_t mask, uint32_t* events) {
   *events=0;
@@ -222,8 +222,40 @@ Status sys_socket_bind(uint32_t h, uint64_t user_addr) {
   if (st != Status::Ok) return st;
   SockAddr a;
   if (!read_addr(user_addr, &a)) return Status::BadAddress;
-  if ((s.kind != Kind::New && s.kind != Kind::Udp) || s.port != 0 || a.port == 0) return Status::InvalidArgs;
-  if (a.ipv4 != 0 && a.ipv4 != config().ip) return Status::NetUnreachable;
+  if ((s.kind != Kind::New && s.kind != Kind::Udp) || s.port != 0) return Status::InvalidArgs;
+  // Chromium's DevTools server binds 127.0.0.1; the loopback address is a
+  // valid local endpoint even though the interface address differs.
+  constexpr uint32_t kLoopback = 0x0100007fu;  // 127.0.0.1 in network order
+  if (a.ipv4 != 0 && a.ipv4 != config().ip && a.ipv4 != kLoopback) return Status::NetUnreachable;
+  // POSIX bind(..., port 0) asks the kernel for an ephemeral port. Chromium
+  // binds both UDP (DNS resolver) and TCP (DevTools) sockets this way.
+  if (a.port == 0) {
+    uint32_t need = rights::kNetListen;
+    if ((s.net_rights & need) != need) return Status::AccessDenied;
+    for (uint32_t tries = 0; tries < 1024; ++tries) {
+      uint16_t p = g_ephemeral_port++;
+      if (g_ephemeral_port == 0) g_ephemeral_port = 49152;
+      if (p < 1024) continue;
+      if (s.kind == Kind::Udp) {
+        if (udp_bind_port(id, p)) return Status::Ok;
+        continue;
+      }
+      bool used = false;
+      {
+        sync::SpinGuard guard(g_lock);
+        for (const Sock& other : g_socks) {
+          if (other.kind == Kind::Free || other.closing || other.port != p) continue;
+          used = true;
+          break;
+        }
+      }
+      if (used) continue;
+      s.port = p;
+      set(id, s);
+      return Status::Ok;
+    }
+    return Status::AddressInUse;
+  }
   if (s.kind == Kind::Udp) {
     uint32_t need = a.port < 1024 ? rights::kNetListenLow : rights::kNetListen;
     if ((s.net_rights & need) != need) return Status::AccessDenied;
@@ -318,8 +350,8 @@ Status sys_socket_send_deadline(uint32_t h, uint64_t buf, uint64_t len, uint64_t
     if (s.port == 0) {  // временный порт для ответов
       bool bound = false;
       for (uint32_t tries = 0; tries < 1024 && !bound; ++tries) {
-        uint16_t p = g_udp_ephemeral++;
-        if (g_udp_ephemeral == 0) g_udp_ephemeral = 49152;
+        uint16_t p = g_ephemeral_port++;
+        if (g_ephemeral_port == 0) g_ephemeral_port = 49152;
         bound = udp_bind_port(id, p);
       }
       if (!bound) return Status::AddressInUse;

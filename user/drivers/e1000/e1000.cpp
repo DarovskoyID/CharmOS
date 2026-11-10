@@ -221,6 +221,8 @@ extern "C" int64_t charm_main(Handle kernel) {
         char none = 0;
         (void)channel_write(note, &none, 0, nullptr, 0);
       }
+      // Never let a busy ring monopolize the CPU: the browser and WM must run.
+      yield();
       continue;
     }
     // Повторная запись RDT в простое. Не требование SDM, а наблюдаемое

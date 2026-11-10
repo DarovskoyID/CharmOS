@@ -1,5 +1,7 @@
 #include "build/charmos/ozone_platform_charmos.h"
 
+#include <stdio.h>
+
 #include "base/check.h"
 #include "build/charmos/native_window_registry_charmos.h"
 #include "build/charmos/platform_screen_charmos.h"
@@ -73,11 +75,18 @@ class OzonePlatformCharmOSImpl final : public OzonePlatform {
   bool InitializeUI(const InitParams& params) override {
     registry_ = std::make_unique<NativeWindowRegistryCharmOS>();
     charm::gui::Window probe;
-    if (probe.create_managed("Ozone display probe",1,1,
-            abi::wm::kCreateInvisible | abi::wm::kCreateInactive) != charm::Status::Ok)
+    const charm::Status probe_status = probe.create_managed(
+        "Ozone display probe", 1, 1,
+        abi::wm::kCreateInvisible | abi::wm::kCreateInactive);
+    if (probe_status != charm::Status::Ok) {
+      fprintf(stderr, "[content_shell] WM probe failed: %d\n",
+              static_cast<int>(probe_status));
       return false;
+    }
     const auto& native = probe.display();
     if (!native.width || !native.height || !native.work.width || !native.work.height) {
+      fprintf(stderr, "[content_shell] WM probe size %ux%u work %ux%u\n",
+              native.width, native.height, native.work.width, native.work.height);
       probe.close();
       return false;
     }

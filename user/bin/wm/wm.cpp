@@ -17,6 +17,7 @@
 #include <charm/preferences.hpp>
 #include <lib/crypto/sha512.hpp>
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -125,6 +126,12 @@ struct Client {
 };
 
 Screen g_s;
+Handle g_wm_door = 0;  // WM capability passed to the browser on demand
+bool g_browser_focus_pending = false;
+// Индекс окна браузера запоминается при создании: после загрузки страницы
+// заголовок меняется с "Chromium" на заголовок сайта, и поиск по имени
+// перестаёт его находить. -1 — окна нет.
+int g_browser_window = -1;
 Window g_win[kMaxWindows];
 int g_z[kMaxWindows];  // порядок снизу вверх (индексы g_win)
 int g_zn = 0;
@@ -149,6 +156,7 @@ bool g_control = false, g_shadows = true, g_warm = true;
 bool g_files_available = false;
 bool g_calc_available = false;
 bool g_edit_available = false;
+bool g_browser_available = false;
 char g_query[64]{};
 uint32_t g_query_len = 0;
 int g_launcher_selected = 0;
@@ -328,6 +336,16 @@ void tile_icon(int32_t x, int32_t y, int kind, Rect clip) {
     }
     return;
   }
+  if (kind == 4) {
+    // Browser window: toolbar, address line and page text.
+    rounded({x, y, 28, 23}, 4, kAmber, clip);
+    rounded({x + 2, y + 2, 24, 19}, 2, kRaised, clip);
+    g_s.fill({x + 3, y + 4, 22, 4}, kAmber, clip);
+    g_s.fill({x + 4, y + 10, 20, 2}, kWhite, clip);
+    g_s.fill({x + 4, y + 14, 15, 2}, kAmber, clip);
+    g_s.fill({x + 4, y + 18, 18, 2}, kAmber, clip);
+    return;
+  }
   rounded({x, y, 28, 23}, 4, kAmber, clip);
   rounded({x + 2, y + 2, 24, 19}, 2, kRaised, clip);
   if (kind == 0) {
@@ -439,6 +457,87 @@ void launch_edit() {
   if(child>=0 && g_launcher) launcher_toggle();
 }
 
+void raise(int wi);
+void set_focus(int wi);
+
+bool browser_match() {
+  return g_browser_available &&
+         (g_query_len == 0 || strstr("browser", g_query) != nullptr ||
+          strstr("chromium", g_query) != nullptr ||
+          strstr("браузер", g_query) != nullptr ||
+          strstr("интернет", g_query) != nullptr);
+}
+
+[[maybe_unused]] void* browser_thread(void*) {
+  char path[] = "/bin/content_shell";
+  char* args[] = {path, (char*)"--single-process", (char*)"--no-sandbox",
+                  (char*)"--disable-gpu",
+                  (char*)"--disable-in-process-stack-traces",
+                  (char*)"--js-flags=--jitless",
+                  (char*)"--user-data-dir=/data/content_shell",
+                  (char*)"file:///data/index.html", nullptr};
+  charm_spawn_opts options{};
+  options.give = CHARM_GIVE_ROOT | CHARM_GIVE_CWD | CHARM_GIVE_NET |
+                 CHARM_GIVE_CONSOLE | CHARM_GIVE_LOG;
+  uint32_t extra[1] = {g_wm_door};
+  uint32_t roles[1] = {abi::process::kRoleWm};
+  options.extra = extra;
+  options.extra_roles = roles;
+  options.extra_count = 1;
+  int64_t child = charm_spawn(path, args, nullptr, &options);
+  if (child >= 0) (void)charm::handle_close(static_cast<Handle>(child));
+  printf("wm: launch browser %s\n", child >= 0 ? "ok" : "failed");
+  return nullptr;
+}
+
+// A window is the browser if it was recorded at creation time (its title
+// becomes the page title after the first load) or still matches the service
+// names. Returns -1 when the browser window is not present.
+int find_browser_window() {
+  if (g_browser_window >= 0 && g_browser_window < kMaxWindows &&
+      g_win[g_browser_window].used) {
+    return g_browser_window;
+  }
+  for (int i = 0; i < g_zn; ++i) {
+    const char* title = g_win[g_z[i]].title;
+    if (strstr(title, "Chromium") != nullptr ||
+        strstr(title, "CharmOS") != nullptr) {
+      g_browser_window = g_z[i];
+      return g_browser_window;
+    }
+  }
+  return -1;
+}
+
+void launch_browser() {
+  int wi = find_browser_window();
+  if (wi >= 0) {
+    raise(wi); set_focus(wi);
+    if (g_launcher) launcher_toggle();
+    printf("wm: focus browser\n");
+    return;
+  }
+  // TODO(hang-protection): add a WM/init watchdog that bounds service startup
+  // and window-message stalls, then reports or restarts the offender instead
+  // of freezing the whole desktop.
+  g_browser_focus_pending = true;
+  snprintf(g_quick_notice, sizeof g_quick_notice, "Браузер запускается…");
+  printf("wm: browser window not found\n");
+  if (g_launcher) launcher_toggle();
+  damage(g_s.all());
+}
+
+// If the card was clicked while the init service was still loading content
+// shell, bring the window forward as soon as it appears.
+void poll_browser_focus() {
+  if (!g_browser_focus_pending) return;
+  int wi = find_browser_window();
+  if (wi < 0) return;
+  g_browser_focus_pending = false;
+  raise(wi); set_focus(wi);
+  printf("wm: focused pending browser\n");
+}
+
 bool demo_matches() {
   return g_query_len == 0 || strstr("colors", g_query) != nullptr || strstr("demo", g_query) != nullptr;
 }
@@ -471,7 +570,7 @@ Rect app_rect(int slot) {
   return {x+(slot%app_columns())*212,240+(slot/app_columns())*176,192,156};
 }
 int window_cards_y() {
-  int slots=g_edit_available?4:g_calc_available?3:g_files_available?2:1;
+  int slots=g_browser_available?5:g_edit_available?4:g_calc_available?3:g_files_available?2:1;
   return 292+((slots+app_columns()-1)/app_columns())*176;
 }
 int launcher_windows() {
@@ -485,6 +584,7 @@ int launcher_item(int ordinal) {
   if (files_match() && ordinal-- == 0) return 1;
   if (calc_match() && ordinal-- == 0) return 100;
   if (edit_match() && ordinal-- == 0) return 101;
+  if (browser_match() && ordinal-- == 0) return 102;
   int visible = 0;
   for (int i = 0; i < g_zn && visible < launcher_windows(); ++i) {
     if (!title_matches(g_win[g_z[i]].title)) continue;
@@ -503,8 +603,8 @@ Rect launcher_rect(int ordinal) {
   int item = launcher_item(ordinal), x = g_s.width >= 1000 ? 120 : 32;
   if (item < 0) return {};
   if (item < 2) return app_rect(item);
-  if (item == 100 || item==101) return app_rect(item-98);
-  int row = ordinal - (demo_matches() ? 1 : 0) - (files_match() ? 1 : 0) - (calc_match() ? 1 : 0) - (edit_match()?1:0);
+  if (item >= 100) return app_rect(item==100 ? 2 : item==101 ? 3 : 4);
+  int row = ordinal - (demo_matches() ? 1 : 0) - (files_match() ? 1 : 0) - (calc_match() ? 1 : 0) - (edit_match()?1:0) - (browser_match()?1:0);
   return {x + (row % launcher_columns()) * 218, window_cards_y() + (row / launcher_columns()) * 62, 200, 48};
 }
 int launcher_hit() {
@@ -592,7 +692,7 @@ void quick_draw(Rect d) {
     for (int i = first; i < n && i < first + 3; ++i) {
       int item = launcher_item(i); Rect r = launcher_rect(i);
       if (i == g_launcher_selected) rounded(r, 8, 0x29251b, clip);
-      const char* title = item == 0 ? "Colors — демонстрация" : item == 1 ? "Файлы — Диск A" : item == 100 ? "Калькулятор" : item==101 ? "Редактор" : g_win[item - 2].title;
+      const char* title = item == 0 ? "Colors — демонстрация" : item == 1 ? "Файлы — Диск A" : item == 100 ? "Калькулятор" : item==101 ? "Редактор" : item==102 ? "Браузер — интернет" : g_win[item - 2].title;
       text(title, r.x + 12, r.y + 25, i == g_launcher_selected ? kAmber : kWhite, intersect(r, clip), false, 13);
     }
     if (n == 0) {
@@ -648,14 +748,15 @@ void launcher_draw(Rect d) {
   rounded({x, y + 86, 68, 32}, 16, kAmber, d);
   text("Все", x + 18, y + 107, kInk, d, false, 13);
   text("Приложения и открытые окна", x + 88, y + 107, 0x8e887d, d, false, 13);
-  const int ids[]={0,1,100,101};
-  const bool available[]={demo_matches(),files_match(),calc_match(),edit_match()};
-  const char* names[]={"Colors","Файлы","Калькулятор","Редактор"};
-  const char* descriptions[]={"Демонстрация окон","Просмотр файлов","Функции и графики","UTF-8 и исходный код"};
-  for(int slot=0;slot<4;++slot) if(available[slot]) {
+  const int ids[]={0,1,100,101,102};
+  const bool available[]={demo_matches(),files_match(),calc_match(),edit_match(),browser_match()};
+  const char* names[]={"Colors","Файлы","Калькулятор","Редактор","Браузер"};
+  const char* descriptions[]={"Демонстрация окон","Просмотр файлов","Функции и графики","UTF-8 и исходный код","Интернет и веб-страницы"};
+  for(int slot=0;slot<5;++slot) if(available[slot]) {
     Rect r=app_rect(slot); rounded(r,16,selected_item==ids[slot]?kAmber:0x332e25,d);
     rounded({r.x+1,r.y+1,r.w-2,r.h-2},15,kRaised,d);
     if(slot<2) tile_icon(r.x+20,r.y+22,slot,d);
+    else if(slot==4) tile_icon(r.x+20,r.y+22,4,d);
     else text(slot==2?"=":"{}",r.x+20,r.y+56,kAmber,d,true,24);
     text(names[slot],r.x+20,r.y+104,0xf3efe7,d,false,15);
     text(descriptions[slot],r.x+20,r.y+130,0x8e887d,d,false,12);
@@ -665,7 +766,7 @@ void launcher_draw(Rect d) {
   text("ОТКРЫТЫЕ ОКНА",x,window_cards_y()-20,0x8e887d,d,false,11,1);
   for (int i = 0; launcher_item(i) >= 0; ++i) {
     int item = launcher_item(i);
-    if (item < 2 || item == 100 || item==101) continue;
+    if (item < 2 || item >= 100) continue;
     Window& w = g_win[item - 2];
     Rect r = launcher_rect(i); int32_t tx = r.x, ty = r.y;
     rounded(r, 10, i == g_launcher_selected ? kAmber : 0x2a2a2e, d);
@@ -849,6 +950,7 @@ void destroy_window(int wi) {
   g_zn = k;
   if (g_focus == wi) g_focus = -1;
   if (g_drag == wi) g_drag = -1;
+  if (g_browser_window == wi) g_browser_window = -1;
   for (auto& buf : w.buf) {
     if (buf != nullptr) (void)charm::vmo_unmap(reinterpret_cast<uint64_t>(buf));
     buf = nullptr;
@@ -977,6 +1079,10 @@ void create_window(int ci, const wm::Create& m, const Handle* hs, uint32_t nh,ui
   w.ring->version = 1;
   w.ring->capacity = 128;
   g_z[g_zn++] = wi;
+  if (g_browser_window < 0 &&
+      (strstr(w.title, "Chromium") != nullptr || strstr(w.title, "CharmOS") != nullptr)) {
+    g_browser_window = wi;
+  }
   damage(w.frame);
   reply.window = w.id;
   reply.x = w.frame.x;
@@ -1178,6 +1284,7 @@ void launcher_activate() {
   else if (item == 1) launch_files();
   else if (item == 100) launch_calc();
   else if (item == 101) launch_edit();
+  else if (item == 102) launch_browser();
   else if (item >= 2) { raise(item - 2); set_focus(item - 2); launcher_toggle(); }
 }
 
@@ -1195,6 +1302,7 @@ void input_event(const sc::InputEvent& e) {
       if(e.value) g_alt|=bit; else g_alt&=~bit;
     }
     if (g_alt && e.value == 1 && e.code == 0x2c) { launcher_toggle(true); return; }
+    if (g_alt && e.value == 1 && e.code == 0x5) { launch_browser(); return; }
     if (g_launcher && g_alt && e.value == 1 && e.code == 0x3d) { launcher_toggle(); return; }
     if (g_control) {
       if (g_alt && e.value == 1 && e.code == 0x3d) control_toggle();
@@ -1456,7 +1564,9 @@ void compose() {
 
 extern "C" int main(int, char**) {
   Handle display = charm_display(), input = charm_input();
-  Handle door = charm_extra_handle(0);  // wm.md §1: конец двери — хендл без роли
+  Handle door = charm_extra_handle(0);
+  g_wm_door = charm_wm() != 0 ? charm_wm() : door;
+  printf("wm: client capability %s\n", charm_wm() != 0 ? "yes" : "no");  // wm.md §1: конец двери — хендл без роли
   if (display == 0) {
     printf("wm: no display handle\n");
     return 1;
@@ -1485,6 +1595,7 @@ extern "C" int main(int, char**) {
   g_files_available = stat("/bin/files", &files_stat) == 0 && S_ISREG(files_stat.st_mode);
   g_calc_available = stat("/bin/calc", &files_stat) == 0 && S_ISREG(files_stat.st_mode);
   g_edit_available = stat("/bin/edit", &files_stat) == 0 && S_ISREG(files_stat.st_mode);
+  g_browser_available = stat("/bin/content_shell", &files_stat) == 0 && S_ISREG(files_stat.st_mode);
   load_preferences();
   wallpaper_build();
   printf("wm: TrueType fonts ready (Space Grotesk, JetBrains Mono)\n");
@@ -1519,9 +1630,16 @@ extern "C" int main(int, char**) {
 
   uint64_t last_frame = 0;
   for (;;) {
+    poll_browser_focus();
     if (ring != nullptr) (void)charm::object_bind(g_port, input, kKeyInput);
     uint64_t deadline = charm::kForever;
     if (!g_damage.empty()) deadline = last_frame + kFrameNs;
+    if (g_browser_focus_pending) {
+      // Retry the pending card focus while the browser service is still
+      // starting, without spinning: wake up a few times per second.
+      uint64_t retry = charm::now_ns() + 50'000'000ull;
+      if (deadline == charm::kForever || retry < deadline) deadline = retry;
+    }
     charm::PortPacket pk{};
     Status s = charm::port_wait(g_port, &pk, deadline);
     if (s == Status::Ok) {

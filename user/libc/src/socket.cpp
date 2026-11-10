@@ -1,7 +1,9 @@
 // Сокеты BSD поверх docs/abi/socket.md. Нужна роль Net в стартовом сообщении.
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -14,12 +16,45 @@ using namespace libc;
 namespace {
 
 bool to_abi(const struct sockaddr* a, socklen_t len, charm::SockAddr* out) {
-  if (a == nullptr || len < sizeof(sockaddr_in) || a->sa_family != AF_INET) return false;
-  const auto* in = reinterpret_cast<const sockaddr_in*>(a);
-  out->ipv4 = in->sin_addr.s_addr;  // уже порядок сети
-  out->port = ntohs(in->sin_port);
-  out->reserved = 0;
-  return true;
+  if (a == nullptr) return false;
+  if (a->sa_family == AF_INET && len >= sizeof(sockaddr_in)) {
+    const auto* in = reinterpret_cast<const sockaddr_in*>(a);
+    out->ipv4 = in->sin_addr.s_addr;
+    out->port = ntohs(in->sin_port);
+    out->reserved = 0;
+    return true;
+  }
+  // CharmOS sockets are IPv4-only. Chromium still probes/binds AF_INET6
+  // endpoints for DNS and dual-stack connect; map the wildcard, loopback and
+  // v4-mapped forms instead of failing the whole network request.
+  if (a->sa_family == AF_INET6 && len >= sizeof(sockaddr_in6)) {
+    const auto* in6 = reinterpret_cast<const sockaddr_in6*>(a);
+    const uint8_t* b = in6->sin6_addr.s6_addr;
+    uint32_t ipv4 = 0;
+    bool v4mapped = true;
+    for (int i = 0; i < 10; ++i) v4mapped = v4mapped && b[i] == 0;
+    if (v4mapped && b[10] == 0xff && b[11] == 0xff) {
+      memcpy(&ipv4, b + 12, 4);
+    } else {
+      bool any = true;
+      for (int i = 0; i < 16; ++i) any = any && b[i] == 0;
+      bool loopback = true;
+      for (int i = 0; i < 15; ++i) loopback = loopback && b[i] == 0;
+      loopback = loopback && b[15] == 1;
+      if (any) {
+        ipv4 = 0;
+      } else if (loopback) {
+        ipv4 = htonl(0x7f000001u);
+      } else {
+        return false;
+      }
+    }
+    out->ipv4 = ipv4;
+    out->port = ntohs(in6->sin6_port);
+    out->reserved = 0;
+    return true;
+  }
+  return false;
 }
 
 void from_abi(const charm::SockAddr& s, struct sockaddr* a, socklen_t* len) {
@@ -50,14 +85,27 @@ FdLease sock(int fd) {
 extern "C" {
 
 int socket(int domain, int type, int) {
+  // Dual-stack probes use AF_INET6; the native transport is IPv4. Requests
+  // with a real IPv6 peer are rejected by to_abi(), while wildcard/v4-mapped
+  // addresses work as IPv4 sockets.
+  if (domain == AF_INET6) domain = AF_INET;
   if (domain != AF_INET) return fail_errno(EAFNOSUPPORT);
+  int flags = type & (SOCK_NONBLOCK | SOCK_CLOEXEC);
+  type &= ~(SOCK_NONBLOCK | SOCK_CLOEXEC);
   if (type != SOCK_STREAM && type != SOCK_DGRAM) return fail_errno(EINVAL);
   Handle net = start_info().net;
   if (net == 0) return fail_errno(EACCES);
   auto r = charm::socket_open(net, type == SOCK_STREAM ? 1 : 2);
   if (!r.ok()) return fail(r.status);
   int fd = fd_alloc(Kind::Socket, static_cast<Handle>(r.value), true, true);
-  if (fd < 0) (void)charm::handle_close(static_cast<Handle>(r.value));
+  if (fd < 0) {
+    (void)charm::handle_close(static_cast<Handle>(r.value));
+    return -1;
+  }
+  // The native connect path is blocking; Chromium switches the descriptor to
+  // nonblocking after connect. Applying SOCK_NONBLOCK here would make connect
+  // fail with ENOTSUP, so only the close-on-exec bit is applied eagerly.
+  if (flags & SOCK_CLOEXEC) (void)fcntl(fd, F_SETFD, FD_CLOEXEC);
   return fd;
 }
 
@@ -94,8 +142,13 @@ int connect(int fd, const struct sockaddr* a, socklen_t len) {
   auto f = sock(fd);
   charm::SockAddr s;
   if (!f) return -1;
-  if (__atomic_load_n(&f->nonblock, __ATOMIC_RELAXED)) return fail_errno(ENOTSUP);
   if (!to_abi(a, len, &s)) return fail_errno(EINVAL);
+  // The native TCP stack has no asynchronous handshake: connect runs to
+  // completion (up to its own 30 s deadline) even on a nonblocking
+  // descriptor. Chromium issues connect() after switching the socket to
+  // nonblocking mode and accepts a synchronous success, which is what this
+  // reports. The descriptor keeps O_NONBLOCK, so the following sends and
+  // receives still return EAGAIN and are driven by poll.
   Status st = charm::socket_connect(f->handle, &s, charm::now_ns() + 30'000'000'000ull);
   return st == Status::Ok ? 0 : fail(st);
 }
@@ -103,12 +156,42 @@ int connect(int fd, const struct sockaddr* a, socklen_t len) {
 ssize_t send(int fd, const void* buf, size_t n, int flags) {
   auto f = sock(fd);
   if (!f) return -1;
-  return flags ? fail_errno(ENOTSUP) : write(fd, buf, n);
+  // MSG_NOSIGNAL has no effect: CharmOS never raises SIGPIPE for sockets.
+  // MSG_DONTWAIT is implied by the descriptor's O_NONBLOCK state.
+  if (flags & ~(MSG_NOSIGNAL | MSG_DONTWAIT)) return fail_errno(ENOTSUP);
+  return write(fd, buf, n);
 }
 ssize_t recv(int fd, void* buf, size_t n, int flags) {
   auto f = sock(fd);
   if (!f) return -1;
-  return flags ? fail_errno(ENOTSUP) : read(fd, buf, n);
+  if (flags & ~(MSG_DONTWAIT | MSG_PEEK)) return fail_errno(ENOTSUP);
+  if (n == 0) return 0;
+  auto* out = static_cast<unsigned char*>(buf);
+  if (f->peeked) {
+    out[0] = f->peek_byte;
+    if ((flags & MSG_PEEK) == 0) f->peeked = false;
+    return 1;
+  }
+  if ((flags & MSG_PEEK) == 0) return read(fd, buf, n);
+  // The kernel ABI has no peek flag: take one byte now and hand it out again
+  // from the description's pushback slot. This is what Chromium's
+  // SocketPosix::IsConnected() probes with.
+  unsigned char byte = 0;
+  auto r = charm::socket_recv(f->handle, &byte, 1,
+                              __atomic_load_n(&f->nonblock, __ATOMIC_RELAXED)
+                                  ? 0
+                                  : charm::kForever);
+  if (!r.ok()) {
+    if (r.status == Status::PeerClosed) return 0;
+    if (r.status == Status::WouldBlock || r.status == Status::TimedOut)
+      return fail_errno(EAGAIN);
+    return fail(r.status);
+  }
+  if (r.value == 0) return 0;
+  f->peek_byte = byte;
+  f->peeked = true;
+  out[0] = byte;
+  return 1;
 }
 
 int socketpair(int domain, int, int, int*) {
@@ -152,15 +235,28 @@ int shutdown(int fd, int how) {
   return st == Status::Ok ? 0 : fail(st);
 }
 
-int setsockopt(int fd, int, int, const void*, socklen_t) {
+int setsockopt(int fd, int level, int name, const void*, socklen_t) {
   auto f = sock(fd);
-  return f ? fail_errno(ENOTSUP) : -1;
+  if (!f) return -1;
+  // These options only tune the peer's transport heuristics. The native
+  // transport always uses its fixed retransmit/keepalive policy, so accept
+  // them instead of failing a connection setup that Chromium otherwise treats
+  // as fatal (notably TCP_NODELAY and SO_KEEPALIVE).
+  if (level == SOL_SOCKET &&
+      (name == SO_REUSEADDR || name == SO_KEEPALIVE || name == SO_BROADCAST ||
+       name == SO_SNDBUF || name == SO_RCVBUF || name == SO_LINGER)) {
+    return 0;
+  }
+  if (level == IPPROTO_TCP && name == TCP_NODELAY) return 0;
+  return fail_errno(ENOTSUP);
 }
 
 int getsockopt(int fd, int, int, void*, socklen_t*) {
   auto f = sock(fd);
   // CharmOS's socket ABI exposes neither SO_* state nor TCP_INFO yet; report
   // "unsupported" so callers fall back instead of reading uninitialised data.
+  // In particular no SO_ERROR value is invented: this adapter never returns
+  // EINPROGRESS from connect (see connect below), so callers never poll it.
   return f ? fail_errno(ENOTSUP) : -1;
 }
 

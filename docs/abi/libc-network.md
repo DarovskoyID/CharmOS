@@ -69,3 +69,27 @@ Message scatter/gather currently returns ENOTSUP rather than splitting UDP
 messages or ignoring flags. Thread naming likewise returns ENOTSUP.
 select has the same64 simultaneous-watch capacity as poll, with validated
 nonnegative timevals, rounded-up millisecond waits and EBADF on invalid FD.
+
+## Local adapter additions (2026-11-10)
+
+Emulated POSIX behaviour on top of the unchanged kernel socket ABI:
+
+- AF_INET6 sockets are opened as AF_INET. bind/connect accept the sockaddr_in6
+  wildcard, loopback and v4-mapped forms; a real IPv6 peer fails EINVAL.
+- connect() is synchronous even when the descriptor has O_NONBLOCK. The kernel
+  handshake has no asynchronous completion hook, so the adapter waits up to 30 s
+  for Established and returns 0 or the real error. The descriptor keeps
+  O_NONBLOCK, so later send/recv still return EAGAIN and are driven by poll.
+  No EINPROGRESS is reported, and SO_ERROR stays ENOTSUP instead of a fabricated
+  zero.
+- send() accepts MSG_NOSIGNAL (CharmOS never raises SIGPIPE for sockets) and
+  MSG_DONTWAIT (already implied by O_NONBLOCK); recv() accepts MSG_DONTWAIT.
+  Other flags remain ENOTSUP.
+- recv(MSG_PEEK) reads one byte and parks it in the description's pushback
+  slot; the next read/recv returns that byte first, so it is never lost. Deeper
+  peeks are not supported.
+- setsockopt() accepts the options that only tune transport heuristics
+  (SO_REUSEADDR, SO_KEEPALIVE, SO_BROADCAST, SO_SNDBUF, SO_RCVBUF, SO_LINGER,
+  TCP_NODELAY) as no-ops, because the native stack uses fixed policies and
+  Chromium treats their failure as a fatal connect error. Every other option and
+  every getsockopt() query stays ENOTSUP.

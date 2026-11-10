@@ -92,7 +92,7 @@ int fd_alloc(Kind kind, Handle h, bool readable, bool writable, int flags, void*
       for (auto& description : g_descriptions) {
         if (description.kind == Kind::Free) {
           description = {kind, (flags & O_APPEND) != 0, readable, writable,
-                         (flags & O_NONBLOCK) != 0, h, 0, 1, {}, state};
+                         (flags & O_NONBLOCK) != 0, h, 0, 1, {}, state, false, 0};
           g_fds[i] = {&description, (flags & O_CLOEXEC) != 0};
           return i;
         }
@@ -677,6 +677,11 @@ ssize_t read(int fd, void* buf, size_t n) {
       return static_cast<ssize_t>(r.value);
     }
     case Kind::Socket: {
+      if (f->peeked) {  // байт, выданный recv(MSG_PEEK)
+        static_cast<unsigned char*>(buf)[0] = f->peek_byte;
+        f->peeked = false;
+        return 1;
+      }
       auto r = charm::socket_recv(f->handle, buf, n, read_deadline(f));
       if (!r.ok()) return r.status == Status::PeerClosed ? 0 : read_error(f, r.status);
       return static_cast<ssize_t>(r.value);

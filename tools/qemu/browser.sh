@@ -22,17 +22,20 @@ cat >"$work/index.html" <<'EOF'
      manager, Ozone platform and software compositor.</p>
   <p>Address bar, Back, Forward, Refresh and Stop are live.
      Try <a href="http://example.com">http://example.com</a>.</p>
+  <p><input id="probe" size="40" autofocus
+            placeholder="type here"></p>
+  <script>document.getElementById('probe').focus();</script>
 </body></html>
 EOF
 cat >"$work/init.conf" <<'EOF'
 service logd /bin/logd
 service wm /bin/wm
-service browser /bin/content_shell --single-process --no-sandbox --disable-gpu --disable-in-process-stack-traces --js-flags=--jitless --user-data-dir=/data/content_shell file:///data/index.html
+service browser /bin/content_shell --single-process --no-sandbox --disable-gpu --disable-in-process-stack-traces --js-flags=--jitless --blink-settings=imagesEnabled=false --user-data-dir=/data/content_shell http://example.com
 console sh /bin/sh
 EOF
 puts=(--put "2:/etc/init.conf=$work/init.conf"
       --put "2:/data/index.html=$work/index.html")
-for p in init logd sh wm; do
+for p in init logd sh wm files calc edit wdemo cat ls echo mkdir rm sleep; do
   puts+=(--put "2:/bin/$p=$build/user/user/$p.elf")
 done
 binary="$out/content_shell.elf"

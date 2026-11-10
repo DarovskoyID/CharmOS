@@ -120,6 +120,9 @@ bool start(int i) {
   Handle job = 0;
   bool is_wm = strcmp(s.name, "wm") == 0;
   if (is_wm) {
+    // The WM can launch the browser from its application card; pass the
+    // capabilities that content_shell needs through the WM.
+    o.give |= CHARM_GIVE_NET | CHARM_GIVE_CONSOLE;
     // wm.md §1: дверь — канал, конец компоновщику (без роли), наш — дубликатами всем.
     Handle door[2];
     if (charm::channel_create(door) == Status::Ok) {
@@ -127,6 +130,19 @@ bool start(int i) {
       g_wm_door = door[0];
       extra[n] = door[1];
       roles[n++] = ap::kRoleNone;
+      // The WM needs the client end as well, so it can hand a valid WM
+      // capability to an on-demand browser launch.
+      auto wm_client = charm::handle_duplicate(
+          g_wm_door, charm::rights::kDuplicate | charm::rights::kTransfer |
+                         charm::rights::kWrite);
+      if (wm_client.ok()) {
+        extra[n] = static_cast<Handle>(wm_client.value);
+        roles[n++] = ap::kRoleWm;
+        printf("init: wm client capability ready\n");
+      } else {
+        printf("init: wm client capability failed %d\n",
+               static_cast<int>(wm_client.status));
+      }
     }
     // display.md §1, input.md §1: экран и ввод — только компоновщику.
     if (charm_display() != 0) {

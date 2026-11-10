@@ -75,15 +75,17 @@ void InputTranslatorCharmOS::TranslateKey(const abi::syscall::InputEvent& input,
   }
   int flags=flags_|mouse_flags_;
   if(input.value==2) flags|=EF_IS_REPEAT;
+  // Send one fully-defined key event. InputMethodMinimal reads the character
+  // from this event; emitting a separate character event makes views insert
+  // every typed character twice. Control/Alt combinations carry no character
+  // (an unsuppressed control byte can crash text-field bookkeeping).
+  const bool command = (flags_ & (EF_CONTROL_DOWN | EF_ALT_DOWN |
+                                  EF_ALTGR_DOWN | EF_COMMAND_DOWN)) != 0;
+  const DomKey raw_key = command ? DomKey::UNIDENTIFIED : key;
   auto raw=std::make_unique<KeyEvent>(pressed ? EventType::kKeyPressed : EventType::kKeyReleased,
-      key_code,code,flags,key,Timestamp(input));
+      key_code,code,flags,raw_key,Timestamp(input));
   raw->set_scan_code(input.code);
   events.push_back(std::move(raw));
-  if(pressed && key.IsCharacter() &&
-     !(flags_&(EF_CONTROL_DOWN|EF_ALT_DOWN|EF_ALTGR_DOWN|EF_COMMAND_DOWN))) {
-    events.push_back(std::make_unique<KeyEvent>(KeyEvent::FromCharacter(
-        static_cast<char16_t>(key.ToCharacter()),key_code,code,flags,Timestamp(input))));
-  }
 }
 void InputTranslatorCharmOS::TranslateMouse(const abi::syscall::InputEvent& input,
                                             std::vector<std::unique_ptr<Event>>& events) {
