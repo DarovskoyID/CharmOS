@@ -380,10 +380,11 @@ extern "C" int main(int, char**) {
     Status s = charm::port_wait(g_port, &pkt, charm::kForever);
     if (s != Status::Ok) continue;
     if (pkt.key == kControlKey) {
-      if (pkt.type == abi::syscall::kPacketChannelReadable) {
-        control();
-        (void)charm::object_bind(g_port, g_control, kControlKey);
-      }
+      // Читаем и перевзводим наблюдение при любом типе пакета: канал мог
+      // стать writable, и раньше в этом случае чтение больше не взводилось —
+      // команда «start browser» от WM терялась.
+      control();
+      (void)charm::object_bind(g_port, g_control, kControlKey);
       continue;
     }
     if (pkt.type != abi::syscall::kPacketProcessExited || pkt.key >= static_cast<uint64_t>(g_count)) continue;

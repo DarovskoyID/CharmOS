@@ -499,8 +499,11 @@ int find_browser_window() {
 
 void init_command(const char* text) {
   if (g_init_ctl == 0) return;
-  (void)charm::channel_write(g_init_ctl, text, static_cast<uint64_t>(strlen(text)),
-                             nullptr, 0);
+  Status st = charm::channel_write(g_init_ctl, text,
+                                   static_cast<uint64_t>(strlen(text)), nullptr, 0);
+  if (st != Status::Ok) {
+    printf("wm: init command '%s' failed %d\n", text, static_cast<int>(st));
+  }
 }
 
 // Ask init for a fresh browser process. A stopped service starts directly; a
