@@ -172,8 +172,10 @@ void PlatformWindowCharmOS::SetUseNativeFrame(bool use_native_frame) {
 }
 bool PlatformWindowCharmOS::ShouldUseNativeFrame() const { return true; }
 void PlatformWindowCharmOS::SetCursor(scoped_refptr<PlatformCursor> cursor) {
-  cursor_ = std::move(cursor);
-  LOG(WARNING) << "Custom cursor bitmaps are not yet negotiated with WM";
+  // The WM owns the pointer bitmap; keeping the platform cursor alive here
+  // made Chromium dereference a cursor it never negotiated with the WM (a
+  // FlatMap CHECK in the compositor path). Drop it instead.
+  (void)cursor;
 }
 void PlatformWindowCharmOS::MoveCursorTo(const gfx::Point& location) {
   LOG(WARNING) << "Cursor warping is not supported by WM";
