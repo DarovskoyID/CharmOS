@@ -137,6 +137,7 @@ int g_browser_window = -1;
 // не удался. Пишется из потока, читается циклом событий (атомарно).
 volatile int g_browser_launch_state = 0;
 uint64_t g_browser_focus_deadline = 0;
+uint64_t g_browser_request_ns = 0;
 Window g_win[kMaxWindows];
 int g_z[kMaxWindows];  // порядок снизу вверх (индексы g_win)
 int g_zn = 0;
@@ -496,6 +497,23 @@ int find_browser_window() {
   return -1;
 }
 
+void init_command(const char* text) {
+  if (g_init_ctl == 0) return;
+  (void)charm::channel_write(g_init_ctl, text, static_cast<uint64_t>(strlen(text)),
+                             nullptr, 0);
+}
+
+// Ask init for a fresh browser process. A stopped service starts directly; a
+// running-but-windowless process (a hang or a crash before the exit packet is
+// reaped) is killed first, otherwise "start" would answer "running" and the
+// card would appear to do nothing.
+void request_browser_start(bool kill_first) {
+  if (kill_first) init_command("kill browser");
+  init_command("start browser");
+  g_browser_request_ns = charm::now_ns();
+  printf("wm: browser start requested (%s)\n", kill_first ? "restart" : "start");
+}
+
 void launch_browser() {
   int wi = find_browser_window();
   if (wi >= 0) {
@@ -517,19 +535,12 @@ void launch_browser() {
   // first step: a launch that produces no window stops the retry timer.
   __atomic_store_n(&g_browser_launch_state, 1, __ATOMIC_RELEASE);
   g_browser_focus_pending = true;
-  g_browser_focus_deadline = charm::now_ns() + 120'000'000'000ull;
+  g_browser_focus_deadline = charm::now_ns() + 180'000'000'000ull;
   snprintf(g_quick_notice, sizeof g_quick_notice, "Браузер запускается…");
   if (g_launcher) launcher_toggle();
   damage(g_s.all());
-  // Ask init to start the browser service. init owns the process lifecycle
-  // (and its crash restarts), and the WM keeps painting while it spawns.
-  if (g_init_ctl != 0) {
-    static const char kStart[] = "start browser";
-    Status st = charm::channel_write(g_init_ctl, kStart, sizeof kStart - 1,
-                                     nullptr, 0);
-    printf("wm: browser start request %s\n",
-           st == Status::Ok ? "ok" : "failed");
-  } else {
+  request_browser_start(false);
+  if (g_init_ctl == 0) {
     printf("wm: no init control channel\n");
   }
 }
@@ -555,9 +566,20 @@ void poll_browser_focus() {
     return;
   }
   int wi = find_browser_window();
-  if (wi < 0) return;
+  if (wi < 0) {
+    // The first request can race with init reaping the previous process
+    // ("running" for a process that just died). Keep asking every 3 s; init
+    // answers "running" while the service is alive, which is harmless.
+    if (g_browser_request_ns != 0 &&
+        charm::now_ns() - g_browser_request_ns > 3'000'000'000ull) {
+      init_command("start browser");
+      g_browser_request_ns = charm::now_ns();
+    }
+    return;
+  }
   g_browser_focus_pending = false;
   g_browser_focus_deadline = 0;
+  g_browser_request_ns = 0;
   __atomic_store_n(&g_browser_launch_state, 0, __ATOMIC_RELEASE);
   raise(wi); set_focus(wi);
   printf("wm: focused pending browser\n");

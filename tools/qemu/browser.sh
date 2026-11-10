@@ -30,7 +30,7 @@ EOF
 cat >"$work/init.conf" <<'EOF'
 service logd /bin/logd
 service wm /bin/wm
-service browser /bin/content_shell --single-process --no-sandbox --disable-gpu --disable-in-process-stack-traces --js-flags=--jitless --blink-settings=imagesEnabled=false --user-data-dir=/data/content_shell http://example.com
+manual browser /bin/content_shell --single-process --no-sandbox --disable-gpu --disable-in-process-stack-traces --js-flags=--jitless --blink-settings=imagesEnabled=false --user-data-dir=/data/content_shell http://example.com
 console sh /bin/sh
 EOF
 puts=(--put "2:/etc/init.conf=$work/init.conf"
