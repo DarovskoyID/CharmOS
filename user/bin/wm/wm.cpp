@@ -1269,7 +1269,8 @@ void client_message(int ci) {
       int wi=find_window(ci,request.window);
       if(wi<0 || request.visible>1 || request.activate>1) { g_cl[ci].failed=true; return; }
       bool was_minimized=g_win[wi].minimized;
-      if(request.visible) {
+      const bool hidden_browser = wi == g_browser_window && !g_browser_user_requested;
+      if(request.visible && !hidden_browser) {
         raise(wi);
         if(!was_minimized) send_event(ci,wm::kVisibilityChanged,request.window,1);
         if(request.activate) set_focus(wi);
@@ -1281,8 +1282,11 @@ void client_message(int ci) {
       const auto& request=*reinterpret_cast<wm::Activate*>(msg);
       int wi=find_window(ci,request.window);
       if(wi<0 || request.active>1) { g_cl[ci].failed=true; return; }
-      if(request.active) { raise(wi); set_focus(wi); }
-      else if(g_focus==wi) set_focus(-1);
+      if(request.active) {
+        if(!(wi == g_browser_window && !g_browser_user_requested)) {
+          raise(wi); set_focus(wi);
+        }
+      } else if(g_focus==wi) set_focus(-1);
     } else if(managed && type==wm::kSetCapture && len==sizeof(wm::SetCapture)) {
       const auto& request=*reinterpret_cast<wm::SetCapture*>(msg);
       int wi=find_window(ci,request.window);
