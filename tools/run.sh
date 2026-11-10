@@ -12,7 +12,16 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 build="${CHARMOS_BUILD:-$root/build}"
-esp="$build/esp"
+# The ESP holds the 42 MiB initrd. Keeping it on the Windows mount makes the
+# firmware read it through drvfs (tens of seconds of boot); keep it on the
+# native filesystem and expose the documented path as a symlink.
+esp_native="${TMPDIR:-/tmp}/charmos-esp"
+mkdir -p "$esp_native"
+if [[ ! -L "$build/esp" ]]; then
+  rm -rf "$build/esp"
+  ln -sfn "$esp_native" "$build/esp"
+fi
+esp="$esp_native"
 
 gdb=0; trace=0; headless=0; testmode=0; config=""; cmdline=""; has_cmdline=0; accelerator=auto
 while [[ $# -gt 0 ]]; do
