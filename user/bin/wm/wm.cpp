@@ -127,11 +127,16 @@ struct Client {
 
 Screen g_s;
 Handle g_wm_door = 0;  // WM capability passed to the browser on demand
+Handle g_init_ctl = 0;  // канал управления init: запуск службы браузера
 bool g_browser_focus_pending = false;
 // Индекс окна браузера запоминается при создании: после загрузки страницы
 // заголовок меняется с "Chromium" на заголовок сайта, и поиск по имени
 // перестаёт его находить. -1 — окна нет.
 int g_browser_window = -1;
+// 0 — простой, 1 — content_shell запускается в фоновом потоке, 2 — запуск
+// не удался. Пишется из потока, читается циклом событий (атомарно).
+volatile int g_browser_launch_state = 0;
+uint64_t g_browser_focus_deadline = 0;
 Window g_win[kMaxWindows];
 int g_z[kMaxWindows];  // порядок снизу вверх (индексы g_win)
 int g_zn = 0;
@@ -468,27 +473,9 @@ bool browser_match() {
           strstr("интернет", g_query) != nullptr);
 }
 
-[[maybe_unused]] void* browser_thread(void*) {
-  char path[] = "/bin/content_shell";
-  char* args[] = {path, (char*)"--single-process", (char*)"--no-sandbox",
-                  (char*)"--disable-gpu",
-                  (char*)"--disable-in-process-stack-traces",
-                  (char*)"--js-flags=--jitless",
-                  (char*)"--user-data-dir=/data/content_shell",
-                  (char*)"file:///data/index.html", nullptr};
-  charm_spawn_opts options{};
-  options.give = CHARM_GIVE_ROOT | CHARM_GIVE_CWD | CHARM_GIVE_NET |
-                 CHARM_GIVE_CONSOLE | CHARM_GIVE_LOG;
-  uint32_t extra[1] = {g_wm_door};
-  uint32_t roles[1] = {abi::process::kRoleWm};
-  options.extra = extra;
-  options.extra_roles = roles;
-  options.extra_count = 1;
-  int64_t child = charm_spawn(path, args, nullptr, &options);
-  if (child >= 0) (void)charm::handle_close(static_cast<Handle>(child));
-  printf("wm: launch browser %s\n", child >= 0 ? "ok" : "failed");
-  return nullptr;
-}
+// The browser itself is a service: init owns the 200 MiB content_shell
+// process, restarts it after a crash, and never blocks the event loop here.
+// The card only asks init to start it (see launch_browser).
 
 // A window is the browser if it was recorded at creation time (its title
 // becomes the page title after the first load) or still matches the service
@@ -517,23 +504,61 @@ void launch_browser() {
     printf("wm: focus browser\n");
     return;
   }
+  int state = __atomic_load_n(&g_browser_launch_state, __ATOMIC_ACQUIRE);
+  if (state == 1) {  // уже загружается
+    snprintf(g_quick_notice, sizeof g_quick_notice, "Браузер запускается…");
+    if (g_launcher) launcher_toggle();
+    damage(g_s.all());
+    return;
+  }
   // TODO(hang-protection): add a WM/init watchdog that bounds service startup
   // and window-message stalls, then reports or restarts the offender instead
-  // of freezing the whole desktop.
+  // of freezing the whole desktop. g_browser_focus_deadline below is the
+  // first step: a launch that produces no window stops the retry timer.
+  __atomic_store_n(&g_browser_launch_state, 1, __ATOMIC_RELEASE);
   g_browser_focus_pending = true;
+  g_browser_focus_deadline = charm::now_ns() + 120'000'000'000ull;
   snprintf(g_quick_notice, sizeof g_quick_notice, "Браузер запускается…");
-  printf("wm: browser window not found\n");
   if (g_launcher) launcher_toggle();
   damage(g_s.all());
+  // Ask init to start the browser service. init owns the process lifecycle
+  // (and its crash restarts), and the WM keeps painting while it spawns.
+  if (g_init_ctl != 0) {
+    static const char kStart[] = "start browser";
+    Status st = charm::channel_write(g_init_ctl, kStart, sizeof kStart - 1,
+                                     nullptr, 0);
+    printf("wm: browser start request %s\n",
+           st == Status::Ok ? "ok" : "failed");
+  } else {
+    printf("wm: no init control channel\n");
+  }
 }
 
-// If the card was clicked while the init service was still loading content
-// shell, bring the window forward as soon as it appears.
+// Bring the browser window forward as soon as it appears, and stop retrying
+// if the launch produced no window within the deadline.
 void poll_browser_focus() {
+  if (__atomic_load_n(&g_browser_launch_state, __ATOMIC_ACQUIRE) == 2) {
+    __atomic_store_n(&g_browser_launch_state, 0, __ATOMIC_RELEASE);
+    g_browser_focus_pending = false;
+    snprintf(g_quick_notice, sizeof g_quick_notice, "Браузер не запустился");
+    damage(g_s.all());
+    printf("wm: browser launch failed\n");
+    return;
+  }
   if (!g_browser_focus_pending) return;
+  if (g_browser_focus_deadline != 0 && charm::now_ns() > g_browser_focus_deadline) {
+    g_browser_focus_pending = false;
+    __atomic_store_n(&g_browser_launch_state, 0, __ATOMIC_RELEASE);
+    snprintf(g_quick_notice, sizeof g_quick_notice, "Браузер не открылся");
+    damage(g_s.all());
+    printf("wm: browser window timeout\n");
+    return;
+  }
   int wi = find_browser_window();
   if (wi < 0) return;
   g_browser_focus_pending = false;
+  g_browser_focus_deadline = 0;
+  __atomic_store_n(&g_browser_launch_state, 0, __ATOMIC_RELEASE);
   raise(wi); set_focus(wi);
   printf("wm: focused pending browser\n");
 }
@@ -1566,6 +1591,8 @@ extern "C" int main(int, char**) {
   Handle display = charm_display(), input = charm_input();
   Handle door = charm_extra_handle(0);
   g_wm_door = charm_wm() != 0 ? charm_wm() : door;
+  g_init_ctl = charm_extra_handle(1);  // 0 — дверь, 1 — канал управления init
+  printf("wm: init control %s\n", g_init_ctl != 0 ? "yes" : "no");
   printf("wm: client capability %s\n", charm_wm() != 0 ? "yes" : "no");  // wm.md §1: конец двери — хендл без роли
   if (display == 0) {
     printf("wm: no display handle\n");

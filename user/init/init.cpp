@@ -32,6 +32,7 @@ struct Service {
   char* argv[kMaxArgs + 1];
   char args[256];
   bool console;
+  bool manual;  // "manual": зарегистрирована, но не стартует при загрузке
   Handle proc;  // 0 — не запущена
   int restarts;
 };
@@ -54,7 +55,8 @@ bool parse_conf() {
     char* kind = strtok_r(line, " \t\r\n", &save);
     if (kind == nullptr || kind[0] == '#') continue;
     bool console = strcmp(kind, "console") == 0;
-    if (!console && strcmp(kind, "service") != 0) continue;
+    bool manual = strcmp(kind, "manual") == 0;
+    if (!console && !manual && strcmp(kind, "service") != 0) continue;
     Service& s = g_svc[g_count];
     memset(&s, 0, sizeof s);
     char* name = strtok_r(nullptr, " \t\r\n", &save);
@@ -63,6 +65,7 @@ bool parse_conf() {
     snprintf(s.name, sizeof s.name, "%s", name);
     snprintf(s.path, sizeof s.path, "%s", path);
     s.console = console;
+    s.manual = manual;
     // argv: имя службы, затем аргументы (копии в s.args).
     size_t used = 0;
     int n = 0;
@@ -142,6 +145,19 @@ bool start(int i) {
       } else {
         printf("init: wm client capability failed %d\n",
                static_cast<int>(wm_client.status));
+      }
+    }
+    if (g_control_peer != 0) {
+      // Control channel to init: the WM asks init to (re)start the browser
+      // service instead of spawning a 200 MiB ELF itself (which froze or
+      // crashed the desktop).
+      auto ctl = charm::handle_duplicate(g_control_peer,
+          charm::rights::kDuplicate | charm::rights::kTransfer |
+          charm::rights::kRead | charm::rights::kWrite);
+      if (ctl.ok()) {
+        extra[n] = static_cast<Handle>(ctl.value);
+        roles[n++] = ap::kRoleNone;  // extra index 1 (0 is the WM door)
+        printf("init: wm control channel ready\n");
       }
     }
     // display.md §1, input.md §1: экран и ввод — только компоновщику.
@@ -261,12 +277,26 @@ void control() {
     char out[1024];
     size_t used = 0;
     for (int i = 0; i < g_count; ++i) {
-      int n = snprintf(out + used, sizeof out - used, "%-8s %s%s\n", g_svc[i].name,
-                       g_svc[i].proc != 0 ? "running" : "stopped", g_svc[i].console ? " (console)" : "");
+      int n = snprintf(out + used, sizeof out - used, "%-8s %s%s%s\n", g_svc[i].name,
+                       g_svc[i].proc != 0 ? "running" : "stopped",
+                       g_svc[i].console ? " (console)" : "",
+                       g_svc[i].manual ? " (manual)" : "");
       if (n > 0) used += static_cast<size_t>(n);
     }
     out[used] = '\0';
     reply(out);
+  } else if (strncmp(msg, "start ", 6) == 0) {
+    for (int i = 0; i < g_count; ++i) {
+      if (strcmp(g_svc[i].name, msg + 6) != 0) continue;
+      if (g_svc[i].proc != 0) {
+        reply("running\n");
+        return;
+      }
+      g_svc[i].restarts = 0;  // явный запрос снимает прежний лимит падений
+      reply(start(i) ? "ok\n" : "failed\n");
+      return;
+    }
+    reply("no such service\n");
   } else if (strncmp(msg, "kill ", 5) == 0) {
     for (int i = 0; i < g_count; ++i) {
       if (strcmp(g_svc[i].name, msg + 5) == 0 && g_svc[i].proc != 0 && !g_svc[i].console) {
@@ -343,7 +373,7 @@ extern "C" int main(int, char**) {
     if (strcmp(g_svc[i].name, "logd") == 0) start(i);
   }
   for (int i = 0; i < g_count; ++i) {
-    if (strcmp(g_svc[i].name, "logd") != 0) start(i);
+    if (strcmp(g_svc[i].name, "logd") != 0 && !g_svc[i].manual) start(i);
   }
   for (;;) {
     charm::PortPacket pkt;
@@ -362,7 +392,7 @@ extern "C" int main(int, char**) {
     (void)charm::handle_close(svc.proc);
     svc.proc = 0;
     if (svc.console) shutdown();
-    if (svc.restarts++ >= kMaxRestarts) {
+    if (svc.restarts++ >= (strcmp(svc.name, "browser") == 0 ? 1000 : kMaxRestarts)) {
       printf("init: %s failed %d times, not restarting\n", svc.name, svc.restarts);
       continue;
     }
