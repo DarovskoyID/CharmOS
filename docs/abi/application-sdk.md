@@ -154,7 +154,8 @@ releases the VMO. libc partial `munmap` uses this and tracks per-page
 
 84 `VmoReserve(size)`: like `VmoCreate`, but physical frames are not allocated
 until commit (an accessible map, `VmoProtect`, or kernel `vmo_frames`).
-Returns a VMO handle with the same rights and 1 GiB size limit; the Job memory
-quota is charged for the virtual size. Zero frame entries are never exposed as
+Returns a VMO handle with the same rights; eager allocation keeps the 1 GiB
+limit, while a lazy reservation may be up to 64 GiB for allocator VA pools. The
+Job memory quota is charged for the virtual size. Zero frame entries are never exposed as
 physical address zero. See `lazy-vmo.md` for commit, alias and OOM rules.
 `VmoCreate` keeps eager allocation and is unchanged.

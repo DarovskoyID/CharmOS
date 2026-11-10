@@ -30,6 +30,51 @@ def graphics_patches():
                 ('    "//third_party/rust/sfv/v0_15/wrapper",\n', ''),
                 ('  public_deps = [\n    ":disk_cache_buildflags",',
                  '  if (!is_charmos) {\n    deps += [ "//third_party/rust/sfv/v0_15/wrapper" ]\n  }\n  public_deps = [\n    ":disk_cache_buildflags",'),
+                ('  if (is_android || is_chromeos || is_linux) {\n'
+                 '    sources += [\n'
+                 '      "base/network_change_notifier_passive.cc",',
+                 '  if (is_android || is_chromeos || is_linux || is_charmos) {\n'
+                 '    sources += [\n'
+                 '      "base/network_change_notifier_passive.cc",'),
+            ]),
+        "net/cert/internal/system_trust_store.cc": (
+            "9e8c567b053f55fc3fca7e86239dd7a7fdbfb36d45a1386aceb0c94ce022af92", [
+                ('std::unique_ptr<SystemTrustStore> CreateSslSystemTrustStore() {\n'
+                 '  return std::make_unique<SystemTrustStoreFuchsia>();\n'
+                 '}\n'
+                 '\n'
+                 '#elif BUILDFLAG(IS_WIN)',
+                 'std::unique_ptr<SystemTrustStore> CreateSslSystemTrustStore() {\n'
+                 '  return std::make_unique<SystemTrustStoreFuchsia>();\n'
+                 '}\n'
+                 '\n'
+                 '#elif BUILDFLAG(IS_CHARMOS)\n'
+                 '\n'
+                 'std::unique_ptr<SystemTrustStore> CreateSslSystemTrustStore() {\n'
+                 '#if BUILDFLAG(CHROME_ROOT_STORE_SUPPORTED)\n'
+                 '  // CharmOS has no OS certificate store; the compiled-in Chrome\n'
+                 '  // Root Store is the trust anchor source.\n'
+                 '  return std::make_unique<SystemTrustStoreChrome>(\n'
+                 '      std::make_unique<TrustStoreChrome>(), nullptr);\n'
+                 '#else\n'
+                 '  class CharmSystemTrustStore : public SystemTrustStore {\n'
+                 '   public:\n'
+                 '    bssl::TrustStore* GetTrustStore() override { return &store_; }\n'
+                 '    bool IsKnownRoot(const bssl::ParsedCertificate*) const override {\n'
+                 '      return false;\n'
+                 '    }\n'
+                 '    bool IsKnownMtcAnchor(const bssl::MTCAnchor*) const override {\n'
+                 '      return false;\n'
+                 '    }\n'
+                 '\n'
+                 '   private:\n'
+                 '    bssl::TrustStoreInMemory store_;\n'
+                 '  };\n'
+                 '  return std::make_unique<CharmSystemTrustStore>();\n'
+                 '#endif\n'
+                 '}\n'
+                 '\n'
+                 '#elif BUILDFLAG(IS_WIN)'),
             ]),
         "net/features.gni": (
             "d201387125238678d5df71034d5c3376d1deb27fb9a2f9c946814ea3b76a39d1", [
@@ -167,10 +212,7 @@ def graphics_patches():
                  '    sources -= filter_include(sources, [ "*/mac/*", "*/win/*" ])'),
             ]),
         "skia/features.gni": (
-            "b87d0ec8ae38c8649ff71b7b1616fef83506df4ca3348cc1349f8ef74b2edb0a", [
-                ('skia_support_gpu = use_blink', 'skia_support_gpu = use_blink && !is_charmos'),
-                ('skia_use_gl = true', 'skia_use_gl = !is_charmos'),
-            ]),
+            "b87d0ec8ae38c8649ff71b7b1616fef83506df4ca3348cc1349f8ef74b2edb0a", []),
         "third_party/libpng/visibility.gni": (
             "4b1370f021d86d001bf53a903a4ad6eb1e907559b6c042ce1d3701b9aefd4c39", [
                 ('visibility = []', 'visibility = []\nif (is_charmos) {\n  visibility += [ "//skia:skia" ]\n}'),
@@ -202,6 +244,13 @@ def graphics_patches():
         "third_party/libjpeg_turbo/BUILD.gn": (
             "e1d6fdfcfca57a2b6fc7138a7d1b1b1595e5206ac4acf2a6ff28f2e7bd2b948f", [
                 ('if (build_with_chromium) {', 'if (build_with_chromium && !is_charmos) {'),
+                ('    } else if (is_linux || is_android || is_fuchsia || is_chromeos) {\n'
+                 '      defines += [ "ELF" ]\n'
+                 '    }',
+                 '    } else if (is_linux || is_android || is_fuchsia || is_chromeos ||\n'
+                 '               is_charmos) {\n'
+                 '      defines += [ "ELF" ]\n'
+                 '    }'),
             ]),
         "skia/ext/SkMemory_new_handler.cpp": (
             "c7730069c0e1dd883c1275ee4e80bf07d98761dac57f1b7da606096ab11be732", [
@@ -257,6 +306,119 @@ def graphics_patches():
             "d937da513d04efa495063d9ec4d0ecb2fd485b105382385a1164a165bdadd7e7", [
                 ('  angle_shared_libvulkan = !is_mac || angle_shared_libvulkan_on_mac',
                  '  angle_shared_libvulkan = (!is_mac && !is_charmos) || angle_shared_libvulkan_on_mac'),
+                ('  angle_enable_gl =\n      (ozone_platform_drm || ozone_platform_wayland || !is_linux ||\n       ((angle_use_x11 && !is_chromeos) || angle_use_wayland || is_castos)) &&\n      !is_fuchsia && !angle_is_winuwp && !is_win_arm64 && !is_ios',
+                 '  angle_enable_gl =\n      (is_charmos || ozone_platform_drm || ozone_platform_wayland ||\n       !is_linux ||\n       ((angle_use_x11 && !is_chromeos) || angle_use_wayland || is_castos)) &&\n      !is_fuchsia && !angle_is_winuwp && !is_win_arm64 && !is_ios'),
+            ]),
+        "third_party/angle/src/libANGLE/renderer/gl/gl_backend.gni": (
+            "d03c03c1a0d085865d0de4cbcc6318807c786e1b5722f22782379b11ebf4c803", [
+                ('if (is_android || is_linux || is_chromeos) {\n'
+                 '  gl_backend_sources += [\n'
+                 '    "egl/ContextEGL.cpp",',
+                 'if (is_android || is_linux || is_chromeos || is_charmos) {\n'
+                 '  gl_backend_sources += [\n'
+                 '    "egl/ContextEGL.cpp",'),
+            ]),
+        "third_party/angle/src/libGLESv2.gni": (
+            "47e9c1783de507548d5e7119db535dd7aa0459cbda10e48381b8b2cab36766e2", [
+                ('if (is_linux || is_chromeos || is_android || is_fuchsia) {\n'
+                 '  libangle_common_sources += [\n'
+                 '    "src/common/system_utils_linux.cpp",\n'
+                 '    "src/common/system_utils_posix.cpp",\n'
+                 '  ]\n'
+                 '}',
+                 'if (is_linux || is_chromeos || is_android || is_fuchsia ||\n'
+                 '    is_charmos) {\n'
+                 '  libangle_common_sources += [\n'
+                 '    "src/common/system_utils_linux.cpp",\n'
+                 '    "src/common/system_utils_posix.cpp",\n'
+                 '  ]\n'
+                 '}'),
+                ('if (is_linux || is_chromeos) {\n'
+                 '  libangle_common_sources += [\n'
+                 '    "src/common/linux/window_system.cpp",\n'
+                 '    "src/common/linux/window_system.h",\n'
+                 '  ]\n'
+                 '}',
+                 'if (is_linux || is_chromeos || is_charmos) {\n'
+                 '  libangle_common_sources += [\n'
+                 '    "src/common/linux/window_system.cpp",\n'
+                 '    "src/common/linux/window_system.h",\n'
+                 '  ]\n'
+                 '}'),
+            ]),
+        "third_party/angle/BUILD.gn": (
+            "2fe5bda0a3833db63fd697447bf7e755eb777cc19dc9b45451ca8586beeacccc", [
+                ('  if (is_linux || is_chromeos) {\n'
+                 '    sources += libangle_gpu_info_util_linux_sources',
+                 '  if (is_linux || is_chromeos || is_charmos) {\n'
+                 '    sources += libangle_gpu_info_util_linux_sources'),
+            ]),
+        "third_party/angle/src/libANGLE/renderer/gl/BUILD.gn": (
+            "0d29303ff413185ecfda5a9d6cc4949b9d976c363e7ca94e39920145470ceb99", [
+                ('  if (is_android || is_linux || is_chromeos) {\n'
+                 '    deps += [ "$angle_root/src/common/linux:angle_dma_buf" ]\n'
+                 '  }',
+                 '  if (is_android || is_linux || is_chromeos || is_charmos) {\n'
+                 '    deps += [ "$angle_root/src/common/linux:angle_dma_buf" ]\n'
+                 '  }'),
+            ]),
+        "ui/compositor/BUILD.gn": (
+            "d42b22513a4f65aa490b5bdc1214f84362b7f142cdce1be8ce16d99b0512e747", [
+                ('  if (is_linux || is_fuchsia) {\n'
+                 '    sources += [\n'
+                 '      "external_begin_frame_adapter.cc",',
+                 '  if (is_linux || is_fuchsia || is_charmos) {\n'
+                 '    sources += [\n'
+                 '      "external_begin_frame_adapter.cc",'),
+            ]),
+        "base/allocator/partition_allocator/src/partition_alloc/partition_alloc_base/rand_util_posix.cc": (
+            "e1ea9d628919456ebbf46c636d9608a6278f5b738228e0be2ae0dcee4ca0a89f", [
+                ('#if !PA_BUILDFLAG(IS_APPLE)\n\n#if PA_BUILDFLAG(IS_AIX)',
+                 '#if !PA_BUILDFLAG(IS_APPLE) && !defined(__charmos__)\n\n#if PA_BUILDFLAG(IS_AIX)'),
+                ('PA_UNSAFE_BUFFER_USAGE void RandBytes(void* output, size_t output_length) {\n'
+                 '#if PA_BUILDFLAG(IS_MAC)',
+                 'PA_UNSAFE_BUFFER_USAGE void RandBytes(void* output, size_t output_length) {\n'
+                 '#if defined(__charmos__)\n'
+                 '  // CharmOS exposes entropy through getentropy(2); no /dev mount.\n'
+                 '  PA_BASE_CHECK(getentropy(output, output_length) == 0);\n'
+                 '#elif PA_BUILDFLAG(IS_MAC)'),
+            ]),
+        "base/base_paths.cc": (
+            "6370d403ef63f5e94bcd252fdd3d0eee858c671275d6f44873745adbe7c4f7da", [
+                ('    case base::DIR_SRC_TEST_DATA_ROOT:\n'
+                 '      // This is only used by tests and overridden by each platform.\n'
+                 '      NOTREACHED();',
+                 '    case base::DIR_SRC_TEST_DATA_ROOT:\n'
+                 '#if BUILDFLAG(IS_CHARMOS)\n'
+                 '      // No source tree exists in the guest; callers probe this key\n'
+                 '      // during startup, so resolve it to the installed assets.\n'
+                 '      return PathService::Get(DIR_ASSETS, result);\n'
+                 '#else\n'
+                 '      // This is only used by tests and overridden by each platform.\n'
+                 '      NOTREACHED();\n'
+                 '#endif'),
+            ]),
+        "gpu/config/gpu_control_list.cc": (
+            "de694e9c529e4c8e908ff868c371776815ce4264a43aaf623a7933b643d79167", [
+                ('#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_OPENBSD)\n'
+                 '  return kOsLinux;',
+                 '#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_OPENBSD) || \\\n'
+                 '    BUILDFLAG(IS_CHARMOS)\n'
+                 '  return kOsLinux;'),
+            ]),
+        "net/base/network_change_notifier.cc": (
+            "a9b93cafc14ecef3a98e3507a50fa8c4098e2ecea26c6455b32fa04e45cb78e4", [
+                ('#elif BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)\n'
+                 '#include "net/base/network_change_notifier_passive.h"',
+                 '#elif BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || \\\n'
+                 '    BUILDFLAG(IS_CHARMOS)\n'
+                 '#include "net/base/network_change_notifier_passive.h"'),
+                ('#elif BUILDFLAG(IS_CHROMEOS)\n'
+                 '  return std::make_unique<NetworkChangeNotifierPassive>(initial_type,\n'
+                 '                                                        initial_subtype);',
+                 '#elif BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n'
+                 '  return std::make_unique<NetworkChangeNotifierPassive>(initial_type,\n'
+                 '                                                        initial_subtype);'),
             ]),
         "ui/gl/BUILD.gn": (
             "5122a369889e138a7588e098325e92beda78da57c40bb215c143fc99826bfc8e", [
@@ -915,6 +1077,15 @@ def graphics_patches():
                 ('    "//content/test:test_support",\n    "//gpu:test_support",',
                  '    "//base",\n    "//gpu:test_support",'),
             ]),
+        "third_party/blink/renderer/core/layout/build.gni": (
+            "9c334ad093fcd0310aff0a5e42bda0b0d9ce2e5a58945a65b5167cf4c54523e7", [
+                ('if (is_linux || is_chromeos) {\n'
+                 '  blink_core_sources_layout += [\n'
+                 '    "layout_theme_linux.cc",',
+                 'if (is_linux || is_chromeos || is_charmos) {\n'
+                 '  blink_core_sources_layout += [\n'
+                 '    "layout_theme_linux.cc",'),
+            ]),
         "third_party/blink/renderer/core/BUILD.gn": (
             "3b9ddf529b5549784c0d811706e78bf4a872f4fd745be8e458aaa78e81a83b97", [
                 ('    "//content/test:test_support",\n    "//gpu/command_buffer/client:raster",',
@@ -954,6 +1125,141 @@ def graphics_patches():
                  '    "//third_party/blink/public/strings:permission_element_strings_grit",\n'
                  '    "//tools/v8_context_snapshot:buildflags",'),
             ]),
+        "v8/include/v8-wasm.h": (
+            "c90b447b7544b4e256dc387773b086f89a9f2057bf59462db53f3077520a2943", [
+                ('#include "v8-local-handle.h"  // NOLINT(build/include_directory)\n'
+                 '#include "v8-object.h"        // NOLINT(build/include_directory)',
+                 '#include "v8-exception.h"     // NOLINT(build/include_directory)\n'
+                 '#include "v8-local-handle.h"  // NOLINT(build/include_directory)\n'
+                 '#include "v8-object.h"        // NOLINT(build/include_directory)\n'
+                 '#include "v8-primitive.h"     // NOLINT(build/include_directory)'),
+                ('  explicit WasmModuleCompilation(const CompileOptions& options = {});\n'
+                 '\n'
+                 '  ~WasmModuleCompilation();\n'
+                 '\n'
+                 '  WasmModuleCompilation(const WasmModuleCompilation&) = delete;\n'
+                 '  WasmModuleCompilation& operator=(const WasmModuleCompilation&) = delete;',
+                 '#if !defined(V8_ENABLE_WEBASSEMBLY)\n'
+                 '  // WebAssembly is compiled out of this build. Keep the public\n'
+                 '  // streaming API linkable and fail Finish() with a JS Error.\n'
+                 '  explicit WasmModuleCompilation(const CompileOptions& = {}) {}\n'
+                 '  ~WasmModuleCompilation() = default;\n'
+                 '  void OnBytesReceived(const uint8_t*, size_t) {}\n'
+                 '  void Abort() {}\n'
+                 '  void SetHasCompiledModuleBytes() {}\n'
+                 '  void Finish(\n'
+                 '      Isolate* isolate, const ModuleCachingCallback&,\n'
+                 '      const std::function<void(\n'
+                 '          std::variant<Local<WasmModuleObject>, Local<Value>>)>&\n'
+                 '          resolution_callback) {\n'
+                 '    if (!resolution_callback) return;\n'
+                 '    HandleScope handle_scope(isolate);\n'
+                 '    resolution_callback(Exception::Error(String::NewFromUtf8Literal(\n'
+                 '        isolate, "WebAssembly is not supported")));\n'
+                 '  }\n'
+                 '#else\n'
+                 '  explicit WasmModuleCompilation(const CompileOptions& options = {});\n'
+                 '\n'
+                 '  ~WasmModuleCompilation();\n'
+                 '#endif\n'
+                 '\n'
+                 '  WasmModuleCompilation(const WasmModuleCompilation&) = delete;\n'
+                 '  WasmModuleCompilation& operator=(const WasmModuleCompilation&) = delete;'),
+                (' private:\n'
+                 '  class Impl;\n'
+                 '  const std::unique_ptr<Impl> impl_;',
+                 ' private:\n'
+                 '#if defined(V8_ENABLE_WEBASSEMBLY)\n'
+                 '  class Impl;\n'
+                 '  const std::unique_ptr<Impl> impl_;\n'
+                 '#endif'),
+                ('  /**\n'
+                 '   * Pass a new chunk of bytes to WebAssembly compilation.',
+                 '#if defined(V8_ENABLE_WEBASSEMBLY)\n'
+                 '  /**\n'
+                 '   * Pass a new chunk of bytes to WebAssembly compilation.'),
+                ('  void Abort();\n'
+                 '\n'
+                 '  /**\n'
+                 '   * Mark that the embedder has (potentially) cached compiled module bytes (i.e.\n'
+                 '   * a serialized {CompiledWasmModule}) that could match this streaming request.\n'
+                 '   * This will cause V8 to skip streaming compilation.\n'
+                 '   * The embedder should then pass a callback to the {Finish} method to pass the\n'
+                 '   * serialized bytes, after potentially checking their validity against the\n'
+                 '   * full received wire bytes.\n'
+                 '   */\n'
+                 '  void SetHasCompiledModuleBytes();\n',
+                 '  void Abort();\n'
+                 '\n'
+                 '  /**\n'
+                 '   * Mark that the embedder has (potentially) cached compiled module bytes (i.e.\n'
+                 '   * a serialized {CompiledWasmModule}) that could match this streaming request.\n'
+                 '   * This will cause V8 to skip streaming compilation.\n'
+                 '   * The embedder should then pass a callback to the {Finish} method to pass the\n'
+                 '   * serialized bytes, after potentially checking their validity against the\n'
+                 '   * full received wire bytes.\n'
+                 '   */\n'
+                 '  void SetHasCompiledModuleBytes();\n'
+                 '#endif\n'),
+            ]),
+        "third_party/tflite/src/tensorflow/compiler/mlir/lite/core/model_builder_base.h": (
+            "e2972c32a5f64e30a5eec8a1a416647c2e294274b15f08f2efe085431cd7ec12", [
+                ('for (int len = 0; len < array->size(); ++len) {',
+                 'for (int len = 0; len < static_cast<int>(array->size()); ++len) {'),
+                ('for (int i = 0; i < model->metadata()->size(); ++i) {',
+                 'for (int i = 0; i < static_cast<int>(model->metadata()->size());\n'
+                 '         ++i) {'),
+            ]),
+        "services/device/time_zone_monitor/BUILD.gn": (
+            "4fc4158672dcdd30c73cd544cbd8f852b5760d23575b7119128e4173987ab834", [
+                ('  if (is_linux) {\n    sources += [ "time_zone_monitor_linux.cc" ]\n  }',
+                 '  if (is_linux || is_charmos) {\n'
+                 '    sources += [ "time_zone_monitor_linux.cc" ]\n  }'),
+            ]),
+        "content/shell/browser/shell_browser_context.cc": (
+            "1095f1443d023e21a2f96e7ce0c4a6610be7ac5df02ddf48344f2b6ff33d9ad2", [
+                ('#include "content/test/mock_background_sync_controller.h"\n'
+                 '#include "content/test/mock_reduce_accept_language_controller_delegate.h"',
+                 '#if !BUILDFLAG(IS_CHARMOS)\n'
+                 '#include "content/test/mock_background_sync_controller.h"\n'
+                 '#include "content/test/mock_reduce_accept_language_controller_delegate.h"\n'
+                 '#else\n'
+                 '#include "content/public/browser/background_sync_controller.h"\n'
+                 '#include "content/public/browser/reduce_accept_language_controller_delegate.h"\n'
+                 '#endif'),
+                ('  if (!background_sync_controller_) {\n'
+                 '    background_sync_controller_ =\n'
+                 '        std::make_unique<MockBackgroundSyncController>();\n'
+                 '  }\n'
+                 '  return background_sync_controller_.get();',
+                 '#if BUILDFLAG(IS_CHARMOS)\n'
+                 '  // No background sync service is hosted on CharmOS.\n'
+                 '  return nullptr;\n'
+                 '#else\n'
+                 '  if (!background_sync_controller_) {\n'
+                 '    background_sync_controller_ =\n'
+                 '        std::make_unique<MockBackgroundSyncController>();\n'
+                 '  }\n'
+                 '  return background_sync_controller_.get();\n'
+                 '#endif'),
+                ('  if (!reduce_accept_lang_controller_delegate_) {\n'
+                 '    reduce_accept_lang_controller_delegate_ =\n'
+                 '        std::make_unique<MockReduceAcceptLanguageControllerDelegate>(\n'
+                 '            GetShellLanguage());\n'
+                 '  }\n'
+                 '  return reduce_accept_lang_controller_delegate_.get();',
+                 '#if BUILDFLAG(IS_CHARMOS)\n'
+                 '  // Serve the header as sent instead of reducing it.\n'
+                 '  return nullptr;\n'
+                 '#else\n'
+                 '  if (!reduce_accept_lang_controller_delegate_) {\n'
+                 '    reduce_accept_lang_controller_delegate_ =\n'
+                 '        std::make_unique<MockReduceAcceptLanguageControllerDelegate>(\n'
+                 '            GetShellLanguage());\n'
+                 '  }\n'
+                 '  return reduce_accept_lang_controller_delegate_.get();\n'
+                 '#endif'),
+            ]),
         "third_party/blink/renderer/platform/BUILD.gn": (
             "5efc0784d4167a251ba5c206c9b6492ca4a6f9aa3f5f01d7cc19256eaa62118b", [
                 ('"//content/test:test_support"', '"//base"'),
@@ -982,6 +1288,20 @@ def graphics_patches():
                  '    # implementation something to link to, though WebGPU won\'t be supported.\n'
                  '    deps += [ "//third_party/dawn/src/dawn:proc" ]\n'
                  '  }'),
+                # CharmOS: native font fallback and the PartitionAlloc memory
+                # dump provider are compiled by the platform library.
+                ('  if (is_linux || is_chromeos) {\n'
+                 '    sources += [\n'
+                 '      "fonts/linux/font_cache_linux.cc",',
+                 '  if (is_charmos) {\n'
+                 '    sources += [\n'
+                 '      "//build/charmos/font_cache_charmos.cc",\n'
+                 '      "instrumentation/partition_alloc_memory_dump_provider.cc",\n'
+                 '    ]\n'
+                 '  }\n'
+                 '  if (is_linux || is_chromeos) {\n'
+                 '    sources += [\n'
+                 '      "fonts/linux/font_cache_linux.cc",'),
             ]),
         "BUILD.gn": (
             "e38b612778a41dd52c073f8633b3f22c6078e227baa892666e92ac29a9738391", [
@@ -1089,6 +1409,18 @@ def graphics_patches():
             "b053e87d068d2f8ed2637d5c6eb15532decf7a9522d09d97e49992b70978ed23", [
                 ('if (is_win || is_mac || is_linux || is_chromeos) {\n  static_library("pixel_diff_test_support") {',
                  'if (is_win || is_mac || is_linux || is_chromeos || is_charmos) {\n  static_library("pixel_diff_test_support") {'),
+                # Aura on CharmOS resolves native images through the shared
+                # resource bundle and uses the generic non-backed drag data
+                # provider.
+                ('  if (use_aura && (is_linux || is_chromeos)) {\n'
+                 '    sources += [ "resource/resource_bundle_auralinux.cc" ]\n'
+                 '  }',
+                 '  if (use_aura && (is_linux || is_chromeos || is_charmos)) {\n'
+                 '    sources += [ "resource/resource_bundle_auralinux.cc" ]\n'
+                 '  }\n'
+                 '  if (is_charmos) {\n'
+                 '    sources += [ "dragdrop/os_exchange_data_provider_non_backed.cc" ]\n'
+                 '  }'),
             ]),
         "ui/views/BUILD.gn": (
             "0f6360185a8766f925e375ef6401bcfa994d7c369d4b7a6d48ae2d0a14d7b497", [
@@ -1096,6 +1428,21 @@ def graphics_patches():
                  'if (is_charmos) {\n  group("close_bubble_on_tab_activation_helper") { visibility = [ "*" ] }\n}\nif (is_win || is_mac || is_linux || is_chromeos || is_charmos) {\n  static_library("view_pixel_diff_test_support") {'),
                 ('if (is_charmos) {\n  group("close_bubble_on_tab_activation_helper") { visibility = [ "*" ] }\n}\n',
                  'group("close_bubble_on_tab_activation_helper") { visibility = [ "*" ] }\n'),
+                # CharmOS uses the ozone desktop host and the ChromeOS menu
+                # configuration (empty platform override).
+                ('      if (is_linux || is_fuchsia) {\n'
+                 '        public += [\n'
+                 '          "widget/desktop_aura/desktop_drag_drop_client_ozone.h",',
+                 '      if (is_linux || is_fuchsia || is_charmos) {\n'
+                 '        public += [\n'
+                 '          "widget/desktop_aura/desktop_drag_drop_client_ozone.h",'),
+                ('  if (is_chromeos) {\n'
+                 '    public += [ "controls/views_text_services_context_menu_chromeos.h" ]',
+                 '  if (is_charmos) {\n'
+                 '    sources += [ "controls/menu/menu_config_chromeos.cc" ]\n'
+                 '  }\n'
+                 '  if (is_chromeos) {\n'
+                 '    public += [ "controls/views_text_services_context_menu_chromeos.h" ]'),
             ]),
         "chrome/browser/ui/webui/compose/BUILD.gn": (
             "28226860ce0c6b9fc3130008657a3d33c54f5cf5fb6404d9ee6724fff9856260", [
@@ -1136,6 +1483,62 @@ def graphics_patches():
         "content/shell/BUILD.gn": (
             "8b952574b939aa81d0dba0113206efa708b3f1c3718ef874aadc2a7b2a4eb13e", [
                 ('      "//third_party/breakpad:dump_syms",\n', ''),
+                ('support_web_tests = !is_android', 'support_web_tests = !is_android && !is_charmos'),
+                ('    deps = [\n'
+                 '      ":content_shell_app",\n'
+                 '      ":content_shell_lib",\n'
+                 '      ":pak",\n'
+                 '      "//build/win:default_exe_manifest",\n'
+                 '      "//content/public/app",\n'
+                 '      "//sandbox",\n'
+                 '    ]',
+                 '    deps = [\n'
+                 '      ":content_shell_app",\n'
+                 '      ":content_shell_lib",\n'
+                 '      ":pak",\n'
+                 '      "//build/win:default_exe_manifest",\n'
+                 '      "//content/public/app",\n'
+                 '      "//sandbox",\n'
+                 '    ]\n'
+                 '    if (is_charmos) {\n'
+                 '      libs = [ "$charmos_repo/build/user/user/libwm/libwm_client.a" ]\n'
+                 '      deps += [\n'
+                 '        "//build/charmos:content_platform",\n'
+                 '        "//build/charmos:numeric_runtime",\n'
+                 '        "//build/charmos:v8_platform_for_content",\n'
+                 '        "//third_party/libjpeg_turbo:simd",\n'
+                 '      ]\n'
+                 '    }'),
+                ('  } else {\n'
+                 '    deps += [\n'
+                 '      "//components/crash/content/browser",\n'
+                 '      "//components/crash/core/app",\n'
+                 '    ]\n'
+                 '  }',
+                 '  } else if (!is_charmos) {\n'
+                 '    deps += [\n'
+                 '      "//components/crash/content/browser",\n'
+                 '      "//components/crash/core/app",\n'
+                 '    ]\n'
+                 '  }'),
+                ('  if (!is_fuchsia) {\n'
+                 '    deps += [\n'
+                 '      "//components/crash/core/app",\n'
+                 '      "//components/crash/core/app:test_support",\n'
+                 '    ]\n'
+                 '  }',
+                 '  if (!is_fuchsia && !is_charmos) {\n'
+                 '    deps += [\n'
+                 '      "//components/crash/core/app",\n'
+                 '      "//components/crash/core/app:test_support",\n'
+                 '    ]\n'
+                 '  }'),
+                ('        "//ui/resources",\n'
+                 '        "//ui/views:test_support",\n'
+                 '        "//ui/views/controls/webview",\n'
+                 '        "//ui/wm:test_support",\n',
+                 '        "//ui/resources",\n'
+                 '        "//ui/views/controls/webview",\n'),
                 ('    "//v8",\n'
                  '  ]\n'
                  '\n'
@@ -1150,11 +1553,8 @@ def graphics_patches():
                  '      ":rust_test_service_ffi",\n'
                  '      "//components/custom_handlers:test_support",\n'
                  '      "//components/services/storage/test_api",\n'
-                 '      "//content/test:content_test_mojo_bindings",\n'
                  '      "//content/test:test_support",\n'
                  '      "//services/device/public/cpp:test_support",\n'
-                 '      "//services/test/echo:lib",\n'
-                 '      "//services/test/echo/public/mojom",\n'
                  '    ]\n'
                  '  }\n'
                  '\n'

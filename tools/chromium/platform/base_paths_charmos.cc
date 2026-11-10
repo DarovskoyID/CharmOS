@@ -7,6 +7,17 @@
 namespace base {
 bool PathProviderPosix(int key, FilePath* result) {
   if (!result) return false;
+  // The native startup ABI does not expose an executable path and there is no
+  // /proc. Pin the two paths the browser service is installed at: DIR_EXE is
+  // derived from FILE_EXE, while DIR_ASSETS is the directory of FILE_MODULE.
+  if (key == FILE_EXE) {
+    *result = FilePath("/bin/content_shell");
+    return true;
+  }
+  if (key == FILE_MODULE) {
+    *result = FilePath("/data/content_shell/content_shell");
+    return true;
+  }
   FilePath path;
   if (key == DIR_CACHE) {
     const char* configured = getenv("XDG_CACHE_HOME");

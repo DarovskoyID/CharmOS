@@ -6,7 +6,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd -P)"
 cache="$root/build/chromium"
 mkdir -p "$cache"
-image="$cache/linux-cache.ext4"
+image="${CHARMOS_CACHE_IMAGE:-$cache/linux-cache.ext4}"
 target="$cache/linux-cache"
 [[ $(realpath -m "$image") == "$image" && $(realpath -m "$target") == "$target" ]] || { echo 'Unexpected cache symlink' >&2; exit 2; }
 if [[ ! -e "$image" ]]; then

@@ -157,4 +157,22 @@ int setsockopt(int fd, int, int, const void*, socklen_t) {
   return f ? fail_errno(ENOTSUP) : -1;
 }
 
+int getsockopt(int fd, int, int, void*, socklen_t*) {
+  auto f = sock(fd);
+  // CharmOS's socket ABI exposes neither SO_* state nor TCP_INFO yet; report
+  // "unsupported" so callers fall back instead of reading uninitialised data.
+  return f ? fail_errno(ENOTSUP) : -1;
+}
+
+ssize_t sendto(int fd, const void* data, size_t size, int flags,
+               const struct sockaddr* address, socklen_t) {
+  auto f = sock(fd);
+  if (!f) return -1;
+  // Connected sockets route through the native send path. The kernel has no
+  // address argument for unconnected datagrams, so those are rejected
+  // explicitly rather than silently delivered to the wrong peer.
+  if (address == nullptr) return send(fd, data, size, flags);
+  return fail_errno(ENOTSUP);
+}
+
 }  // extern "C"

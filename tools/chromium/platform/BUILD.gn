@@ -162,6 +162,55 @@ if (charmos_build_blink) {
     testonly = true
     deps = [ "//content/shell:content_shell" ]
   }
+
+  # Native replacements for Rust-only defaults and for platform services that
+  # upstream compiles per-OS. Kept in one source set so the content shell links
+  # real C++ implementations without touching its GN argument list.
+  source_set("content_platform") {
+    include_dirs = [ "//" ]
+    sources = [
+      "animation_charmos.cc",
+      "content_charmos.cc",
+      "font_charmos.cc",
+      "gpu_charmos.cc",
+      "graphic_shims_charmos.cc",
+      "idle_charmos.cc",
+      "mime_charmos.cc",
+      "os_metrics_charmos.cc",
+      "partition_alloc_charmos.cc",
+      "platform_charmos.cc",
+      "select_file_charmos.cc",
+      "tts_charmos.cc",
+      # Upstream's base implementation is platform independent; only the
+      # Crashpad backend is unavailable.
+      "//components/crash/core/app/crash_reporter_client.cc",
+      # Content shell installs the desktop test delegate (it is a test app
+      # upstream). CharmOS keeps that delegate for its aura widget host, so
+      # compile the two small platform units into the product link.
+      "//ui/views/test/desktop_test_views_delegate_aura.cc",
+      "//ui/views/test/test_views_delegate_aura.cc",
+    ]
+    deps = [
+      "//base",
+      "//build:branding_buildflags",
+      "//content/public/browser",
+      "//content/public/common",
+      "//media",
+      "//net",
+      "//skia",
+      "//ui/base",
+      "//ui/gfx",
+      "//ui/shell_dialogs",
+      "//ui/views",
+    ]
+  }
+
+  # Numeric/stdio runtime and the V8 OS shims are needed by the content shell.
+  source_set("v8_platform_for_content") {
+    sources = [ "v8_platform_charmos.cc" ]
+    include_dirs = [ "//v8" ]
+    deps = [ "//base", "//v8" ]
+  }
 }
 
 if (charmos_build_graphics) {

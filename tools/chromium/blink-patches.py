@@ -734,11 +734,422 @@ def blink_patches():
                  '      "XML DOM decoding is not supported on CharmOS.");\n'
                  '}'),
             ]),
+        "content/common/font_list_fontconfig.cc": (
+            "72e400c77600d5b8d500e1a75d883b22d2953da78c29d9feffc260e1b57a5b97", [
+                ('#include <fontconfig/fontconfig.h>\n',
+                 '#include "build/build_config.h"\n'),
+                ('std::unique_ptr<FcPattern, decltype(&FcPatternDestroy)> CreateFormatPattern(',
+                 '#if !BUILDFLAG(IS_CHARMOS)\n'
+                 'std::unique_ptr<FcPattern, decltype(&FcPatternDestroy)> CreateFormatPattern('),
+                ('  return font_list;\n'
+                 '}\n'
+                 '\n'
+                 '}  // namespace content',
+                 '  return font_list;\n'
+                 '}\n'
+                 '#else\n'
+                 'base::ListValue GetFontList_SlowBlocking() {\n'
+                 '  base::ListValue font_list;\n'
+                 '  for (const char* family : {"Monospace", "Sans", "Serif"}) {\n'
+                 '    base::ListValue font_item;\n'
+                 '    font_item.Append(family);\n'
+                 '    font_item.Append(family);\n'
+                 '    font_list.Append(std::move(font_item));\n'
+                 '  }\n'
+                 '  return font_list;\n'
+                 '}\n'
+                 '#endif\n'
+                 '\n'
+                 '}  // namespace content'),
+            ]),
+        "content/renderer/webgraphicscontext3d_provider_impl.cc": (
+            "862b423a3f7ae950ae9a16eb0c23bba4383b369018c585788a8370a3bfef3b04", [
+                ('    if (gpu_feature_info.IsWorkaroundEnabled(MAX_MSAA_SAMPLE_COUNT_2))',
+                 '    if (gpu_feature_info.IsWorkaroundEnabled(MAX_MSAA_SAMPLE_COUNT_4))'),
+            ]),
+        "services/audio/public/cpp/input_ipc.cc": (
+            "a3c86539967d86834610c393a68fa6e1113ad40cf1175d7097a537cb2cccc3e2", [
+                ('  delegate_->OnStreamCreated(std::move(shared_memory_region),\n'
+                 '                             std::move(socket_handle), initially_muted);',
+                 '  delegate_->OnStreamCreated(std::move(shared_memory_region),\n'
+                 '                             base::SyncSocket::ScopedHandle(),\n'
+                 '                             initially_muted);'),
+            ]),
+        "services/cert_verifier/cert_verifier_creation.cc": (
+            "96da50c702dc05db70d8bf256e112e51a044357fbb9078207db74d8b3e76165f", [
+                ('#if BUILDFLAG(IS_CHROMEOS)\n'
+                 '    trust_store = net::CreateChromeOnlySystemTrustStore(std::move(chrome_root));\n'
+                 '#else\n',
+                 '#if BUILDFLAG(IS_CHROMEOS)\n'
+                 '    trust_store = net::CreateChromeOnlySystemTrustStore(std::move(chrome_root));\n'
+                 '#elif BUILDFLAG(IS_CHARMOS)\n'
+                 '    trust_store = net::CreateSslSystemTrustStore();\n'
+                 '#else\n'),
+            ]),
+        "services/cert_verifier/cert_verifier_service_factory.cc": (
+            "876893c412de6ea00bad098201fb1b94b19fc426cabb250eaeb7a858ccb9510c", [
+                ('  std::unique_ptr<net::SystemTrustStore> system_trust_store =\n'
+                 '      net::CreateSslSystemTrustStoreChromeRoot(\n'
+                 '          std::make_unique<net::TrustStoreChrome>());',
+                 '#if BUILDFLAG(IS_CHARMOS)\n'
+                 '  std::unique_ptr<net::SystemTrustStore> system_trust_store =\n'
+                 '      net::CreateSslSystemTrustStore();\n'
+                 '#else\n'
+                 '  std::unique_ptr<net::SystemTrustStore> system_trust_store =\n'
+                 '      net::CreateSslSystemTrustStoreChromeRoot(\n'
+                 '          std::make_unique<net::TrustStoreChrome>());\n'
+                 '#endif'),
+            ]),
+        "services/audio/public/cpp/output_device.cc": (
+            "14163ef64473ca0c6859668c44ebd4be41b0a22e2dd1d9935c49e111bbf4304b", [
+                ('      audio_callback_.get(), std::move(socket_handle), "audio::OutputDevice",',
+                 '      audio_callback_.get(), base::SyncSocket::ScopedHandle(),\n'
+                 '      "audio::OutputDevice",'),
+            ]),
+        "components/safe_browsing/content/resources/BUILD.gn": (
+            "e99503fa6d78fc547d5b1e8f0b7be1437c2d84979da6ed4d84be581dff3a70d8", [
+                ('  } else if (is_linux) {\n    target_arch = "linux"',
+                 '  } else if (is_linux || is_charmos) {\n    target_arch = "linux"'),
+            ]),
+        "tools/protoc_wrapper/protoc_wrapper.py": (
+            "6c36a160c096eaf9006ccdc410d2f53a28eaea4bd2a6b4e77670925ce27e409f", [
+                ('  if options.fatal_warnings:\n    protoc_cmd += ["--fatal_warnings"]\n',
+                 '  # CharmOS: protoc warnings (for example unused imports) are not fatal.\n'),
+            ]),
+        "components/policy/tools/generate_policy_source.gni": (
+            "f01568f435a6567fccbb544e87dd452ad04d5c8c50f8d375691f3a0a8300e51f", [
+                ('  action(target_name) {\n',
+                 '  if (is_charmos) {\n'
+                 '    policy_target_platform = "linux"\n'
+                 '  } else {\n'
+                 '    policy_target_platform = target_os\n'
+                 '  }\n'
+                 '\n'
+                 '  action(target_name) {\n'),
+                ('      "--target-platform=" + target_os,',
+                 '      "--target-platform=" + policy_target_platform,'),
+            ]),
+        "components/feature_engagement/public/feature_constants.h": (
+            "fbfba1f0d702fd9f8bac1f4e4e2706c81c41f077e687eb549e9e5b8213515c3f", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n'
+                 '    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA)\n'
+                 'FEATURE_CONSTANTS_DECLARE_FEATURE(kIPHAutofillAtMemoryFeature);',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n'
+                 '    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || '
+                 'BUILDFLAG(IS_FUCHSIA) || \\\n'
+                 '    BUILDFLAG(IS_CHARMOS)\n'
+                 'FEATURE_CONSTANTS_DECLARE_FEATURE(kIPHAutofillAtMemoryFeature);'),
+            ]),
+        "components/feature_engagement/public/feature_constants.cc": (
+            "aef339cebd8ecf19a7f75c2559413cfcf2b7a28f809344eea9fea41743059cfc", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n'
+                 '    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA)\n',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n'
+                 '    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || '
+                 'BUILDFLAG(IS_FUCHSIA) || \\\n'
+                 '    BUILDFLAG(IS_CHARMOS)\n'),
+            ]),
+        "components/content_settings/core/browser/website_settings_registry.cc": (
+            "7a475b1d2e2e13562f373d9ab5ff9b9c67c6b577fbe2058b04520d393c83adbe", [
+                ('#elif BUILDFLAG(IS_LINUX)\n'
+                 '  if (!(platform & PLATFORM_LINUX))',
+                 '#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\n'
+                 '  if (!(platform & PLATFORM_LINUX))'),
+            ]),
+        "components/embedder_support/user_agent_utils.cc": (
+            "21d06edd8f0b76a0bfef8c7aab2448e4f046f788e24da5591713c3561ea54708", [
+                ('#elif BUILDFLAG(IS_IOS)\n'
+                 '  return ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_TABLET\n'
+                 '             ? "iPad; "\n'
+                 '             : "iPhone; ";\n'
+                 '#else\n'
+                 '#error Unsupported platform\n'
+                 '#endif',
+                 '#elif BUILDFLAG(IS_IOS)\n'
+                 '  return ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_TABLET\n'
+                 '             ? "iPad; "\n'
+                 '             : "iPhone; ";\n'
+                 '#elif BUILDFLAG(IS_CHARMOS)\n'
+                 '  return "X11; Linux x86_64";\n'
+                 '#else\n'
+                 '#error Unsupported platform\n'
+                 '#endif'),
+                ('#elif BUILDFLAG(IS_LINUX)\n'
+                 '  return "X11; Linux x86_64";',
+                 '#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\n'
+                 '  return "X11; Linux x86_64";'),
+            ]),
+        "components/sync_device_info/local_device_info_util.cc": (
+            "f94d5ee21002bcdd3a1ec77f73c8a52f4eae95760f3cf56ff2d0065cbf9b1fa3", [
+                ('#elif BUILDFLAG(IS_FUCHSIA)\n'
+                 '  return DeviceInfo::OsType::kFuchsia;\n'
+                 '#else\n'
+                 '#error Please handle your new device OS here.\n'
+                 '#endif',
+                 '#elif BUILDFLAG(IS_FUCHSIA)\n'
+                 '  return DeviceInfo::OsType::kFuchsia;\n'
+                 '#elif BUILDFLAG(IS_CHARMOS)\n'
+                 '  return DeviceInfo::OsType::kLinux;\n'
+                 '#else\n'
+                 '#error Please handle your new device OS here.\n'
+                 '#endif'),
+            ]),
+        "components/variations/service/variations_service.cc": (
+            "9a5abaf960b6465451fc0f17f806f1078447fee555e8baa020a73c14f503b7eb", [
+                ('#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_BSD) || BUILDFLAG(IS_SOLARIS)',
+                 '#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_BSD) || BUILDFLAG(IS_SOLARIS) || '
+                 'BUILDFLAG(IS_CHARMOS)'),
+            ]),
+        "components/translate/core/browser/translate_language_list.cc": (
+            "192caec2c15b5324c9c02b9a61b504612b8d55e8cf00f3a6a02724f7bab1b5b0", [
+                ('#include <optional>\n', '#include <optional>\n#include <set>\n'),
+                ('constexpr auto kDefaultSupportedPartialTranslateLanguages =',
+                 '#pragma clang diagnostic push\n'
+                 '#pragma clang diagnostic ignored "-Wexit-time-destructors"\n'
+                 'const auto kDefaultSupportedPartialTranslateLanguages ='),
+                ('    base::MakeFixedFlatSet<LanguageTag>({',
+                 '    std::set<LanguageTag>({'),
+                ('        GetKnownLanguageTag("zu"),     // Zulu\n'
+                 '    });',
+                 '        GetKnownLanguageTag("zu"),     // Zulu\n'
+                 '    });\n'
+                 '#pragma clang diagnostic pop'),
+            ]),
+        "content/app/content_main_runner_impl.cc": (
+            "742c7e6d80584e4aa172771615a5602063aab66fed8254d11375f55db5fb49d0", [
+                ('  delegate->ZygoteStarting(&zygote_fork_delegates);',
+                 '#if !BUILDFLAG(IS_CHARMOS)\n'
+                 '  delegate->ZygoteStarting(&zygote_fork_delegates);\n'
+                 '#endif'),
+                ('  delegate->ZygoteForked();',
+                 '#if !BUILDFLAG(IS_CHARMOS)\n  delegate->ZygoteForked();\n#endif'),
+            ]),
+        "content/browser/devtools/protocol/media_recorder.cc": (
+            "bdd28b29ad339f8bcbdb0a9454416bc75178cfd719dae9eec3f9119b1ca76075", [
+                ('    delegate_->OnStreamCreated(std::move(data_pipe->shared_memory),\n'
+                 '                               std::move(socket_handle), false);',
+                 '    delegate_->OnStreamCreated(std::move(data_pipe->shared_memory),\n'
+                 '                               base::SyncSocket::ScopedHandle(), false);'),
+            ]),
+        "content/browser/video_capture_service_impl.cc": (
+            "fe26d1f908494795feef87e694af03247667e8fbf8ab6be174601f2239071d44", [
+                ('#include "content/browser/gpu/browser_gpu_channel_host_factory.h"\n',
+                 '#include "content/browser/gpu/browser_gpu_channel_host_factory.h"\n'
+                 '#include "gpu/ipc/client/gpu_channel_host.h"\n'),
+            ]),
+        "content/browser/service_host/utility_sandbox_delegate.cc": (
+            "b219aa8efea057702744573ccc2b9ff044c70cc46b16ae7929f9708cc631e42e", [
+                ('#include "content/public/common/zygote/zygote_buildflags.h"\n'
+                 '#include "media/gpu/buildflags.h"\n'
+                 '#include "sandbox/policy/mojom/sandbox.mojom.h"\n',
+                 '#include "content/public/common/zygote/zygote_buildflags.h"\n'
+                 '#include "media/gpu/buildflags.h"\n'
+                 '#include "media/media_buildflags.h"\n'
+                 '#include "sandbox/policy/mojom/sandbox.mojom.h"\n'),
+            ]),
+        "content/shell/common/shell_paths.cc": (
+            "d19225ef1c8017cf96466945cf026d5b71da62ef3f78266631d019789a776383", [
+                ('#elif BUILDFLAG(IS_FUCHSIA)\n'
+                 '  *result = base::FilePath(base::kPersistedDataDirectoryPath)\n'
+                 '                .Append(FILE_PATH_LITERAL("content_shell"));\n'
+                 '#else',
+                 '#elif BUILDFLAG(IS_FUCHSIA)\n'
+                 '  *result = base::FilePath(base::kPersistedDataDirectoryPath)\n'
+                 '                .Append(FILE_PATH_LITERAL("content_shell"));\n'
+                 '#elif BUILDFLAG(IS_CHARMOS)\n'
+                 '  // Content shell data lives under the native app data root.\n'
+                 '  *result = base::FilePath("/data/content_shell");\n'
+                 '#else'),
+            ]),
+        "content/shell/browser/shell_content_browser_client.cc": (
+            "06d8704628ca5b7672dc93ec8bba079c679ef2c305f21ed84222e77511cd6e95", [
+                ('#include "content/shell/browser/rust_test_service_ffi.rs.h"\n', ''),
+                ('#include "content/shell/common/rust_test.test-mojom.h"\n', ''),
+                ('#include "base/feature_list.h"\n',
+                 '#include "base/feature_list.h"\n'
+                 '#include "base/metrics/field_trial.h"\n'),
+                ('void BindRustTestServiceReceiver(\n'
+                 '    RenderFrameHost* render_frame_host,\n'
+                 '    mojo::PendingReceiver<content::rust_test::mojom::RustTestService>\n'
+                 '        receiver) {\n'
+                 '  auto pipe = std::make_unique<mojo::rust::ScopedMessagePipeHandleWrapper>(\n'
+                 '      receiver.PassPipe());\n'
+                 '  content::rust_test::BindRustTestService(std::move(pipe));\n'
+                 '}\n'
+                 '\n', ''),
+                ('  map->Add<content::rust_test::mojom::RustTestService>(\n'
+                 '      base::BindRepeating(&BindRustTestServiceReceiver));\n', ''),
+                ('void ShellContentBrowserClient::CreateFeatureListAndFieldTrials() {\n'
+                 '  GetSharedState().local_state = CreateLocalState();\n'
+                 '  SetupFieldTrials();\n'
+                 '}',
+                 'void ShellContentBrowserClient::CreateFeatureListAndFieldTrials() {\n'
+                 '  GetSharedState().local_state = CreateLocalState();\n'
+                 '#if BUILDFLAG(IS_CHARMOS)\n'
+                 '  // Mojo requires a FeatureList before InitializeMojoCore() and the\n'
+                 '  // browser registers a FieldTrial observer before any study is\n'
+                 '  // parsed. The full field-trial pipeline depends on services CharmOS\n'
+                 '  // does not host, so install just the required empty singletons.\n'
+                 '  static base::NoDestructor<base::FieldTrialList> field_trial_list;\n'
+                 '  base::FeatureList::InitInstance(std::string(), std::string());\n'
+                 '#else\n'
+                 '  SetupFieldTrials();\n'
+                 '#endif\n'
+                 '}'),
+                ('bool ShellContentBrowserClient::HasCustomSchemeHandler(\n'
+                 '    content::BrowserContext* browser_context,\n'
+                 '    const std::string& scheme) {\n'
+                 '  if (custom_handlers::ProtocolHandlerRegistry* protocol_handler_registry =',
+                 'bool ShellContentBrowserClient::HasCustomSchemeHandler(\n'
+                 '    content::BrowserContext* browser_context,\n'
+                 '    const std::string& scheme) {\n'
+                 '#if BUILDFLAG(IS_CHARMOS)\n'
+                 '  (void)browser_context;\n'
+                 '  (void)scheme;\n'
+                 '  return false;\n'
+                 '#else\n'
+                 '  if (custom_handlers::ProtocolHandlerRegistry* protocol_handler_registry ='),
+                ('    return protocol_handler_registry->IsHandledProtocol(scheme);\n'
+                 '  }\n'
+                 '  return false;\n'
+                 '}',
+                 '    return protocol_handler_registry->IsHandledProtocol(scheme);\n'
+                 '  }\n'
+                 '  return false;\n'
+                 '#endif\n'
+                 '}'),
+                ('  auto* factory = custom_handlers::SimpleProtocolHandlerRegistryFactory::\n'
+                 '      GetForBrowserContext(browser_context);\n'
+                 '  // null in unit tests.\n'
+                 '  if (factory) {\n'
+                 '    result.push_back(\n'
+                 '        std::make_unique<custom_handlers::ProtocolHandlerThrottle>(*factory));\n'
+                 '  }',
+                 '#if !BUILDFLAG(IS_CHARMOS)\n'
+                 '  auto* factory = custom_handlers::SimpleProtocolHandlerRegistryFactory::\n'
+                 '      GetForBrowserContext(browser_context);\n'
+                 '  // null in unit tests.\n'
+                 '  if (factory) {\n'
+                 '    result.push_back(\n'
+                 '        std::make_unique<custom_handlers::ProtocolHandlerThrottle>(*factory));\n'
+                 '  }\n'
+                 '#else\n'
+                 '  (void)browser_context;\n'
+                 '#endif'),
+            ]),
+        "content/browser/security/cpsp/child_process_security_policy_impl.cc": (
+            "af17f82cd35e27272fdf63cc9cea49a47b6937d27fd9d279c0b29d8016ad6a23", [
+                ('#include "content/browser/security/cpsp/child_process_security_policy_impl.rs.h"\n', ''),
+                ('#include "content/browser/security/cpsp/process_state.rs.h"\n', ''),
+                ('#include "content/browser/origin_agent_cluster_isolation_state_bridge.h"\n', ''),
+                ('// Used internally only. These bit positions have no relationship to any\n'
+                 '// underlying OS and can be changed to accommodate finer-grained permissions.\n',
+                 '#undef RUST_CPP_VOID_FUNCTION\n'
+                 '#undef RUST_CPP_RETURN_FUNCTION\n'
+                 '#undef RUST_CPP_PROCESS_STATE_VOID_FUNCTION\n'
+                 '#undef RUST_CPP_PROCESS_STATE_RETURN_FUNCTION\n'
+                 '// CharmOS is Rust-free: always execute the C++ implementation.\n'
+                 '#define RUST_CPP_VOID_FUNCTION(rust_expr, cpp_expr, ...) cpp_expr\n'
+                 '#define RUST_CPP_RETURN_FUNCTION(rust_expr, cpp_expr, ...) return cpp_expr\n'
+                 '#define RUST_CPP_PROCESS_STATE_VOID_FUNCTION(rust_expr, cpp_expr) cpp_expr\n'
+                 '#define RUST_CPP_PROCESS_STATE_RETURN_FUNCTION(rust_expr, cpp_expr) return cpp_expr\n'
+                 '\n'
+                 '// Used internally only. These bit positions have no relationship to any\n'
+                 '// underlying OS and can be changed to accommodate finer-grained permissions.\n'),
+                ('  rust::child_process_security_policy::\n'
+                 '      clear_all_registered_schemes_for_testing();\n'
+                 '\n', ''),
+                ('  if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {\n'
+                 '    rust::child_process_security_policy::create_state_for_process(child_id);\n'
+                 '  }\n', ''),
+                ('  if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {\n'
+                 '    rust::child_process_security_policy::prepare_to_remove_state(child_id);\n'
+                 '  }\n', ''),
+                ('  if (IsRustEnabled(rust_cpp_policy)) {\n'
+                 '    auto rust_match = rust::child_process_security_policy::\n'
+                 '        get_matching_process_isolated_origin_from_legacy_origin_list(\n'
+                 '            browser_context_id, browsing_instance_id,\n'
+                 '            // Make copies of `origin` and `site_url` for Rust to own.\n'
+                 '            std::make_unique<url::Origin>(origin),\n'
+                 '            std::make_unique<GURL>(site_url));\n'
+                 '    if (rust_match) {\n'
+                 '      rust_result = std::make_optional(*rust_match);\n'
+                 '    }\n'
+                 '  }\n', ''),
+                ('  if (IsRustEnabled(policy)) {\n'
+                 '    rust::child_process_security_policy::OriginAgentClusterIsolationState\n'
+                 '        state = rust::child_process_security_policy::\n'
+                 '            OriginAgentClusterIsolationState::SiteKeyedByDefault;\n'
+                 '    if (rust::child_process_security_policy::lookup_origin_agent_cluster_state(\n'
+                 '            // Make a copy of the origin for Rust to own.\n'
+                 '            browsing_instance_id, std::make_unique<url::Origin>(origin),\n'
+                 '            state)) {\n'
+                 '      rust_result =\n'
+                 '          std::make_optional(FromRustOriginAgentClusterIsolationState(state));\n'
+                 '    }\n'
+                 '  }\n', ''),
+                ('  if (IsRustEnabled(policy)) {\n'
+                 '    bool result = false;\n'
+                 '    if (rust::child_process_security_policy::\n'
+                 '            lookup_are_v8_optimizations_disabled(\n'
+                 '                browsing_instance_id,\n'
+                 '                // Make a copy for Rust to own.\n'
+                 '                std::make_unique<url::Origin>(process_lock_origin), result)) {\n'
+                 '      rust_result = std::make_optional(result);\n'
+                 '    }\n'
+                 '  }\n', ''),
+                ('  if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {\n'
+                 '    rust::child_process_security_policy::complete_pending_state_removal(\n'
+                 '        child_id);\n'
+                 '  }\n', ''),
+            ]),
+        "content/browser/BUILD.gn": (
+            "0281cdd6eb08b8ac97423aff9070131d24a0959bda072ef593f2ebbf301f0487", [
+                ('    "origin_agent_cluster_isolation_state_bridge.cc",\n'
+                 '    "origin_agent_cluster_isolation_state_bridge.h",\n', ''),
+                ('  if (is_win || is_apple || is_linux || is_chromeos || is_desktop_android ||\n'
+                 '      is_fuchsia) {\n'
+                 '    sources += [\n'
+                 '      "service_worker/service_worker_usb_delegate_observer.cc",',
+                 '  if (is_win || is_apple || is_linux || is_chromeos || is_desktop_android ||\n'
+                 '      is_fuchsia || is_charmos) {\n'
+                 '    sources += [\n'
+                 '      "service_worker/service_worker_usb_delegate_observer.cc",'),
+            ]),
+        "content/public/common/features.gni": (
+            "a2519bb334d90af62a7b67e297cb1922e2d2720f9389886984c09e5a803bd70c", [
+                ('enable_screen_capture = is_linux || is_chromeos || (is_apple && use_blink) ||\n'
+                 '                        is_win || is_android || is_fuchsia',
+                 'enable_screen_capture = is_linux || is_chromeos || (is_apple && use_blink) ||\n'
+                 '                        is_win || is_android || is_fuchsia || is_charmos'),
+            ]),
+        "content/shell/app/shell_main.cc": (
+            "e5a969a5ceb315b6dfe666fb85f3c4d4f74991540ecbd2cc391dc41cae0097ba", [
+                ('int main(int argc, const char** argv) {\n'
+                 '  content::ShellMainDelegate delegate;',
+                 'extern "C" int main(int argc, const char** argv) {\n'
+                 '  content::ShellMainDelegate delegate;'),
+            ]),
+        "base/allocator/partition_allocator/src/partition_alloc/partition_alloc_base/time/time_now_posix.cc": (
+            "11b3295826f410c12400ecd6f11e235c3670e1520360cbc90c43689ff6608cb4", [
+                ('#include <unistd.h>\n',
+                 '#include <unistd.h>\n'
+                 '\n'
+                 '// CharmOS provides clock_gettime(CLOCK_MONOTONIC); expose the POSIX\n'
+                 '// feature macro used below.\n'
+                 '#ifndef _POSIX_MONOTONIC_CLOCK\n'
+                 '#define _POSIX_MONOTONIC_CLOCK 200809L\n'
+                 '#endif\n'),
+                ('  struct timezone tz = {0, 0};  // UTC\n'
+                 '  PA_BASE_CHECK(gettimeofday(&tv, &tz) == 0);',
+                 '  PA_BASE_CHECK(gettimeofday(&tv, nullptr) == 0);'),
+            ]),
         "third_party/blink/renderer/modules/BUILD.gn": (
             "4541baee221f41566b080e2def9ed5ed0abc297c1f379423ea19cd16e141292e", [
                 ('    "//third_party/blink/renderer/modules/webgl",\n'
                  '    "//third_party/blink/renderer/modules/webgpu",\n'
                  '    "//third_party/blink/renderer/modules/webmidi",',
+                 '    "//third_party/blink/renderer/modules/webgl",\n'
                  '    "//third_party/blink/renderer/modules/webmidi",'),
             ]),
         "components/viz/common/BUILD.gn": (
@@ -1035,4 +1446,155 @@ def blink_patches():
                  '  // Rust xml_ffi parser.\n'
                  '  return MakeGarbageCollected<XMLDocumentParser>(*this, View());\n'),
             ]),
+        "content/shell/app/shell_main_delegate.cc": (
+            "c22470ba2711a4c3c5a672da9d23519234aee785fb9d82a1ab03b97478a6b260", [
+                ('  InitLogging(command_line);\n',
+                 '  InitLogging(command_line);\n'
+                 '\n'
+                 '#if BUILDFLAG(IS_CHARMOS)\n'
+                 '  // CharmOS has no fork/exec or zygote; render in the browser\n'
+                 '  // process.\n'
+                 '  if (command_line.GetSwitchValueASCII(switches::kProcessType).empty()) {\n'
+                 '    command_line.AppendSwitch(switches::kSingleProcess);\n'
+                 '  }\n'
+                 '#endif\n'),
+                ('#if !BUILDFLAG(IS_ANDROID)\n'
+                 '#include "content/web_test/browser/web_test_browser_main_runner.h"  // nogncheck',
+                 '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n'
+                 '#include "content/web_test/browser/web_test_browser_main_runner.h"  // nogncheck'),
+                ('#if !BUILDFLAG(IS_ANDROID)\n'
+                 '  if (switches::IsRunWebTestsSwitchPresent()) {\n'
+                 '    // Instantiating',
+                 '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n'
+                 '  if (switches::IsRunWebTestsSwitchPresent()) {\n'
+                 '    // Instantiating'),
+                ('#if !BUILDFLAG(IS_ANDROID)\n'
+                 '  if (switches::IsRunWebTestsSwitchPresent()) {\n'
+                 '    // Web tests implement',
+                 '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n'
+                 '  if (switches::IsRunWebTestsSwitchPresent()) {\n'
+                 '    // Web tests implement'),
+                ('#if !BUILDFLAG(IS_ANDROID)\n'
+                 '  if (switches::IsRunWebTestsSwitchPresent()) {\n'
+                 '    browser_client_ =',
+                 '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n'
+                 '  if (switches::IsRunWebTestsSwitchPresent()) {\n'
+                 '    browser_client_ ='),
+                ('#if !BUILDFLAG(IS_ANDROID)\n'
+                 '  if (switches::IsRunWebTestsSwitchPresent()) {\n'
+                 '    renderer_client_ =',
+                 '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n'
+                 '  if (switches::IsRunWebTestsSwitchPresent()) {\n'
+                 '    renderer_client_ ='),
+            ]),
+        "content/shell/app/shell_main_delegate.h": (
+            "5948c20805ff067ebfcba616f2674de75234c07ef10286502de74e586b59fb61", [
+                ('#if !BUILDFLAG(IS_ANDROID)\nnamespace ui {',
+                 '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\nnamespace ui {'),
+                ('#if !BUILDFLAG(IS_ANDROID)\nclass WebTestBrowserMainRunner;',
+                 '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n'
+                 'class WebTestBrowserMainRunner;'),
+                ('#if !BUILDFLAG(IS_ANDROID)\n  // Only present when running web tests',
+                 '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n'
+                 '  // Only present when running web tests'),
+            ]),
+        "content/shell/browser/shell.h": (
+            "e016c5b6012018cc2b3075034fb03ded712d9c81c8c194ed00534959e80c9643", [
+                ('#if !BUILDFLAG(IS_ANDROID)\n'
+                 '  void RegisterProtocolHandler(RenderFrameHost* requesting_frame,',
+                 '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n'
+                 '  void RegisterProtocolHandler(RenderFrameHost* requesting_frame,'),
+            ]),
+        "content/shell/browser/shell.cc": (
+            "5b10c613e0a1bd3d49bafc5c9a6d11f6bbc390cf4034f55fe67e626670c128ff", [
+                ('#if !BUILDFLAG(IS_ANDROID)\n'
+                 'void Shell::RegisterProtocolHandler(RenderFrameHost* requesting_frame,',
+                 '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n'
+                 'void Shell::RegisterProtocolHandler(RenderFrameHost* requesting_frame,'),
+            ]),
+        "content/shell/utility/shell_content_utility_client.h": (
+            "e03b6eeafbfd25d7145e9a9e6d505f222979d38be5073782ef3db257d1e01254", [
+                ('#include "content/public/test/audio_service_test_helper.h"\n'
+                 '#include "content/public/test/network_service_test_helper.h"\n'
+                 '#include "content/public/utility/content_utility_client.h"',
+                 '#include "build/build_config.h"\n'
+                 '#if !BUILDFLAG(IS_CHARMOS)\n'
+                 '#include "content/public/test/audio_service_test_helper.h"\n'
+                 '#include "content/public/test/network_service_test_helper.h"\n'
+                 '#endif\n'
+                 '#include "content/public/utility/content_utility_client.h"'),
+                ('  std::unique_ptr<NetworkServiceTestHelper> network_service_test_helper_;\n'
+                 '  std::unique_ptr<AudioServiceTestHelper> audio_service_test_helper_;\n',
+                 '#if !BUILDFLAG(IS_CHARMOS)\n'
+                 '  std::unique_ptr<NetworkServiceTestHelper> network_service_test_helper_;\n'
+                 '  std::unique_ptr<AudioServiceTestHelper> audio_service_test_helper_;\n'
+                 '#endif\n'),
+            ]),
+        "content/shell/utility/shell_content_utility_client.cc": (
+            "717a140d90467bcea90f1350d3f8e95a1f203b66b186901a58cfdac56a6d2e32", [
+                ('    network_service_test_helper_ = NetworkServiceTestHelper::Create();\n'
+                 '    audio_service_test_helper_ = std::make_unique<AudioServiceTestHelper>();\n'
+                 '    storage::InjectTestApiImplementation();\n',
+                 '#if !BUILDFLAG(IS_CHARMOS)\n'
+                 '    network_service_test_helper_ = NetworkServiceTestHelper::Create();\n'
+                 '    audio_service_test_helper_ = std::make_unique<AudioServiceTestHelper>();\n'
+                 '    storage::InjectTestApiImplementation();\n'
+                 '#endif\n'),
+            ]),
+        "content/shell/renderer/shell_render_frame_observer.cc": (
+            "2de42c455df1255576027f3dc1846fbdebfbc9ad0baaa12d0ee96fbae7120688", [
+                ('  if (cmd.HasSwitch(switches::kExposeInternalsForTesting)) {\n'
+                 '    blink::WebTestingSupport::InjectInternalsObject(\n'
+                 '        render_frame()->GetWebFrame());\n'
+                 '  }',
+                 '  if (cmd.HasSwitch(switches::kExposeInternalsForTesting)) {\n'
+                 '#if !BUILDFLAG(IS_CHARMOS)\n'
+                 '    blink::WebTestingSupport::InjectInternalsObject(\n'
+                 '        render_frame()->GetWebFrame());\n'
+                 '#endif\n'
+                 '  }'),
+            ]),
+        "content/shell/renderer/shell_content_renderer_client.cc": (
+            "5ec008d178c3faa59db76c2d3e7fed59f940696fa1c77f01580122707413dcbc", [
+                ('  if (base::CommandLine::ForCurrentProcess()->HasSwitch(\n'
+                 '          switches::kExposeInternalsForTesting)) {\n'
+                 '    blink::WebTestingSupport::InjectInternalsObject(context);\n'
+                 '  }',
+                 '  if (base::CommandLine::ForCurrentProcess()->HasSwitch(\n'
+                 '          switches::kExposeInternalsForTesting)) {\n'
+                 '#if !BUILDFLAG(IS_CHARMOS)\n'
+                 '    blink::WebTestingSupport::InjectInternalsObject(context);\n'
+                 '#endif\n'
+                 '  }'),
+            ]),
+        "third_party/blink/renderer/platform/fonts/skia/sktypeface_factory.cc": (
+            "ec0fa7b3780fc4b8e6c607089475e495072292d7762dc5e91115932adcbcd269", [
+                ('  sk_sp<SkFontConfigInterface> fci(SkFontConfigInterface::RefGlobal());\n'
+                 '  SkFontConfigInterface::FontIdentity font_identity;\n'
+                 '  font_identity.fID = config_id;\n'
+                 '  font_identity.fTTCIndex = ttc_index;\n'
+                 '  return fci->makeTypeface(font_identity, SkFontMgr_New_Fontations_Empty());',
+                 '#if BUILDFLAG(IS_CHARMOS)\n'
+                 '  // CharmOS has no fontconfig identity database; the directory font\n'
+                 '  // manager resolves faces by family or filename instead.\n'
+                 '  (void)config_id;\n'
+                 '  (void)ttc_index;\n'
+                 '  return nullptr;\n'
+                 '#else\n'
+                 '  sk_sp<SkFontConfigInterface> fci(SkFontConfigInterface::RefGlobal());\n'
+                 '  SkFontConfigInterface::FontIdentity font_identity;\n'
+                 '  font_identity.fID = config_id;\n'
+                 '  font_identity.fTTCIndex = ttc_index;\n'
+                 '  return fci->makeTypeface(font_identity, SkFontMgr_New_Fontations_Empty());\n'
+                 '#endif'),
+                ('  return SkFontMgr_New_Fontations_Empty()->makeFromFile(filename.c_str(),\n'
+                 '                                                        ttc_index);',
+                 '#if BUILDFLAG(IS_CHARMOS)\n'
+                 '  return skia::DefaultFontMgr()->makeFromFile(filename.c_str(), ttc_index);\n'
+                 '#else\n'
+                 '  return SkFontMgr_New_Fontations_Empty()->makeFromFile(filename.c_str(),\n'
+                 '                                                        ttc_index);\n'
+                 '#endif'),
+            ]),
+
     }

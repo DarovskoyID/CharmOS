@@ -1,0 +1,5 @@
+# M7: libc O_NONBLOCK на TCP: короткая запись/EAGAIN и возврат к блокирующему режиму.
+net: dhcp address 10.0.2.15
+[socket_nonblock] socket_nonblock: ok
+ktest: bin/socket_nonblock exited with 0
+ktest: PASS nonblock

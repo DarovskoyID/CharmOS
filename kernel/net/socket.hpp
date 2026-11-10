@@ -22,6 +22,8 @@ Status sys_socket_listen(uint32_t sock, uint64_t backlog);
 Status sys_socket_accept(uint32_t sock, uint64_t user_peer, uint64_t deadline, uint64_t* out);
 Status sys_socket_connect(uint32_t sock, uint64_t user_addr, uint64_t deadline);
 Status sys_socket_send(uint32_t sock, uint64_t buf, uint64_t len, uint64_t user_to, uint64_t* out);
+Status sys_socket_send_deadline(uint32_t sock, uint64_t buf, uint64_t len, uint64_t user_to,
+                                uint64_t deadline, uint64_t* out);
 Status sys_socket_recv(uint32_t sock, uint64_t buf, uint64_t cap, uint64_t user_from, uint64_t deadline,
                        uint64_t* out);
 Status sys_socket_shutdown(uint32_t sock, uint64_t how);

@@ -12,6 +12,15 @@
 #define SIGUSR1 7
 #define SIGUSR2 8
 #define SIGKILL 9
+#define SIGHUP 10
+#define SIGPIPE 11
+#define SIGABRT 12
+#define SIGBUS 13
+#define SIGFPE 14
+#define SIGILL 15
+#define SIGTRAP 16
+#define SIGSYS 17
+#define SIGVTALRM 18
 #define SIGSTOP 19
 #define NSIG 32
 /* Source compatibility only: SIGPROF is not delivered. sigaction reports
@@ -19,7 +28,15 @@
 #define SIGPROF 27
 typedef void (*sighandler_t)(int);
 typedef int sig_atomic_t;
-typedef struct { int si_signo; int si_errno; int si_code; } siginfo_t;
+#define SEGV_MAPERR 1
+#define SEGV_ACCERR 2
+typedef struct {
+  int si_signo;
+  int si_errno;
+  int si_code;
+  int __pad;
+  void* si_addr;
+} siginfo_t;
 #define SA_SIGINFO 4
 #define SA_ONSTACK 0x08000000
 #define SA_RESTART 0x10000000

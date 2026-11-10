@@ -1,6 +1,7 @@
 # M8: своя libc — строки, printf, куча, окружение, файлы и каталоги на
 # диске, pthread (мьютекс, условная переменная, join, errno на поток).
 [libc_test] libc: strings, printf and heap ok
+[libc_test] libc: stdio edge cases ok
 [libc_test] libc: files and directories ok
 [libc_test] libc: pthread ok
 ktest: bin/libc_test exited with 0

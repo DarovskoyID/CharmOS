@@ -119,6 +119,6 @@ void run_compiler_tls_destructors();
 void release_compiler_tls();
 
 void stdio_init();
-void stdio_flush_all();
+int stdio_flush_all();
 
 }  // namespace libc

@@ -1,0 +1,5 @@
+# M7: virtio-net с user-net; hostfwd 127.0.0.1:7779 -> гость:7782.
+-nic none
+-device intel-iommu
+-netdev user,id=n0,hostfwd=tcp:127.0.0.1:7779-:7782
+-device virtio-net-pci,netdev=n0,disable-legacy=on,iommu_platform=on

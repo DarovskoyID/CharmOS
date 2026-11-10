@@ -1139,8 +1139,14 @@ Status sys_channel_shutdown(uint32_t handle,uint32_t directions) {
 // every frame immediately (historical VmoCreate). eager=false leaves zero
 // frame entries: physical pages are acquired only when a mapping/protection
 // actually needs them (VmoReserve / lazy backing).
+// Lazy reservations back allocator address-space pools (PartitionAlloc reserves
+// tens of GiB of inaccessible VA without committing frames). Eager VMOs keep
+// the public 1 GiB ABI limit; the reserve limit is an internal kernel bound.
+constexpr uint64_t kLazyVmoMaxSize = 64ull << 30;
+
 Status create_vmo(uint64_t size, bool eager, uint64_t* out) {
-  if (size == 0 || size % kPageSize != 0 || size > abi::syscall::kVmoMaxSize) {
+  if (size == 0 || size % kPageSize != 0 ||
+      size > (eager ? abi::syscall::kVmoMaxSize : kLazyVmoMaxSize)) {
     return Status::InvalidArgs;
   }
   uint64_t pages = size / kPageSize;

@@ -17,6 +17,16 @@
 
 #include "internal.hpp"
 
+// v1.23 send deadline: kept out of charm/sys.hpp so the Chromium port does not
+// invalidate every object that includes the native runtime header.
+namespace charm {
+inline SysResult socket_send_deadline(Handle s, const void* buf, uint64_t len,
+                                      uint64_t deadline) {
+  return syscall5(Number::SocketSendDeadline, s,
+                  reinterpret_cast<uint64_t>(buf), len, 0, deadline);
+}
+}  // namespace charm
+
 namespace libc {
 
 namespace fsabi = abi::fs;
@@ -710,13 +720,23 @@ ssize_t write(int fd, const void* buf, size_t n) {
     case Kind::Pipe: return pipe_write(f,buf,n);
     case Kind::ChannelWatch: return fail_errno(ENOTSUP);
     case Kind::Socket: {
+      const bool nonblock = __atomic_load_n(&f->nonblock, __ATOMIC_RELAXED);
+      const uint64_t deadline = nonblock ? 0 : charm::kForever;
       size_t done = 0;
-      while (done < n) {
-        auto r = charm::socket_send(f->handle, static_cast<const char*>(buf) + done, n - done);
-        if (!r.ok()) return done != 0 ? static_cast<ssize_t>(done) : fail(r.status);
+      for (;;) {
+        auto r = charm::socket_send_deadline(
+            f->handle, static_cast<const char*>(buf) + done, n - done, deadline);
+        if (!r.ok()) {
+          if (nonblock &&
+              (r.status == Status::WouldBlock || r.status == Status::TimedOut)) {
+            return done != 0 ? static_cast<ssize_t>(done) : fail_errno(EAGAIN);
+          }
+          return done != 0 ? static_cast<ssize_t>(done) : fail(r.status);
+        }
+        if (r.value == 0) return done != 0 ? static_cast<ssize_t>(done) : fail_errno(EIO);
         done += r.value;
+        if (done == n || nonblock) return static_cast<ssize_t>(done);
       }
-      return static_cast<ssize_t>(done);
     }
     case Kind::Debug: {
       for (size_t done = 0; done < n;) {

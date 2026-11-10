@@ -15,8 +15,10 @@ fault handler is required. `VmoCreate` remains eager and unchanged.
 ## Syscall
 
 `VmoReserve(size)` (syscall 84, ABI v1.21) returns normal transferable VMO
-authority (`kVmoDefault`) whose frame-index array is zero. `size` has the same
-alignment and 1 GiB limit as `VmoCreate`. The Job reservation quota is charged
+authority (`kVmoDefault`) whose frame-index array is zero. `size` is page
+aligned; an eager `VmoCreate` remains capped at 1 GiB, while a lazy reservation
+may be up to 64 GiB so allocator VA pools can reserve address space without
+committing frames. The Job reservation quota is charged
 for the virtual size, exactly like `VmoCreate`; committing pages does not charge
 again, so physical use can never exceed the charged reservation.
 

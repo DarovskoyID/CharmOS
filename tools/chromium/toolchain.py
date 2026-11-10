@@ -30,6 +30,7 @@ if mode != "cc":
 if mode == "link":
     if any(arg in ("-shared", "-pie", "-Wl,-pie", "-Wl,-shared") for arg in arguments):
         raise SystemExit("CharmOS dynamic/PIE linking is not implemented")
+    arguments = ["-L", str(repo / "build/user/user/lib"), *arguments]
     flags += ["-nostdlib", "-static", "-fuse-ld=lld",
               "-Wl,--no-dynamic-linker", "-Wl,-z,max-page-size=4096",
               "-T", str(repo / "user/rt/user.ld"),

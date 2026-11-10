@@ -327,6 +327,12 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
       set_result(f, kernel::net::sys_socket_send(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, f.r10, &v), v);
       break;
     }
+    case Number::SocketSendDeadline: {
+      uint64_t v = 0;
+      set_result(f, kernel::net::sys_socket_send_deadline(static_cast<uint32_t>(f.rdi),
+                                                          f.rsi, f.rdx, f.r10, f.r8, &v), v);
+      break;
+    }
     case Number::SocketRecv: {
       uint64_t v = 0;
       set_result(f, kernel::net::sys_socket_recv(static_cast<uint32_t>(f.rdi), f.rsi, f.rdx, f.r10, f.r8, &v), v);

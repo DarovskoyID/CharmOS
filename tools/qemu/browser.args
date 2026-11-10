@@ -1,0 +1,8 @@
+# Interactive CharmOS content-shell browser with WM and user-mode network.
+# Chromium's in-process renderer needs more than the 512 MiB default.
+-m 2048M
+-device intel-iommu
+-drive if=none,id=d0,format=raw,file=build/disk-browser.img
+-device virtio-blk-pci,drive=d0,disable-legacy=on,iommu_platform=on
+-nic none
+-monitor unix:/tmp/charmos-mon,server,nowait

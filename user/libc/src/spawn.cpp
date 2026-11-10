@@ -1,5 +1,6 @@
 // Запуск программ (docs/abi/process.md §3): charm_spawn, ожидание, журнал, сигналы.
 #include <abi/process.hpp>
+#include <abi/signal.hpp>
 #include <charm/libc.h>
 #include <charm/process.hpp>
 #include <errno.h>
@@ -61,18 +62,59 @@ char g_env[ap::kMaxEnvBytes];
 Lock g_spawn_lock;
 
 sighandler_t g_handlers[NSIG] = {};
+sigset_t g_masks[NSIG] = {};
+int g_flags[NSIG] = {};
 char g_sig_stack[16 * 1024] __attribute__((aligned(16)));
 
-void dispatch(uint64_t signo, void*, void*) {
+void dispatch(uint64_t signo, void* info, void* context);
+
+// The kernel has one dispatch entry (SignalSetHandler); sigaction and signal
+// both store their per-signal state here. False if the entry cannot be set.
+bool ensure_dispatch() {
+  static bool installed = false;
+  if (installed) return true;
+  auto res = charm::syscall3(abi::syscall::Number::SignalSetHandler,
+                             reinterpret_cast<uint64_t>(&dispatch),
+                             reinterpret_cast<uint64_t>(g_sig_stack + sizeof g_sig_stack),
+                             sizeof g_sig_stack);
+  if (!res.ok()) {
+    errno = errno_from(res.status);
+    return false;
+  }
+  installed = true;
+  return true;
+}
+
+void dispatch(uint64_t signo, void* info, void* context) {
   sighandler_t h = signo < NSIG ? g_handlers[signo] : SIG_IGN;
+  sigset_t blocked = signo < NSIG ? g_masks[signo] : 0;
+  sigset_t old_mask = 0;
+  const bool apply_mask =
+      blocked != 0 && sigprocmask(SIG_BLOCK, &blocked, &old_mask) == 0;
   if (h == SIG_DFL) {
     // Действие по умолчанию (process.md §9): завершить или игнорировать.
     if (signo == SIGINT || signo == SIGQUIT || signo == SIGTERM || signo == SIGSEGV) {
       charm::process_exit(ap::kExitKilled);
     }
   } else if (h != SIG_IGN) {
-    h(static_cast<int>(signo));
+    if (signo < NSIG && (g_flags[signo] & SA_SIGINFO) != 0) {
+      // Translate the kernel's SignalInfo into the libc siginfo_t layout.
+      siginfo_t si{};
+      si.si_signo = static_cast<int>(signo);
+      if (info != nullptr) {
+        const auto* ki = static_cast<const abi::signal::SignalInfo*>(info);
+        si.si_code = static_cast<int>(ki->code);
+        si.si_addr = reinterpret_cast<void*>(ki->addr);
+      }
+      void (*handler)(int, siginfo_t*, void*) = nullptr;
+      static_assert(sizeof handler == sizeof h);
+      memcpy(&handler, &h, sizeof handler);
+      handler(static_cast<int>(signo), &si, context);
+    } else {
+      h(static_cast<int>(signo));
+    }
   }
+  if (apply_mask) (void)sigprocmask(SIG_SETMASK, &old_mask, nullptr);
   charm::syscall0(abi::syscall::Number::SignalReturn);
 }
 
@@ -199,18 +241,11 @@ sighandler_t signal(int signo, sighandler_t h) {
     errno = EINVAL;
     return SIG_ERR;
   }
-  static bool installed = false;
-  if (!installed) {
-    auto res = charm::syscall3(abi::syscall::Number::SignalSetHandler, reinterpret_cast<uint64_t>(&dispatch),
-                               reinterpret_cast<uint64_t>(g_sig_stack + sizeof g_sig_stack), sizeof g_sig_stack);
-    if (!res.ok()) {
-      errno = errno_from(res.status);
-      return SIG_ERR;
-    }
-    installed = true;
-  }
+  if (!ensure_dispatch()) return SIG_ERR;
   sighandler_t old = g_handlers[signo];
   g_handlers[signo] = h;
+  g_masks[signo] = 0;
+  g_flags[signo] = 0;
   // Без обработчика ядро бы завершило процесс; SIG_DFL эмулируем выходом.
   return old;
 }
@@ -265,12 +300,20 @@ int sigaltstack(const stack_t* ss, stack_t* old_ss) {
   return 0;
 }
 int sigaction(int signo, const struct sigaction* act, struct sigaction* old) {
-  // The kernel's signal() dispatcher does not implement siginfo/context or
-  // sigaction masks/flags. Leave the caller's output untouched on failure.
-  (void)act;
-  (void)old;
-  if ((signo<=0 || signo>=NSIG) && signo!=SIGPROF) return fail_errno(EINVAL);
-  return fail_errno(ENOTSUP);
+  if (signo <= 0 || signo >= NSIG) return fail_errno(EINVAL);
+  if (!ensure_dispatch()) return -1;
+  if (old != nullptr) {
+    memset(old, 0, sizeof *old);
+    old->sa_handler = g_handlers[signo];
+    old->sa_mask = g_masks[signo];
+    old->sa_flags = g_flags[signo];
+  }
+  if (act != nullptr) {
+    g_handlers[signo] = act->sa_handler;
+    g_masks[signo] = act->sa_mask;
+    g_flags[signo] = act->sa_flags;
+  }
+  return 0;
 }
 int pthread_sigmask(int how, const sigset_t* set, sigset_t* old) {
   int saved_errno = errno;

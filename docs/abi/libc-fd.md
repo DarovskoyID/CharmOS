@@ -21,11 +21,15 @@ F_SETFL accepts access-mode bits (ignored), O_APPEND and O_NONBLOCK; unknown
 bits are EINVAL. Other operations are ENOTSUP; advisory locks are not faked.
 Invalid descriptors are EBADF; invalid duplication minima are EINVAL.
 
-O_NONBLOCK selects deadline zero for socket/console reads and socket accept;
-an unavailable result returns EAGAIN. Nonblocking connect is unsupported and
-returns ENOTSUP before starting a connection. Socket options and nonzero
-send/recv message flags are unsupported, never silently reported successful.
-Normal TCP connections continue through the existing native transport.
+O_NONBLOCK selects deadline zero for socket/console reads, socket accept and
+TCP send; an unavailable result returns EAGAIN, while a partially accepted
+nonblocking send returns that positive count without waiting for the rest.
+The send deadline is carried by the v1.23 `socket_send_deadline` syscall
+(socket.md §3.2); syscall 37 remains the blocking form. Nonblocking connect is
+unsupported and returns ENOTSUP before starting a connection. Socket options
+and nonzero send/recv message flags are unsupported, never silently reported
+successful. Normal TCP connections continue through the existing native
+transport.
 
 ## Channel-backed native pipes
 

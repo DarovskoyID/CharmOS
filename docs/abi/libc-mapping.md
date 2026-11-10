@@ -57,7 +57,8 @@ ABI:
 
 This implements mmap/munmap over existing VMO syscalls; there is no Linux
 syscall emulation or new kernel memory ABI. Pages are eagerly committed,
-zeroed and non-executable. Maximum mapping size is the existing 1 GiB limit.
+zeroed and non-executable. Ordinary mappings remain capped at 1 GiB; lazy
+anonymous `PROT_NONE` reservations may be up to 64 GiB (no frames committed).
 
 Anonymous MAP_PRIVATE mappings support PROT_READ and PROT_READ|PROT_WRITE.
 An address is only a hint and the kernel chooses the returned address.

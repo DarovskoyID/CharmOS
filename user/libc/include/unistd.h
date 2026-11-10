@@ -58,6 +58,7 @@ gid_t getegid(void);
 int getpeereid(int fd, uid_t* euid, gid_t* egid);
 int gethostname(char* name, size_t size);
 void sync(void);
+int pause(void);
 int getentropy(void* buffer, size_t size);
 extern char** environ;
 __attribute__((noreturn)) void _exit(int code);

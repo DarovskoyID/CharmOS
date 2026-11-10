@@ -920,6 +920,24 @@ void test_sock() {
   pass();
 }
 
+void run_with_start(const char* file, const char* args, uint32_t args_bytes, uint32_t argc,
+                    const char* env, uint32_t env_bytes, uint32_t envc, bool with_net);
+void run_with_net(const char* file, const char* args, uint32_t args_bytes, uint32_t argc);
+
+// Nonblocking TCP write path from libc (bin/socket_nonblock).
+void test_nonblock() {
+  uint64_t deadline = platform::now_ns() + 20'000'000'000ull;
+  while (!net::link_up()) {
+    if (platform::now_ns() > deadline) fail("no link");
+    sched::sleep_ns(10'000'000);
+  }
+  if (net::dhcp_configure(platform::now_ns() + 10'000'000'000ull) != net::Status::Ok)
+    fail("dhcp");
+  static const char args[] = "socket_nonblock";
+  run_with_net("bin/socket_nonblock", args, sizeof args, 1);
+  pass();
+}
+
 // UDP-сокеты и DNS из ring 3 (bin/udp_test); на хосте — tools/qemu/udp.sh.
 void test_udp() {
   uint64_t deadline = platform::now_ns() + 20'000'000'000ull;
@@ -1050,6 +1068,39 @@ void run_with_start(const char* file, const char* args, uint32_t args_bytes, uin
 
 void run_with_start(const char* file, const char* argv0) {
   run_with_start(file, argv0, static_cast<uint32_t>(StringView(argv0).size()) + 1, 1);
+}
+
+// Run an initrd program with only a Net capability. The program does not need
+// the filesystem root (used by socket tests that never touch disk).
+void run_with_net(const char* file, const char* args, uint32_t args_bytes, uint32_t argc) {
+  namespace ap = abi::process;
+  lib::initrd::Archive archive;
+  if (archive.open(mm::phys_to_virt<const void>(g_initrd_phys), g_initrd_size).is_err())
+    fail("bad initrd");
+  lib::initrd::File f;
+  if (!archive.find(StringView(file), &f)) fail("program missing from initrd");
+  ipc::Cap *mine, *theirs, *netc;
+  if (ipc::create_channel(&mine, &theirs) != ipc::Status::Ok) fail("create_channel");
+  if (net::net_cap(&netc) != ipc::Status::Ok) fail("net cap");
+  struct {
+    ap::StartHeader h;
+    char data[512];
+  } msg{};
+  if (args_bytes > sizeof msg.data) fail("start message too big");
+  __builtin_memcpy(msg.h.magic, ap::kStartMagic, 4);
+  msg.h.argc = argc;
+  msg.h.args_bytes = args_bytes;
+  msg.h.handle_count = 1;
+  msg.h.roles[0] = ap::kRoleNet;
+  __builtin_memcpy(msg.data, args, args_bytes);
+  if (ipc::kernel_send(mine, &msg, sizeof msg.h + args_bytes, &netc, 1) != ipc::Status::Ok)
+    fail("kernel_send");
+  auto p = proc::spawn_process(f.name.substr(4), f.data, f.size, sched::kAnyCpu, theirs);
+  if (p.is_err()) fail("spawn_process failed");
+  int64_t code = proc::wait_process(p.value());
+  ipc::close_detached(mine);
+  kprint("ktest: {} exited with {}\n", file, code);
+  if (code != 0) fail("program failed");
 }
 
 void test_libc() {
@@ -1214,6 +1265,7 @@ constexpr Test kTests[] = {
     {"net", &test_net},
     {"tcp", &test_tcp},
     {"sock", &test_sock},
+    {"nonblock", &test_nonblock},
     {"udp", &test_udp},
 };
 
@@ -1226,7 +1278,8 @@ bool needs_drivers() {
          g_selected == StringView("fs") || g_selected == StringView("fs_check") ||
          g_selected == StringView("fs_crash") || g_selected == StringView("net") ||
          g_selected == StringView("tcp") || g_selected == StringView("sock") ||
-         g_selected == StringView("udp") || g_selected == StringView("spawn") ||
+         g_selected == StringView("nonblock") || g_selected == StringView("udp") ||
+         g_selected == StringView("spawn") ||
          g_selected == StringView("signals") || g_selected == StringView("libc") ||
          g_selected == StringView("sysarea") || g_selected == StringView("sysarea_locked") ||
          g_selected == StringView("runtime_cpu") || g_selected == StringView("runtime_tpm") ||

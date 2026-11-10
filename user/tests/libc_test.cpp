@@ -63,6 +63,13 @@ extern "C" int main(int argc, char** argv) {
            reinterpret_cast<void*>(0x10));
   CHECK(strcmp(buf, "-7|   ab|5  |00ff|1234567890123|z|%|3.14|0x10") == 0);
   CHECK(snprintf(buf, 4, "%s", "abcdef") == 6 && strcmp(buf, "abc") == 0);
+  // Large precision must not overflow the formatter's internal storage.
+  char tiny[8];
+  CHECK(snprintf(tiny, sizeof tiny, "%.80f", 1.0) == 82 && strcmp(tiny, "1.00000") == 0);
+  CHECK(snprintf(tiny, sizeof tiny, "%.*f", 80, 1.0) == 82);
+  CHECK(snprintf(tiny, sizeof tiny, "%.*f", -1, 1.0) == 8 && strcmp(tiny, "1.00000") == 0);
+  errno = 0;
+  CHECK(dprintf(-1, "abc") == -1 && errno == EBADF);
   char tok[] = "a b  c";
   char* save;
   CHECK(strcmp(strtok_r(tok, " ", &save), "a") == 0 && strcmp(strtok_r(nullptr, " ", &save), "b") == 0);
@@ -116,7 +123,57 @@ extern "C" int main(int argc, char** argv) {
   while (struct dirent* e = readdir(d)) seen += strcmp(e->d_name, "note.txt") == 0 && e->d_type == DT_REG;
   closedir(d);
   CHECK(seen == 1);
+  // fdopen: mode and descriptor validation, no truncation, append, ownership.
+  CHECK(fdopen(-1, "r") == nullptr && errno == EBADF);
+  fd = open("note.txt", O_RDONLY);
+  CHECK(fd >= 0);
+  CHECK(fdopen(fd, "w") == nullptr && errno == EINVAL);
+  CHECK(fdopen(fd, "rw") == nullptr && errno == EINVAL);
+  CHECK(close(fd) == 0);  // failed fdopen must not close the descriptor
+  fd = open("note.txt", O_RDWR);
+  CHECK(fd >= 0);
+  FILE* stream = fdopen(fd, "r");
+  CHECK(stream != nullptr);
+  errno = 0;
+  CHECK(fputc('x', stream) == EOF && errno == EBADF);
+  CHECK(close(fd) == 0);
+  fd = open("note.txt", O_RDWR);
+  CHECK(fd >= 0);
+  stream = fdopen(fd, "w");
+  CHECK(stream != nullptr);
+  errno = 0;
+  CHECK(fgetc(stream) == EOF && errno == EBADF);
+  CHECK(close(fd) == 0);
+  fd = open("note.txt", O_WRONLY);
+  CHECK(fd >= 0);
+  stream = fdopen(fd, "w");
+  CHECK(stream != nullptr);
+  CHECK(fclose(stream) == 0);
+  CHECK(stat("note.txt", &st) == 0 && st.st_size == 21);  // fdopen(w) never truncates
+  fd = open("note.txt", O_WRONLY);
+  CHECK(fd >= 0 && lseek(fd, 0, SEEK_SET) == 0);
+  stream = fdopen(fd, "a");
+  CHECK(stream != nullptr);
+  CHECK(fputs("X", stream) == 0 && fflush(stream) == 0 && fclose(stream) == 0);
+  CHECK(stat("note.txt", &st) == 0 && st.st_size == 22);
+
+  // fflush(NULL) must report the bad stream but still flush the good one.
+  int pipefd[2];
+  CHECK(pipe(pipefd) == 0);
+  FILE* bad = fdopen(pipefd[1], "w");
+  CHECK(bad != nullptr);
+  close(pipefd[0]);
+  CHECK(fputs("boom", bad) == 0);
+  FILE* good = fopen("flush_good", "w");
+  CHECK(good != nullptr && fputs("ok", good) == 0);
+  errno = 0;
+  CHECK(fflush(nullptr) == EOF && errno != 0);
+  CHECK(stat("flush_good", &st) == 0 && st.st_size == 2);
+  fclose(good);
+  fclose(bad);
+  CHECK(unlink("flush_good") == 0);
   CHECK(unlink("note.txt") == 0 && chdir("/") == 0 && rmdir("/tmp_libc") == 0);
+  printf("libc: stdio edge cases ok\n");
   printf("libc: files and directories ok\n");
 
   // Потоки.

@@ -33,7 +33,8 @@ args = {
     "charmos_build_graphics": sys.argv[4] in ("--graphics", "--graphics-graph", "--ozone-graph"),
     "charmos_build_v8": sys.argv[4] in ("--v8", "--v8-graph"),
     "charmos_build_blink": sys.argv[4] in ("--blink", "--blink-graph"),
-    "use_partition_alloc": False, "use_allocator_shim": False, "use_crash_key_stubs": True,
+    "use_partition_alloc": True, "use_allocator_shim": False, "use_crash_key_stubs": True,
+    "enable_backup_ref_ptr_support": False,
     "absl_build_tests": False,
     "enable_perfetto_ipc": False,
     "enable_perfetto_platform_services": False,
@@ -97,6 +98,8 @@ if sys.argv[4] in ("--blink", "--blink-graph"):
         # WebNN's TFLite/LiteRT backends are unused by the browser UI.
         "webnn_use_tflite": False,
         "webnn_use_litert": False,
+        # Needed by content/browser media capture paths used by the shell.
+        "enable_gpu_channel_media_capture": True,
     })
 content = "".join(f"{k} = {json.dumps(v)}\n" for k,v in args.items())
 if not destination.exists() or destination.read_text() != content:

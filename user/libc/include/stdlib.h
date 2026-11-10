@@ -42,6 +42,7 @@ int setenv(const char* name, const char* value, int overwrite);
 int unsetenv(const char* name);
 int mkstemp(char* pattern);
 int mkostemp(char* pattern, int flags);
+int mkstemps(char* pattern, int suffixlen);
 char* mkdtemp(char* pattern);
 char* realpath(const char* path,char* resolved);
 void qsort(void* base, size_t n, size_t size, int (*cmp)(const void*, const void*));

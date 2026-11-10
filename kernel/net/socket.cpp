@@ -298,6 +298,11 @@ Status sys_socket_connect(uint32_t h, uint64_t user_addr, uint64_t deadline) {
 }
 
 Status sys_socket_send(uint32_t h, uint64_t buf, uint64_t len, uint64_t user_to, uint64_t* out) {
+  return sys_socket_send_deadline(h, buf, len, user_to, abi::syscall::kInfiniteDeadline, out);
+}
+
+Status sys_socket_send_deadline(uint32_t h, uint64_t buf, uint64_t len, uint64_t user_to,
+                                uint64_t deadline, uint64_t* out) {
   *out = 0;
   uint64_t id;
   Sock s;
@@ -320,8 +325,12 @@ Status sys_socket_send(uint32_t h, uint64_t buf, uint64_t len, uint64_t user_to,
       if (!bound) return Status::AddressInUse;
       s = get(id);
     }
+    const uint64_t udp_deadline =
+        deadline == abi::syscall::kInfiniteDeadline
+            ? platform::now_ns() + 2'000'000'000ull
+            : deadline;
     st = udp_send(s.port, to.ipv4, to.port, dgram, static_cast<uint32_t>(len),
-                  platform::now_ns() + 2'000'000'000ull);
+                  udp_deadline);
     if (st == Status::Ok) *out = len;
     return st;
   }
@@ -330,11 +339,12 @@ Status sys_socket_send(uint32_t h, uint64_t buf, uint64_t len, uint64_t user_to,
   for (uint64_t done = 0; done < len;) {
     uint32_t n = len - done < sizeof chunk ? static_cast<uint32_t>(len - done) : sizeof chunk;
     if (!proc::copy_from_user(chunk, buf + done, n)) return done != 0 ? Status::Ok : Status::BadAddress;
-    uint32_t sent;
-    st = tcp_send(s.conn, chunk, n, abi::syscall::kInfiniteDeadline, &sent);
+    uint32_t sent = 0;
+    st = tcp_send(s.conn, chunk, n, deadline, &sent);
     done += sent;
     *out = done;
     if (st != Status::Ok) return done != 0 ? Status::Ok : st;
+    if (done != len && deadline == 0) return Status::Ok;  // short nonblocking write
   }
   return Status::Ok;
 }

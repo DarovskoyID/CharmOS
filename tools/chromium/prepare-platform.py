@@ -554,6 +554,21 @@ patches['third_party/perfetto/include/perfetto/base/build_config.h'] = (
          '#ifndef PERFETTO_BUILDFLAG_DEFINE_PERFETTO_OS_CHARMOS\n'
          '#define PERFETTO_BUILDFLAG_DEFINE_PERFETTO_OS_CHARMOS() 0\n#endif'),
     ])
+# CharmOS is POSIX-style; enable the pthread-backed default tracing platform.
+patches['third_party/perfetto/src/tracing/platform_posix.cc'] = (
+    'a1c9f5ac3985e6a361a399bddffc7f8921b1322a5ffe087f83a16cf2adbe4f1e', [
+        ('#if PERFETTO_BUILDFLAG(PERFETTO_OS_LINUX) ||   \\\n'
+         '    PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) || \\\n'
+         '    PERFETTO_BUILDFLAG(PERFETTO_OS_FUCHSIA) || \\\n'
+         '    PERFETTO_BUILDFLAG(PERFETTO_OS_FREEBSD) || \\\n'
+         '    PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE)',
+         '#if PERFETTO_BUILDFLAG(PERFETTO_OS_LINUX) ||   \\\n'
+         '    PERFETTO_BUILDFLAG(PERFETTO_OS_ANDROID) || \\\n'
+         '    PERFETTO_BUILDFLAG(PERFETTO_OS_FUCHSIA) || \\\n'
+         '    PERFETTO_BUILDFLAG(PERFETTO_OS_FREEBSD) || \\\n'
+         '    PERFETTO_BUILDFLAG(PERFETTO_OS_APPLE) ||   \\\n'
+         '    PERFETTO_BUILDFLAG(PERFETTO_OS_CHARMOS)'),
+    ])
 operations = []
 # These are the optional Rust-language bindings around the C++ base library,
 # not its C++ implementation. Upstream evaluates template assertions even for
@@ -618,7 +633,13 @@ base_replacements += [
      '  public_deps += [\n    ":compiler_specific",\n    ":memory_dump_provider_name_variants",'),
     ('    sources += [ "//build/charmos/memory_metrics.cc" ]',
      '    sources += [\n      "//build/charmos/memory_metrics.cc",\n'
-     '      "//build/charmos/message_pump_charmos.cc",\n    ]'),
+     '      "//build/charmos/message_pump_charmos.cc",\n'
+     '      # Stack-canary diagnostics are portable; the OOM hooks are provided\n'
+     '      # by //build/charmos/content_platform for the native allocator.\n'
+     '      "stack_canary_linux.cc",\n'
+     '      "stack_canary_linux.h",\n'
+     '      # No inotify syscall: use the polling file watcher delegate.\n'
+     '      "files/file_path_watcher_stub.cc",\n    ]'),
     ('      "//build/charmos/message_pump_charmos.cc",',
      '      "//build/charmos/message_pump_charmos.cc",\n      "//build/charmos/files_comparison.cc",'),
     ('      "//build/charmos/files_comparison.cc",',
@@ -817,6 +838,14 @@ for path in overlay.iterdir():
         output = destination / path.name
         if not output.exists() or output.read_bytes() != path.read_bytes():
             shutil.copyfile(path, output)
+# Empty archives satisfy Chromium's Linux-only -lm/-lrt/-lz link flags; the
+# actual implementations come from libc.a and the bundled zlib objects.
+stub_dir = repo / "build" / "user" / "user" / "lib"
+stub_dir.mkdir(parents=True, exist_ok=True)
+for stub in ("libm.a", "librt.a", "libz.a"):
+    stub_path = stub_dir / stub
+    if not stub_path.exists() or stub_path.read_bytes() != b"!<arch>\n":
+        stub_path.write_bytes(b"!<arch>\n")
 ozone_overlay = repo / "tools/chromium/ozone"
 ozone_destination = destination / "ozone"
 ozone_destination.mkdir(exist_ok=True)

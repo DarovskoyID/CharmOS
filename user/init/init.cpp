@@ -105,6 +105,8 @@ bool start(int i) {
   o.give = CHARM_GIVE_ROOT | CHARM_GIVE_CWD;
   o.give |= CHARM_GIVE_AUDIO;
   bool logd = strcmp(s.name, "logd") == 0;
+  const bool browser = strcmp(s.name, "browser") == 0;
+  if (browser) o.give |= CHARM_GIVE_NET | CHARM_GIVE_CONSOLE;
   if (logd) {
     Handle ch[2];
     if (charm::channel_create(ch) != Status::Ok) return false;

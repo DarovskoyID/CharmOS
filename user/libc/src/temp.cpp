@@ -46,6 +46,21 @@ extern "C" int mkostemp(char* pattern, int flags) {
   return -1;
 }
 extern "C" int mkstemp(char* pattern) { return mkostemp(pattern, 0); }
+extern "C" int mkstemps(char* pattern, int suffixlen) {
+  if (!pattern || suffixlen < 0) { errno = EINVAL; return -1; }
+  size_t length = strlen(pattern);
+  if (length < static_cast<size_t>(suffixlen) + 6) { errno = EINVAL; return -1; }
+  char* suffix = pattern + length - suffixlen - 6;
+  if (memcmp(suffix, "XXXXXX", 6)) { errno = EINVAL; return -1; }
+  for (unsigned attempt = 0; attempt < 256; ++attempt) {
+    if (!random_suffix(suffix)) break;
+    int fd = open(pattern, O_RDWR | O_CREAT | O_EXCL, 0600);
+    if (fd >= 0) return fd;
+    if (errno != EEXIST) break;
+  }
+  memcpy(suffix, "XXXXXX", 6);
+  return -1;
+}
 // tmpfile: создаём временный файл и сразу снимаем имя — дескриптор продолжает
 // работать, а файл исчезает при закрытии/перезагрузке (как в POSIX).
 extern "C" FILE* tmpfile(void) {

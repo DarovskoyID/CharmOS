@@ -10,7 +10,7 @@
 namespace abi::syscall {
 
 inline constexpr uint16_t kVersionMajor = 1;
-inline constexpr uint16_t kVersionMinor = 22;
+inline constexpr uint16_t kVersionMinor = 23;
 
 // §5
 enum class Number : uint64_t {
@@ -105,6 +105,7 @@ enum class Number : uint64_t {
   VmoProtect = 83,  // v1.19, executable/W^X memory
   VmoReserve = 84,  // v1.21, lazy VMO backing
   VmoUnmapRange = 85,  // v1.22, partial unmap of an existing mapping
+  SocketSendDeadline = 86,  // v1.23, TCP/UDP send with an explicit deadline
 };
 
 // display.md §2.1.

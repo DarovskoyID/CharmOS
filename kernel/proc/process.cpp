@@ -404,7 +404,9 @@ Status sys_thread_set_fs(uint64_t base) {
 namespace {
 
 namespace ap = abi::process;
-constexpr uint64_t kMaxExecutable = 64ull << 20;
+// Content Shell statically links Blink and V8; its stripped image is ~200 MiB.
+// Keep the old 64 MiB default for ordinary tools but allow the browser service.
+constexpr uint64_t kMaxExecutable = 256ull << 20;
 
 // Блок строк: ровно count строк, каждая с завершающим \0.
 bool valid_strings(const char* b, uint32_t bytes, uint32_t count) {

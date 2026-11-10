@@ -1,19 +1,23 @@
 // stdio: FILE с буфером поверх дескрипторов, printf.
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <math.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <wchar.h>
-#include <limits.h>
 
 #include "internal.hpp"
 
 struct __file {
   int fd;
   int mode;  // _IOFBF/_IOLBF/_IONBF
+  bool readable;
+  bool writable;
   bool eof;
   bool err;
   bool used;
@@ -42,6 +46,7 @@ int flush(__file* f) {
   while (done < f->wlen) {
     ssize_t n = ::write(f->fd, f->wbuf + done, f->wlen - done);
     if (n <= 0) {
+      if (n == 0) errno = EIO;
       f->err = true;
       f->wlen = 0;
       return EOF;
@@ -53,6 +58,11 @@ int flush(__file* f) {
 }
 
 int put(__file* f, char c) {
+  if (!f->writable || f->err) {
+    if (!f->writable) errno = EBADF;
+    f->err = true;
+    return EOF;
+  }
   if (f->mode == _IONBF) {
     if (::write(f->fd, &c, 1) != 1) {
       f->err = true;
@@ -67,7 +77,7 @@ int put(__file* f, char c) {
   return static_cast<unsigned char>(c);
 }
 
-__file* new_file(int fd, int mode) {
+__file* new_file(int fd, int mode, bool readable, bool writable) {
   Guard g(g_files_lock);
   for (__file& f : g_files) {
     if (!f.used) {
@@ -75,9 +85,12 @@ __file* new_file(int fd, int mode) {
       f.used = true;
       f.fd = fd;
       f.mode = mode;
+      f.readable = readable;
+      f.writable = writable;
       return &f;
     }
   }
+  errno = EMFILE;
   return nullptr;
 }
 
@@ -92,7 +105,40 @@ struct Out {
   int fd;
   char tmp[256];
   size_t tlen;
+  bool err;
+  int err_no;
 };
+
+void emit_buf(Out* o, char c);
+
+bool write_all(int fd, const char* data, size_t size) {
+  size_t done = 0;
+  while (done < size) {
+    ssize_t n = ::write(fd, data + done, size - done);
+    if (n < 0) {
+      if (errno == EINTR) continue;
+      return false;
+    }
+    if (n == 0) {
+      errno = EIO;
+      return false;
+    }
+    done += static_cast<size_t>(n);
+  }
+  return true;
+}
+
+void emit_repeat(Out* o, char c, size_t n) {
+  if (o->emit == &emit_buf) {
+    size_t room = o->len + 1 < o->cap ? o->cap - o->len - 1 : 0;
+    size_t take = n < room ? n : room;
+    if (o->buf != nullptr && take != 0) memset(o->buf + o->len, c, take);
+    o->len += n;
+    return;
+  }
+  if (o->err) return;
+  for (size_t i = 0; i < n; ++i) o->emit(o, c);
+}
 
 void emit_buf(Out* o, char c) {
   if (o->len + 1 < o->cap) o->buf[o->len] = c;
@@ -104,15 +150,218 @@ void emit_file(Out* o, char c) {
 }
 void emit_fd(Out* o, char c) {
   ++o->len;
+  if (o->err) return;
   o->tmp[o->tlen++] = c;
   if (o->tlen == sizeof o->tmp) {
-    (void)::write(o->fd, o->tmp, o->tlen);
+    if (!write_all(o->fd, o->tmp, o->tlen)) {
+      o->err = true;
+      o->err_no = errno;
+    }
     o->tlen = 0;
   }
 }
 
 void pad(Out* o, char c, int n) {
-  for (; n > 0; --n) o->emit(o, c);
+  if (n > 0) emit_repeat(o, c, static_cast<size_t>(n));
+}
+
+// Exact binary-to-decimal conversion for %f. A double is mant * 2^exp.
+// For exp < 0 the value is mant * 5^-exp / 10^-exp, so a small base-1e9
+// integer is enough to obtain every decimal digit without a fixed output
+// buffer (the old num[72] was overflowed by large precisions).
+struct Big {
+  static constexpr uint32_t kBase = 1000000000u;
+  uint32_t limb[160];
+  int count = 0;
+
+  void set(uint64_t value) {
+    do {
+      limb[count++] = static_cast<uint32_t>(value % kBase);
+      value /= kBase;
+    } while (value != 0);
+  }
+  void mul(uint32_t factor) {
+    uint64_t carry = 0;
+    for (int i = 0; i < count; ++i) {
+      uint64_t value = static_cast<uint64_t>(limb[i]) * factor + carry;
+      limb[i] = static_cast<uint32_t>(value % kBase);
+      carry = value / kBase;
+    }
+    while (carry != 0) {
+      limb[count++] = static_cast<uint32_t>(carry % kBase);
+      carry /= kBase;
+    }
+  }
+  void mul_pow2(int exponent) {
+    while (exponent-- > 0) mul(2);
+  }
+  void mul_pow5(int exponent) {
+    while (exponent-- > 0) mul(5);
+  }
+  int digits(char* out, int capacity) const {
+    int pos = 0;
+    auto write = [&](uint32_t value, int width) {
+      char reverse[10];
+      int n = 0;
+      do {
+        reverse[n++] = static_cast<char>('0' + value % 10);
+        value /= 10;
+      } while (value != 0);
+      while (n < width) reverse[n++] = '0';
+      while (n > 0) {
+        char c = reverse[--n];
+        if (pos < capacity) out[pos] = c;
+        ++pos;
+      }
+    };
+    write(limb[count - 1], 0);
+    for (int i = count - 2; i >= 0; --i) write(limb[i], 9);
+    return pos;
+  }
+};
+
+void emit_special(Out* o, bool negative, const char* text, int width, bool left,
+                  bool zero, bool plus, bool space) {
+  (void)zero;
+  const int sign_len = (negative || plus || space) ? 1 : 0;
+  const int total = sign_len + static_cast<int>(strlen(text));
+  if (!left) pad(o, ' ', width - total);
+  if (negative) o->emit(o, '-');
+  else if (plus) o->emit(o, '+');
+  else if (space) o->emit(o, ' ');
+  for (const char* p = text; *p; ++p) o->emit(o, *p);
+  if (left) pad(o, ' ', width - total);
+}
+
+void format_double(Out* o, double value, int prec, int width, bool left,
+                   bool zero, bool plus, bool space, bool alt) {
+  const bool negative = __builtin_signbit(value) != 0;
+  if (__builtin_isnan(value)) {
+    emit_special(o, false, "nan", width, left, zero, plus, space);
+    return;
+  }
+  if (__builtin_isinf(value)) {
+    emit_special(o, negative, "inf", width, left, zero, plus, space);
+    return;
+  }
+  if (prec < 0) prec = 6;
+
+  uint64_t bits;
+  memcpy(&bits, &value, sizeof bits);
+  const int biased_exp = static_cast<int>((bits >> 52) & 0x7ff);
+  const uint64_t mantissa = bits & ((uint64_t{1} << 52) - 1);
+  char all[1400];
+  int len = 0;
+  int point = 0;
+  if (biased_exp == 0 && mantissa == 0) {
+    all[len++] = '0';
+    point = 1;
+  } else {
+    Big b;
+    if (biased_exp == 0) {
+      b.set(mantissa);
+      b.mul_pow5(1074);
+      len = b.digits(all, sizeof all);
+      point = len - 1074;
+    } else {
+      const uint64_t normal = mantissa | (uint64_t{1} << 52);
+      const int exponent = biased_exp - 1023 - 52;
+      b.set(normal);
+      if (exponent >= 0) {
+        b.mul_pow2(exponent);
+        len = b.digits(all, sizeof all);
+        point = len;
+      } else {
+        b.mul_pow5(-exponent);
+        len = b.digits(all, sizeof all);
+        point = len + exponent;
+      }
+    }
+    if (point <= 0) {
+      const int leading = -point;
+      if (leading + len < static_cast<int>(sizeof all)) {
+        memmove(all + leading, all, static_cast<size_t>(len));
+        memset(all, '0', static_cast<size_t>(leading));
+        len += leading;
+        point = 0;
+      }
+    } else if (point > len) {
+      if (point < static_cast<int>(sizeof all)) {
+        memset(all + len, '0', static_cast<size_t>(point - len));
+        len = point;
+      }
+    }
+    if (point == 0) {
+      memmove(all + 1, all, static_cast<size_t>(len));
+      all[0] = '0';
+      ++len;
+      point = 1;
+    }
+  }
+
+  const long long target = static_cast<long long>(point) + prec;
+  if (target < len) {
+    const char next = all[target];
+    bool nonzero_tail = false;
+    for (int i = static_cast<int>(target) + 1; i < len; ++i) {
+      if (all[i] != '0') {
+        nonzero_tail = true;
+        break;
+      }
+    }
+    const bool round_up =
+        next > '5' ||
+        (next == '5' &&
+         (nonzero_tail || ((all[target - 1] - '0') & 1) != 0));
+    len = static_cast<int>(target);
+    if (round_up) {
+      int i = len - 1;
+      while (i >= 0 && all[i] == '9') all[i--] = '0';
+      if (i >= 0) {
+        ++all[i];
+      } else if (len + 1 < static_cast<int>(sizeof all)) {
+        memmove(all + 1, all, static_cast<size_t>(len));
+        all[0] = '1';
+        ++len;
+        ++point;
+      }
+    }
+  }
+
+  const int sign_len = (negative || plus || space) ? 1 : 0;
+  const long long total =
+      sign_len + point + (prec > 0 ? 1 + static_cast<long long>(prec)
+                                   : (alt ? 1 : 0));
+  if (!left && !zero && width > total)
+    pad(o, ' ', static_cast<int>(width - total));
+  if (negative) o->emit(o, '-');
+  else if (plus) o->emit(o, '+');
+  else if (space) o->emit(o, ' ');
+  if (zero && !left && width > total)
+    pad(o, '0', static_cast<int>(width - total));
+  for (int i = 0; i < point; ++i) o->emit(o, all[i]);
+  if (prec > 0 || alt) o->emit(o, '.');
+  int available = len > point ? len - point : 0;
+  if (available > prec) available = prec;
+  for (int i = 0; i < available; ++i) o->emit(o, all[point + i]);
+  if (prec > available) pad(o, '0', prec - available);
+  if (left && width > total) pad(o, ' ', static_cast<int>(width - total));
+}
+
+int read_decimal(const char** pp) {
+  int value = 0;
+  const char* p = *pp;
+  while (*p >= '0' && *p <= '9') {
+    const int digit = *p - '0';
+    if (value > (INT_MAX - digit) / 10) {
+      value = INT_MAX;
+    } else {
+      value = value * 10 + digit;
+    }
+    ++p;
+  }
+  *pp = p;
+  return value;
 }
 
 void format(Out* o, const char* fmt, va_list ap) {
@@ -136,20 +385,20 @@ void format(Out* o, const char* fmt, va_list ap) {
       width = va_arg(ap, int);
       if (width < 0) {
         left = true;
-        width = -width;
+        width = width == INT_MIN ? INT_MAX : -width;
       }
       ++fmt;
     } else {
-      while (*fmt >= '0' && *fmt <= '9') width = width * 10 + (*fmt++ - '0');
+      width = read_decimal(&fmt);
     }
     if (*fmt == '.') {
       ++fmt;
-      prec = 0;
       if (*fmt == '*') {
-        prec = va_arg(ap, int);
+        const int value = va_arg(ap, int);
+        prec = value < 0 ? -1 : value;
         ++fmt;
       } else {
-        while (*fmt >= '0' && *fmt <= '9') prec = prec * 10 + (*fmt++ - '0');
+        prec = read_decimal(&fmt);
       }
     }
     int lng = 0;  // 1 — l, 2 — ll/z/j
@@ -160,8 +409,6 @@ void format(Out* o, const char* fmt, va_list ap) {
     }
     char c = *fmt;
     if (c == '\0') break;
-    char num[72];
-    int nlen = 0;
     const char* prefix = "";
     switch (c) {
       case '%':
@@ -184,37 +431,8 @@ void format(Out* o, const char* fmt, va_list ap) {
         continue;
       }
       case 'f': {
-        double v = va_arg(ap, double);
-        if (prec < 0) prec = 6;
-        bool neg = v < 0;
-        if (neg) v = -v;
-        double scale = 1;
-        for (int i = 0; i < prec; ++i) scale *= 10;
-        auto whole = static_cast<unsigned long long>(v);
-        auto frac = static_cast<unsigned long long>((v - static_cast<double>(whole)) * scale + 0.5);
-        if (static_cast<double>(frac) >= scale) {
-          ++whole;
-          frac = 0;
-        }
-        char w[32];
-        int wl = 0;
-        do {
-          w[wl++] = static_cast<char>('0' + whole % 10);
-          whole /= 10;
-        } while (whole != 0);
-        if (neg) num[nlen++] = '-';
-        while (wl > 0) num[nlen++] = w[--wl];
-        if (prec > 0) {
-          num[nlen++] = '.';
-          for (int i = prec - 1; i >= 0; --i) {
-            num[nlen + i] = static_cast<char>('0' + frac % 10);
-            frac /= 10;
-          }
-          nlen += prec;
-        }
-        if (!left) pad(o, ' ', width - nlen);
-        for (int i = 0; i < nlen; ++i) o->emit(o, num[i]);
-        if (left) pad(o, ' ', width - nlen);
+        format_double(o, va_arg(ap, double), prec, width, left, zero, plus,
+                      space, alt);
         continue;
       }
       default:
@@ -278,15 +496,23 @@ void stdio_init() {
       (void)fd_alloc(Kind::Debug, 0, i == 0, i != 0);
     }
   }
-  stdin = new_file(0, _IOLBF);
-  stdout = new_file(1, _IOLBF);
-  stderr = new_file(2, _IONBF);
+  stdin = new_file(0, _IOLBF, true, false);
+  stdout = new_file(1, _IOLBF, false, true);
+  stderr = new_file(2, _IONBF, false, true);
 }
 
-void stdio_flush_all() {
+int stdio_flush_all() {
+  int result = 0;
+  int saved_errno = 0;
   for (__file& f : g_files) {
-    if (f.used && f.wlen != 0) (void)flush(&f);
+    if (!f.used) continue;
+    if (flush(&f) != 0) {
+      if (result == 0) saved_errno = errno;
+      result = EOF;
+    }
   }
+  if (result != 0) errno = saved_errno;
+  return result;
 }
 
 }  // namespace libc
@@ -306,6 +532,11 @@ int vsnprintf(char* buf, size_t n, const char* fmt, va_list ap) {
   o.buf = buf;
   o.cap = n;
   format(&o, fmt, ap);
+  if (o.len > static_cast<size_t>(INT_MAX)) {
+    errno = EOVERFLOW;
+    if (n != 0) buf[0] = '\0';
+    return -1;
+  }
   if (n != 0) buf[o.len < n ? o.len : n - 1] = '\0';
   return static_cast<int>(o.len);
 }
@@ -340,6 +571,11 @@ int vfprintf(FILE* f, const char* fmt, va_list ap) {
   o.emit = &emit_file;
   o.file = f;
   format(&o, fmt, ap);
+  if (o.len > static_cast<size_t>(INT_MAX)) {
+    errno = EOVERFLOW;
+    f->err = true;
+    return -1;
+  }
   return f->err ? -1 : static_cast<int>(o.len);
 }
 
@@ -366,11 +602,11 @@ int vdprintf(int fd, const char* fmt, va_list ap) {
     char* buffer=nullptr;
     int length=vasprintf(&buffer,fmt,ap);
     if(length<0) return -1;
-    size_t done=0;
-    while(done<static_cast<size_t>(length)) {
-      ssize_t n=::write(fd,buffer+done,static_cast<size_t>(length)-done);
-      if(n<=0) { free(buffer); return -1; }
-      done+=static_cast<size_t>(n);
+    if (!write_all(fd, buffer, static_cast<size_t>(length))) {
+      const int saved_errno = errno;
+      free(buffer);
+      errno = saved_errno;
+      return -1;
     }
     free(buffer); return length;
   }
@@ -378,7 +614,19 @@ int vdprintf(int fd, const char* fmt, va_list ap) {
   o.emit = &emit_fd;
   o.fd = fd;
   format(&o, fmt, ap);
-  if (o.tlen != 0) (void)::write(fd, o.tmp, o.tlen);
+  if (o.tlen != 0 && !o.err && !write_all(fd, o.tmp, o.tlen)) {
+    o.err = true;
+    o.err_no = errno;
+  }
+  o.tlen = 0;
+  if (o.err) {
+    errno = o.err_no;
+    return -1;
+  }
+  if (o.len > static_cast<size_t>(INT_MAX)) {
+    errno = EOVERFLOW;
+    return -1;
+  }
   return static_cast<int>(o.len);
 }
 
@@ -411,14 +659,16 @@ int puts(const char* s) {
 }
 
 int fflush(FILE* f) {
-  if (f == nullptr) {
-    stdio_flush_all();
-    return 0;
-  }
+  if (f == nullptr) return stdio_flush_all();
   return flush(f);
 }
 
 static int get_byte(FILE* f) {
+  if (!f->readable) {
+    errno = EBADF;
+    f->err = true;
+    return EOF;
+  }
   if(f->unget_count) return f->unget[--f->unget_count];
   if (f == stdin) fflush(stdout);  // приглашение до чтения
   if (f->rpos == f->rlen) {
@@ -483,7 +733,46 @@ size_t fwrite(const void* buf, size_t size, size_t n, FILE* f) {
   return size != 0 ? done / size : 0;
 }
 
-FILE* fdopen(int fd, const char*) { return new_file(fd, isatty(fd) ? _IOLBF : _IOFBF); }
+FILE* fdopen(int fd, const char* mode) {
+  if (mode == nullptr || mode[0] == '\0') {
+    errno = EINVAL;
+    return nullptr;
+  }
+  const int flags = fcntl(fd, F_GETFL);
+  if (flags < 0) return nullptr;  // EBADF, descriptor stays open
+
+  int access = O_RDONLY;
+  bool append = false;
+  switch (mode[0]) {
+    case 'r': access = O_RDONLY; break;
+    case 'w': access = O_WRONLY; break;
+    case 'a': access = O_WRONLY; append = true; break;
+    default: errno = EINVAL; return nullptr;
+  }
+  if (strchr(mode, '+') != nullptr) access = O_RDWR;
+  for (const char* p = mode + 1; *p != '\0'; ++p) {
+    if (*p != '+' && *p != 'b' && *p != 'e') {
+      errno = EINVAL;
+      return nullptr;
+    }
+  }
+
+  const int descriptor_access = flags & O_ACCMODE;
+  const bool can_read = descriptor_access != O_WRONLY;
+  const bool can_write = descriptor_access != O_RDONLY;
+  if ((access == O_RDONLY && !can_read) ||
+      (access == O_WRONLY && !can_write) ||
+      (access == O_RDWR && !(can_read && can_write))) {
+    errno = EINVAL;
+    return nullptr;
+  }
+  if (append && fcntl(fd, F_SETFL, flags | O_APPEND) < 0) return nullptr;
+  if (strchr(mode, 'e') != nullptr && fcntl(fd, F_SETFD, FD_CLOEXEC) < 0)
+    return nullptr;
+
+  return new_file(fd, isatty(fd) ? _IOLBF : _IOFBF, access != O_WRONLY,
+                  access != O_RDONLY);
+}
 
 FILE* fopen(const char* path, const char* mode) {
   if(!path || !mode) { errno=EFAULT; return nullptr; }
@@ -502,10 +791,12 @@ FILE* fopen(const char* path, const char* mode) {
   }
   int fd = open(path, flags);
   if (fd < 0) return nullptr;
-  FILE* f = new_file(fd, _IOFBF);
+  const int access = flags & O_ACCMODE;
+  FILE* f = new_file(fd, _IOFBF, access != O_WRONLY, access != O_RDONLY);
   if (f == nullptr) {
+    const int saved_errno = errno;
     close(fd);
-    errno = EMFILE;
+    errno = saved_errno;
   }
   return f;
 }

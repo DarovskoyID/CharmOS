@@ -6,6 +6,9 @@
 
 namespace {
 constexpr size_t page=4096;
+// Lazy PROT_NONE reservations back allocator VA pools and are never committed
+// up front; the public VMO limit still applies to ordinary mappings.
+constexpr size_t kLazyMapMaxSize=64ull<<30;
 // protections[] tracks the requested per-page protection; zeroed[] is true
 // while a page is known to contain only zeros (a never-written reservation);
 // live[] is false after a partial munmap removed that page's leaf.
@@ -93,7 +96,8 @@ extern "C" void* mmap(void* hint,size_t size,int protection,int flags,int fd,off
       (protection!=PROT_NONE && !(protection&PROT_READ))) return fail_map(ENOTSUP);
   // W^X: страница не бывает одновременно записываемой и исполняемой.
   if ((protection&PROT_WRITE) && (protection&PROT_EXEC)) return fail_map(EINVAL);
-  if (size>abi::syscall::kVmoMaxSize) return fail_map(ENOMEM);
+  const bool lazy=(flags&MAP_ANONYMOUS) && protection==PROT_NONE;
+  if (size>(lazy ? kLazyMapMaxSize : abi::syscall::kVmoMaxSize)) return fail_map(ENOMEM);
   size_t rounded=(size+page-1)&~(page-1);
   bool anonymous=(flags&MAP_ANONYMOUS)!=0;
   if (anonymous && offset) return fail_map(EINVAL);
@@ -118,7 +122,6 @@ extern "C" void* mmap(void* hint,size_t size,int protection,int flags,int fd,off
   }
   // Anonymous PROT_NONE is a lazy reservation: VmoReserve keeps zero frame
   // entries, and access/protection changes commit only the touched pages.
-  bool lazy=anonymous && protection==PROT_NONE;
   auto object=lazy ? charm::vmo_reserve(rounded) : charm::vmo_create(rounded);
   if (!object.ok()) { free(live); free(zeroed); free(protections); free(record); return fail_map(libc::errno_from(object.status)); }
   auto handle=static_cast<charm::Handle>(object.value);
