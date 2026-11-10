@@ -133,6 +133,10 @@ bool g_browser_focus_pending = false;
 // заголовок меняется с "Chromium" на заголовок сайта, и поиск по имени
 // перестаёт его находить. -1 — окна нет.
 int g_browser_window = -1;
+// Пользователь уже просил браузер (клик по карточке). Пока флага нет, окно,
+// поднятое предзагрузкой, держится свёрнутым: процесс тёплый, но рабочий стол
+// чистый, а клик только показывает окно.
+bool g_browser_user_requested = false;
 // 0 — простой, 1 — content_shell запускается в фоновом потоке, 2 — запуск
 // не удался. Пишется из потока, читается циклом событий (атомарно).
 volatile int g_browser_launch_state = 0;
@@ -518,6 +522,7 @@ void request_browser_start(bool kill_first) {
 }
 
 void launch_browser() {
+  g_browser_user_requested = true;
   int wi = find_browser_window();
   if (wi >= 0) {
     raise(wi); set_focus(wi);
@@ -1129,8 +1134,9 @@ void create_window(int ci, const wm::Create& m, const Handle* hs, uint32_t nh,ui
   w.ring->version = 1;
   w.ring->capacity = 128;
   g_z[g_zn++] = wi;
-  if (g_browser_window < 0 &&
-      (strstr(w.title, "Chromium") != nullptr || strstr(w.title, "CharmOS") != nullptr)) {
+  bool browser_window = g_browser_window < 0 &&
+      (strstr(w.title, "Chromium") != nullptr || strstr(w.title, "CharmOS") != nullptr);
+  if (browser_window) {
     g_browser_window = wi;
   }
   damage(w.frame);
@@ -1144,6 +1150,9 @@ void create_window(int ci, const wm::Create& m, const Handle* hs, uint32_t nh,ui
     return;
   }
   if(!w.minimized && !(flags&wm::kCreateInactive)) set_focus(wi);
+  // Предзагруженный браузер держим свёрнутым: процесс и страница уже готовы,
+  // карточка только показывает окно (десятки миллисекунд вместо секунд).
+  if (browser_window && !g_browser_user_requested) minimize(wi);
   printf("wm: window %u \"%s\" %ux%u at %d,%d\n", w.id, w.title, m.width, m.height, w.frame.x, w.frame.y);
 }
 

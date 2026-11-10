@@ -30,7 +30,7 @@ EOF
 cat >"$work/init.conf" <<'EOF'
 service logd /bin/logd
 service wm /bin/wm
-manual browser /bin/content_shell --single-process --no-sandbox --disable-gpu --disable-in-process-stack-traces --js-flags=--jitless --blink-settings=imagesEnabled=false --user-data-dir=/data/content_shell http://example.com
+service browser /bin/content_shell --single-process --no-sandbox --disable-gpu --disable-in-process-stack-traces --js-flags=--jitless --blink-settings=imagesEnabled=false --user-data-dir=/data/content_shell http://example.com
 console sh /bin/sh
 EOF
 puts=(--put "2:/etc/init.conf=$work/init.conf"
@@ -59,5 +59,7 @@ image="$build/disk-browser.img"
 tmp_image="${TMPDIR:-/tmp}/charmos-disk-browser.img"
 rm -f "$tmp_image"
 "$build/host/tools/mkdisk/mkdisk" "$tmp_image" 512 --esp 40 --root ext2 "${puts[@]}"
-cp --sparse=always "$tmp_image" "$image"
-rm -f "$tmp_image"
+# The image stays on the native filesystem: QEMU reads it through the Windows
+# mount otherwise, and loading the 200 MiB browser binary from there takes
+# tens of seconds. A symlink keeps the documented path working.
+ln -sfn "$tmp_image" "$image"
