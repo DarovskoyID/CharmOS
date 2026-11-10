@@ -703,12 +703,30 @@ Result<size_t> Ext2::read(Node file, uint64_t offset, void* buf, size_t len) {
     uint64_t pos = offset + done;
     uint32_t in_block = static_cast<uint32_t>(pos % block_size_);
     size_t chunk = block_size_ - in_block < len - done ? block_size_ - in_block : len - done;
-    auto pb = bmap(in, pos / block_size_, false);
+    uint64_t first = pos / block_size_;
+    auto pb = bmap(in, first, false);
     if (pb.is_err()) return Result<size_t>::err(pb.error());
     if (pb.value() == 0) {
       __builtin_memset(out + done, 0, chunk);  // дыра
-    } else if (io_->read(block_offset(pb.value()) + in_block, out + done, chunk).is_err()) {
-      return Result<size_t>::err(FsError::IoError);
+    } else {
+      // Соседние блоки файла обычно лежат подряд: читаем весь непрерывный
+      // участок одним запросом к диску. Без этого запуск большого ELF
+      // (content_shell, 200 МиБ) распадается на десятки тысяч чтений по 4 КиБ.
+      size_t total = chunk;
+      uint32_t blocks = 1;
+      while (done + total < len && (offset + done + total) % block_size_ == 0) {
+        auto nb = bmap(in, first + blocks, false);
+        if (nb.is_err()) return Result<size_t>::err(nb.error());
+        if (nb.value() != pb.value() + blocks) break;
+        size_t step = block_size_ < len - done - total ? block_size_ : len - done - total;
+        total += step;
+        ++blocks;
+      }
+      if (io_->read(block_offset(pb.value()) + in_block, out + done, total).is_err()) {
+        return Result<size_t>::err(FsError::IoError);
+      }
+      done += total;
+      continue;
     }
     done += chunk;
   }

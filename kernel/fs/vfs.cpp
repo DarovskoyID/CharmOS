@@ -458,7 +458,10 @@ Status read_file(uint32_t h, uint64_t max, void** data, uint64_t* size) {
   if (mem.is_err()) return Status::NoMemory;
   for (uint64_t done = 0; done < len;) {
     sync::MutexGuard guard(g_vfs);
-    size_t chunk = len - done < 65536 ? static_cast<size_t>(len - done) : 65536;
+    // Большие куски уменьшают накладные расходы на запуск (ELF ~200 МиБ):
+    // ext2 читает непрерывные блоки одним запросом, а границы проверяются
+    // один раз на мегабайт, а не на 64 КиБ.
+    size_t chunk = len - done < (1u << 20) ? static_cast<size_t>(len - done) : (1u << 20);
     auto rd = fs->read(file, done, static_cast<uint8_t*>(mem.value()) + done, chunk);
     if (rd.is_err() || rd.value() == 0) {
       mm::kfree(mem.value());
