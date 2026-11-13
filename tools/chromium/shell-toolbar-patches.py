@@ -17,6 +17,7 @@ INCLUDES_AFTER = """#include "ui/views/background.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/strings/string_split.h"
 #include "components/vector_icons/vector_icons.h"
 #include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/save_page_type.h"
@@ -39,8 +40,7 @@ INCLUDES_AFTER = """#include "ui/views/background.h"
 
 HELPERS_BEFORE = """// Maintain the UI controls and web view for content shell
 """
-HELPERS_AFTER = """// CharmOS browser chrome. Colours follow the reference bar; bookmarks and the
-// search engine live in memory until the browser has a profile store.
+HELPERS_AFTER = """// CharmOS browser chrome. Profile state is kept out of incognito storage.
 constexpr SkColor kToolbarColor = SkColorSetRGB(0xff, 0xff, 0xff);
 constexpr SkColor kPillColor = SkColorSetRGB(0xf1, 0xf3, 0xf4);
 constexpr SkColor kIconColor = SkColorSetRGB(0x3c, 0x40, 0x43);
@@ -51,19 +51,62 @@ bool& ToolbarPopupsSupported() {
   return supported;
 }
 
-std::set<std::string>& Bookmarks() {
+bool& YandexSearch() {
+  static bool yandex = true;
+  return yandex;
+}
+
+std::set<std::string>& BookmarkStore() {
   static std::set<std::string> bookmarks;
   return bookmarks;
 }
 
-bool& YandexSearch() {
-  static bool yandex = false;
-  return yandex;
+std::vector<std::string>& HistoryStore() {
+  static std::vector<std::string> entries;
+  return entries;
+}
+
+std::vector<std::string> ReadLines(const char* path) {
+  std::string contents;
+  base::ReadFileToString(base::FilePath(FILE_PATH_LITERAL(path)), &contents);
+  return base::SplitString(contents, "\\n", base::TRIM_WHITESPACE,
+                           base::SPLIT_WANT_NONEMPTY);
+}
+
+void WriteLines(const char* path, const std::vector<std::string>& lines) {
+  std::string contents;
+  for (const auto& line : lines) contents += line + "\\n";
+  base::WriteFile(base::FilePath(FILE_PATH_LITERAL(path)), contents);
+}
+
+void EnsureBrowserState() {
+  static bool loaded = false;
+  if (loaded) return;
+  loaded = true;
+  for (auto& url : ReadLines("/data/browser-bookmarks.txt"))
+    BookmarkStore().insert(std::move(url));
+  HistoryStore() = ReadLines("/data/browser-history.txt");
+  std::vector<std::string> engine = ReadLines("/data/browser-settings.txt");
+  YandexSearch() = engine.empty() || engine.front() != "google";
+}
+
+std::set<std::string>& Bookmarks() {
+  EnsureBrowserState();
+  return BookmarkStore();
 }
 
 std::vector<std::string>& HistoryEntries() {
-  static std::vector<std::string> entries;
-  return entries;
+  EnsureBrowserState();
+  return HistoryStore();
+}
+
+void SaveEngine() {
+  WriteLines("/data/browser-settings.txt", {YandexSearch() ? "yandex" : "google"});
+}
+
+void SaveBookmarks() {
+  WriteLines("/data/browser-bookmarks.txt",
+             std::vector<std::string>(BookmarkStore().begin(), BookmarkStore().end()));
 }
 
 void RecordHistory(WebContents* contents) {
@@ -82,6 +125,7 @@ void RecordHistory(WebContents* contents) {
 }
 
 std::u16string EngineLabel() {
+  EnsureBrowserState();
   return YandexSearch() ? u"\\u042f" : u"G";
 }
 
@@ -445,6 +489,7 @@ METHODS_AFTER = """  template <typename T>
 
   void ToggleEngine() {
     YandexSearch() = !YandexSearch();
+    SaveEngine();
     engine_button_->SetText(EngineLabel());
   }
 
@@ -458,6 +503,7 @@ METHODS_AFTER = """  template <typename T>
     } else {
       bookmarks.insert(url);
     }
+    SaveBookmarks();
     UpdateStar();
   }
 
@@ -594,10 +640,12 @@ METHODS_AFTER = """  template <typename T>
         break;
       case kCmdEngineGoogle:
         YandexSearch() = false;
+        SaveEngine();
         engine_button_->SetText(EngineLabel());
         break;
       case kCmdEngineYandex:
         YandexSearch() = true;
+        SaveEngine();
         engine_button_->SetText(EngineLabel());
         break;
       case kCmdNewTab:
