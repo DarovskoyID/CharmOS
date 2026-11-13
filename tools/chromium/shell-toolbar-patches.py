@@ -14,10 +14,13 @@ INCLUDES_BEFORE = """#include "ui/views/background.h"
 """
 INCLUDES_AFTER = """#include "ui/views/background.h"
 #include "base/files/file_path.h"
+#include "base/files/file_util.h"
 #include "base/logging.h"
 #include "components/vector_icons/vector_icons.h"
 #include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/save_page_type.h"
+#include "content/public/common/content_client.h"
+#include "content/shell/browser/shell_content_browser_client.h"
 #include "ui/base/models/image_model.h"
 #include "ui/menus/simple_menu_model.h"
 #include "ui/views/controls/button/image_button.h"
@@ -55,6 +58,22 @@ std::set<std::string>& Bookmarks() {
 bool& YandexSearch() {
   static bool yandex = false;
   return yandex;
+}
+
+std::vector<std::string>& HistoryEntries() {
+  static std::vector<std::string> entries;
+  return entries;
+}
+
+void RecordHistory(WebContents* contents) {
+  if (contents->GetBrowserContext()->IsOffTheRecord()) return;
+  std::string url = contents->GetLastCommittedURL().spec();
+  if (url.empty() || url == "about:blank") return;
+  auto& entries = HistoryEntries();
+  if (!entries.empty() && entries.back() == url) return;
+  entries.push_back(url);
+  base::AppendToFile(base::FilePath(FILE_PATH_LITERAL("/data/browser-history.txt")),
+                     url + "\n");
 }
 
 std::u16string EngineLabel() {
@@ -121,9 +140,14 @@ constexpr int kCmdDevTools = 6;
 constexpr int kCmdBookmarkToggle = 7;
 constexpr int kCmdEngineGoogle = 10;
 constexpr int kCmdEngineYandex = 11;
+constexpr int kCmdNewTab = 12;
+constexpr int kCmdNewIncognito = 13;
+constexpr int kCmdClearHistory = 14;
 constexpr int kCmdNoBookmarks = 98;
 constexpr int kCmdNoDownloads = 97;
 constexpr int kCmdBookmarkBase = 100;
+constexpr int kCmdTabBase = 1000;
+constexpr int kCmdHistoryBase = 2000;
 
 """
 
@@ -362,6 +386,15 @@ METHODS_AFTER = """  template <typename T>
             std::move(action)));
   }
 
+  void CreateTab(bool incognito) {
+    auto* client = static_cast<ShellContentBrowserClient*>(
+        GetContentClient()->browser());
+    BrowserContext* context = incognito
+        ? client->off_the_record_browser_context()
+        : client->browser_context();
+    Shell::CreateNewWindow(context, GURL("about:blank"), nullptr, gfx::Size());
+  }
+
   void ToggleEngine() {
     YandexSearch() = !YandexSearch();
     engine_button_->SetText(EngineLabel());
@@ -403,6 +436,22 @@ METHODS_AFTER = """  template <typename T>
     model->AddItem(kCmdZoomIn, u"Увеличить");
     model->AddItem(kCmdZoomOut, u"Уменьшить");
     model->AddItem(kCmdZoomReset, u"Масштаб 100%");
+    model->AddSeparator(ui::NORMAL_SEPARATOR);
+    model->AddItem(kCmdNewTab, u"Новая вкладка");
+    model->AddItem(kCmdNewIncognito, u"Новое окно инкогнито");
+    int tab_index = 0;
+    for (Shell* tab : Shell::windows()) {
+      model->AddItem(kCmdTabBase + tab_index++,
+                     tab->web_contents()->GetTitle());
+    }
+    model->AddSeparator(ui::NORMAL_SEPARATOR);
+    size_t history_start = HistoryEntries().size() > 10
+        ? HistoryEntries().size() - 10 : 0;
+    for (size_t i = history_start; i < HistoryEntries().size(); ++i) {
+      model->AddItem(kCmdHistoryBase + static_cast<int>(i),
+                     base::ASCIIToUTF16(HistoryEntries()[i]));
+    }
+    model->AddItem(kCmdClearHistory, u"Очистить историю");
     model->AddSeparator(ui::NORMAL_SEPARATOR);
     model->AddItem(kCmdBookmarkToggle, u"Добавить в закладки");
     if (Bookmarks().empty()) {
@@ -457,6 +506,20 @@ METHODS_AFTER = """  template <typename T>
   void OnMenuCommand(int command_id) {
     WebContents* contents = shell_->web_contents();
     if (!contents) return;
+    if (command_id >= kCmdHistoryBase) {
+      size_t index = static_cast<size_t>(command_id - kCmdHistoryBase);
+      if (index < HistoryEntries().size()) shell_->LoadURL(GURL(HistoryEntries()[index]));
+      return;
+    }
+    if (command_id >= kCmdTabBase) {
+      size_t index = static_cast<size_t>(command_id - kCmdTabBase);
+      if (index < Shell::windows().size()) {
+        Shell* tab = Shell::windows()[index];
+        views::Widget::GetWidgetForNativeWindow(tab->window())->Activate();
+        tab->web_contents()->Focus();
+      }
+      return;
+    }
     if (command_id >= kCmdBookmarkBase) {
       int index = command_id - kCmdBookmarkBase;
       int current = 0;
@@ -493,12 +556,32 @@ METHODS_AFTER = """  template <typename T>
         YandexSearch() = true;
         engine_button_->SetText(EngineLabel());
         break;
+      case kCmdNewTab:
+        CreateTab(false);
+        break;
+      case kCmdNewIncognito:
+        CreateTab(true);
+        break;
+      case kCmdClearHistory:
+        HistoryEntries().clear();
+        base::DeleteFile(base::FilePath(FILE_PATH_LITERAL("/data/browser-history.txt")));
+        break;
       default:
         break;
     }
   }
 
   void InitAccelerators() {
+"""
+
+ADDRESS_BEFORE = """  void SetAddressBarURL(const GURL& url) {
+    url_entry_->SetText(base::ASCIIToUTF16(url.spec()));
+  }
+"""
+ADDRESS_AFTER = """  void SetAddressBarURL(const GURL& url) {
+    url_entry_->SetText(base::ASCIIToUTF16(url.spec()));
+    RecordHistory(shell_->web_contents());
+  }
 """
 
 URL_BEFORE = """      GURL url(text);
@@ -534,6 +617,7 @@ def shell_toolbar_patches():
         (SET_WEB_CONTENTS_BEFORE, SET_WEB_CONTENTS_AFTER),
         (MEMBERS_BEFORE, MEMBERS_AFTER),
         (METHODS_BEFORE, METHODS_AFTER),
+        (ADDRESS_BEFORE, ADDRESS_AFTER),
         (URL_BEFORE, URL_AFTER),
         (SET_TITLE_BEFORE, SET_TITLE_AFTER),
     ]
