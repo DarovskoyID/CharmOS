@@ -1482,6 +1482,20 @@ def graphics_patches():
                  'assert(is_win || is_mac || is_linux || is_chromeos || is_charmos)'),
                 ('    "//chrome/browser/ui/views:close_bubble_on_tab_activation_helper",\n', ''),
             ]),
+        "chrome/app/chrome_crash_reporter_client.cc": (
+            "0ce001d007b4a0e9bb97affda63bb0b8162fb6c6d2bd0e6c83c3ef01504e2924", [
+                ('#elif BUILDFLAG(IS_LINUX)\n'
+                 '#if defined(ADDRESS_SANITIZER)',
+                 '#elif BUILDFLAG(IS_CHARMOS)\n'
+                 '  product_name = "Chrome_CharmOS";\n'
+                 '#elif BUILDFLAG(IS_LINUX)\n'
+                 '#if defined(ADDRESS_SANITIZER)'),
+                ('#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n'
+                 'bool ChromeCrashReporterClient::GetCrashMetricsLocation(',
+                 '#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \\\n'
+                 '    BUILDFLAG(IS_CHARMOS)\n'
+                 'bool ChromeCrashReporterClient::GetCrashMetricsLocation('),
+            ]),
         "chrome/app/chrome_exe_main_aura.cc": (
             "c856eeaa5d6d15cce6ecd0d1494cf1f0a3c6a32ae63589c414237a23440f1a68", [
                 ('int main(int argc, const char** argv) {',

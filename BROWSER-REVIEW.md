@@ -53,6 +53,10 @@
   ошибку при их отсутствии и запускает Chrome с отдельным user-data-dir.
   Размер full-Chrome образа увеличен до 1 ГиБ. Bash syntax проверен, образ не
   пересобирался.
+- Устранён ранний `NOTREACHED()` в `ChromeCrashReporterClient::GetProductInfo`:
+  CharmOS получил собственный product id и crash-metrics path. Сбор/upload
+  телеметрии не включался. Проверены 412 patch contexts, гостевой запуск ещё
+  не выполнялся.
 - Следующая реализация должна либо подключить настоящий desktop Chrome target,
   либо явно реализовать эквивалентные profile/history/tabs/extensions/PDFium
   сервисы в shell. Пустые пункты меню и desktop-only GN правки не засчитываются.
