@@ -57,6 +57,11 @@
   CharmOS получил собственный product id и crash-metrics path. Сбор/upload
   телеметрии не включался. Проверены 412 patch contexts, гостевой запуск ещё
   не выполнялся.
+- Полный Chrome получил `tools/chromium/initial_preferences.json`: стартовая
+  страница и поиск Яндекс, штатный TemplateURL/suggestions, без импорта чужого
+  профиля. First-run initial preferences loader подключён на CharmOS без Linux
+  upgrade utility; файл ставится рядом с `/bin/chrome`. JSON, bash и 413 patch
+  contexts проверены, фактическое применение preferences в госте ещё не проверено.
 - Следующая реализация должна либо подключить настоящий desktop Chrome target,
   либо явно реализовать эквивалентные profile/history/tabs/extensions/PDFium
   сервисы в shell. Пустые пункты меню и desktop-only GN правки не засчитываются.

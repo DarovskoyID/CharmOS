@@ -1482,6 +1482,25 @@ def graphics_patches():
                  'assert(is_win || is_mac || is_linux || is_chromeos || is_charmos)'),
                 ('    "//chrome/browser/ui/views:close_bubble_on_tab_activation_helper",\n', ''),
             ]),
+        "chrome/browser/first_run/BUILD.gn": (
+            "842ad61506ca3b1a1a39d5d3ce494d6db41afb688d7f20560529655ec6e31aa0", [
+                ('    if (is_linux) {\n'
+                 '      sources += [\n'
+                 '        "first_run_internal_linux.cc",\n'
+                 '        "upgrade_util_linux.cc",\n'
+                 '      ]\n'
+                 '      deps += [ "//chrome/browser/ui/views:eula_dialog_linux" ]\n'
+                 '    }\n\n'
+                 '    if (is_linux || is_mac) {',
+                 '    if (is_linux || is_charmos) {\n'
+                 '      sources += [ "first_run_internal_linux.cc" ]\n'
+                 '      deps += [ "//chrome/browser/ui/views:eula_dialog_linux" ]\n'
+                 '    }\n'
+                 '    if (is_linux) {\n'
+                 '      sources += [ "upgrade_util_linux.cc" ]\n'
+                 '    }\n\n'
+                 '    if (is_linux || is_mac || is_charmos) {'),
+            ]),
         "chrome/app/chrome_crash_reporter_client.cc": (
             "0ce001d007b4a0e9bb97affda63bb0b8162fb6c6d2bd0e6c83c3ef01504e2924", [
                 ('#elif BUILDFLAG(IS_LINUX)\n'
