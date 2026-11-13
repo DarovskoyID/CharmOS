@@ -72,6 +72,12 @@
   Full-Chrome образ устанавливает их в `/data/tests` и загружает расширение через
   штатный `--load-extension`. PDF открывается пользователем по file URL. JSON и
   Bash проверены; рендер PDF и выполнение extension ещё не подтверждены гостем.
+- Добавлен `tools/chromium/test-full-chrome.py`: уже собранный full-Chrome образ
+  запускается через Alt+B, PDF открывается через Ctrl+L/file URL, затем example.com
+  проверяется по заголовку от content script. Ctrl+T/Ctrl+Shift+N/Ctrl+W покрывают
+  вкладки/incognito. Сохраняются шесть PNG и JSON; PDF требует явного визуального
+  ревью, наличие файла не засчитывается как PDF PASS. Python AST проверен, гостевой
+  запуск пока не выполнялся.
 - Следующая реализация должна либо подключить настоящий desktop Chrome target,
   либо явно реализовать эквивалентные profile/history/tabs/extensions/PDFium
   сервисы в shell. Пустые пункты меню и desktop-only GN правки не засчитываются.
