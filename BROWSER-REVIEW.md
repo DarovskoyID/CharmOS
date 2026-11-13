@@ -87,6 +87,9 @@
   ждёт маркер `charmos-ui: main-menu` и сохраняет `browser-ui-menu.png`. Старый
   screenshot просмотрен только как historical baseline: на нём ещё нет нового
   toolbar/tab strip, поэтому он не является подтверждением нового дизайна.
+- Popup с запрошенной Views translucency больше не отклоняются: содержимое
+  выводится opaque, скругление/тень принадлежат WM. Per-pixel alpha не заявляется;
+  обычные translucent application windows по-прежнему получают явный отказ.
 - Следующая реализация должна либо подключить настоящий desktop Chrome target,
   либо явно реализовать эквивалентные profile/history/tabs/extensions/PDFium
   сервисы в shell. Пустые пункты меню и desktop-only GN правки не засчитываются.

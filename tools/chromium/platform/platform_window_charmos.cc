@@ -24,13 +24,13 @@ PlatformWindowCharmOS::~PlatformWindowCharmOS() {
 }
 bool PlatformWindowCharmOS::Initialize(const PlatformWindowInitProperties& properties) {
   CharmStartupStage("native-window-start");
-  if(properties.opacity==PlatformWindowOpacity::kTranslucentWindow) {
-    LOG(ERROR)<<"Translucent windows are unavailable on the opaque WM canvas";
+  if(properties.opacity==PlatformWindowOpacity::kTranslucentWindow &&
+     properties.type==PlatformWindowType::kWindow) {
+    LOG(ERROR)<<"Translucent application windows are unavailable on the WM canvas";
     return false;
   }
-  // Views menus and tooltips are short-lived opaque top-level surfaces. The WM
-  // gives them ordinary managed-window decorations until it exposes a popup
-  // role; refusing them here makes the browser menu abort its owner.
+  // Popup surfaces use the WM role and opaque content. Rounded popup shadows
+  // belong to the compositor; no per-pixel client alpha is claimed.
   activatable_=properties.activatable;
   uint32_t width = properties.bounds.width() > 0 ?
       static_cast<uint32_t>(properties.bounds.width()) : 800;
