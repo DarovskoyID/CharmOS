@@ -37,7 +37,7 @@ cat >"$work/index.html" <<'EOF'
 </body></html>
 EOF
 if [[ "${CHARMOS_FULL_CHROME:-0}" == 1 ]]; then
-  browser_command='/bin/chrome --charmos-browser-window --single-process --no-sandbox --disable-gpu --disable-in-process-stack-traces --js-flags=--jitless --no-first-run --no-default-browser-check --user-data-dir=/data/chrome'
+  browser_command='/bin/chrome --charmos-browser-window --single-process --no-sandbox --disable-gpu --disable-in-process-stack-traces --js-flags=--jitless --no-first-run --no-default-browser-check --user-data-dir=/data/chrome --load-extension=/data/tests/extension'
 else
   browser_command='/bin/content_shell --charmos-browser-window --single-process --no-sandbox --disable-gpu --disable-in-process-stack-traces --js-flags=--jitless --user-data-dir=/data/content_shell file:///data/index.html'
 fi
@@ -73,7 +73,11 @@ for f in "${assets[@]}"; do
   puts+=(--put "2:/data/$asset_dir/$f=$out/$f")
 done
 if [[ "$browser_name" == chrome ]]; then
-  puts+=(--put "2:/bin/initial_preferences=$root/tools/chromium/initial_preferences.json")
+  puts+=(--put "2:/bin/initial_preferences=$root/tools/chromium/initial_preferences.json"
+         --put "2:/data/tests/browser-ui-test.pdf=$root/tools/chromium/testdata/browser-ui-test.pdf"
+         --put "2:/data/tests/extension/manifest.json=$root/tools/chromium/testdata/extension/manifest.json"
+         --put "2:/data/tests/extension/background.js=$root/tools/chromium/testdata/extension/background.js"
+         --put "2:/data/tests/extension/content.js=$root/tools/chromium/testdata/extension/content.js")
   for locale in en-US ru; do
     [[ -f "$out/locales/$locale.pak" ]] || { echo "Missing Chrome locale: $locale" >&2; exit 1; }
     puts+=(--put "2:/data/chrome/locales/$locale.pak=$out/locales/$locale.pak")

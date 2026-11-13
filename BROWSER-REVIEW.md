@@ -67,6 +67,11 @@
   закрывают вкладку и сохраняют три PNG. PASS требует подтверждающих маркеров,
   стабильности процесса и cold target. Python AST и 413 patch contexts проверены;
   сам guest-сценарий и просмотр новых снимков ещё не выполнялись.
+- Для будущей гостевой проверки добавлены локальный PDF и unpacked Manifest V3
+  extension с background service worker и content script для example.com.
+  Full-Chrome образ устанавливает их в `/data/tests` и загружает расширение через
+  штатный `--load-extension`. PDF открывается пользователем по file URL. JSON и
+  Bash проверены; рендер PDF и выполнение extension ещё не подтверждены гостем.
 - Следующая реализация должна либо подключить настоящий desktop Chrome target,
   либо явно реализовать эквивалентные profile/history/tabs/extensions/PDFium
   сервисы в shell. Пустые пункты меню и desktop-only GN правки не засчитываются.

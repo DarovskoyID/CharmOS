@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "CharmOS Browser Smoke",
+  "version": "1.0",
+  "description": "Local unpacked extension used to verify the native Chrome extension service.",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://example.com/"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
