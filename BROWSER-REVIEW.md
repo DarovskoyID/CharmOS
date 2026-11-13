@@ -46,6 +46,13 @@
   web app scheme на CharmOS. PDF child initialization остаётся штатным
   `ENABLE_PDF` кодом `ChromeMainDelegate`; отдельной подмены PDFium нет.
   Проверены 411 pinned contexts; запуск полного Chrome ещё не подтверждён.
+- `base_paths_charmos.cc` выбирает `/bin/chrome` и `/data/chrome`, когда полный
+  Chrome установлен; прежний content_shell остаётся fallback. Добавлены native
+  `/data` home/cache/desktop пути. `tools/qemu/browser.sh` получил режим
+  `CHARMOS_FULL_CHROME=1`: упаковывает обязательные resources/locales, выдаёт
+  ошибку при их отсутствии и запускает Chrome с отдельным user-data-dir.
+  Размер full-Chrome образа увеличен до 1 ГиБ. Bash syntax проверен, образ не
+  пересобирался.
 - Следующая реализация должна либо подключить настоящий desktop Chrome target,
   либо явно реализовать эквивалентные profile/history/tabs/extensions/PDFium
   сервисы в shell. Пустые пункты меню и desktop-only GN правки не засчитываются.

@@ -10,12 +10,18 @@ bool PathProviderPosix(int key, FilePath* result) {
   // The native startup ABI does not expose an executable path and there is no
   // /proc. Pin the two paths the browser service is installed at: DIR_EXE is
   // derived from FILE_EXE, while DIR_ASSETS is the directory of FILE_MODULE.
+  const bool full_chrome = PathExists(FilePath("/bin/chrome"));
   if (key == FILE_EXE) {
-    *result = FilePath("/bin/content_shell");
+    *result = FilePath(full_chrome ? "/bin/chrome" : "/bin/content_shell");
     return true;
   }
   if (key == FILE_MODULE) {
-    *result = FilePath("/data/content_shell/content_shell");
+    *result = FilePath(full_chrome ? "/data/chrome/chrome"
+                                  : "/data/content_shell/content_shell");
+    return true;
+  }
+  if (key == DIR_HOME || key == DIR_CACHE || key == DIR_USER_DESKTOP) {
+    *result = FilePath("/data");
     return true;
   }
   FilePath path;
