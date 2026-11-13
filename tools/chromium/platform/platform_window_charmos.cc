@@ -40,7 +40,8 @@ bool PlatformWindowCharmOS::Initialize(const PlatformWindowInitProperties& prope
       base::SequencedTaskRunner::GetCurrentDefault());
   widget_ = registry_->Add(this);
   uint32_t flags = abi::wm::kCreateInvisible |
-      (properties.activatable ? 0u : abi::wm::kCreateInactive);
+      (properties.activatable ? 0u : abi::wm::kCreateInactive) |
+      (properties.type == PlatformWindowType::kWindow ? 0u : abi::wm::kCreatePopup);
   const char* title = base::CommandLine::ForCurrentProcess()->HasSwitch("charmos-browser-window")
       ? "CharmOS Browser" : "Chromium";
   auto status = presenter_->Initialize(title,width,height,

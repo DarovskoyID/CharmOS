@@ -9,8 +9,8 @@ namespace abi::wm {
 inline constexpr uint32_t kVersion = 2;
 inline constexpr uint32_t kManagedVersion = 3;
 inline constexpr uint32_t kFeatureTitle=1, kFeatureBounds=2, kFeatureVisibility=4,
-                          kFeatureActivation=8, kFeatureCapture=16;
-inline constexpr uint32_t kCreateInvisible=1, kCreateInactive=2;
+                          kFeatureActivation=8, kFeatureCapture=16, kFeaturePopup=32;
+inline constexpr uint32_t kCreateInvisible=1, kCreateInactive=2, kCreatePopup=4;
 
 // §2.1 клиент → компоновщик
 inline constexpr uint32_t kHelo = 1, kCreate = 2, kPresent = 3, kDestroy = 4;

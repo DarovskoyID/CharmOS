@@ -37,6 +37,9 @@ constexpr uint32_t kInk = 0x0b0b0c, kRaised = 0x1b1a18, kAmber = 0xf5c518, kWhit
 constexpr int32_t kTitle = 52;   // Window.dc.html: высота заголовка окна
 constexpr int32_t kCursor = 24;
 constexpr uint64_t kFrameNs = 16'666'667;  // не чаще 60 Гц (wm.md §3)
+// A closing browser may never leave the kernel; after this the compositor
+// gives the desktop its pixels back even if init's kill is still pending.
+constexpr uint64_t kCloseGraceNs = 2'000'000'000ull;
 constexpr int kMaxClients = 8, kMaxWindows = 16;
 constexpr uint64_t kKeyInput = 1, kKeyDoor = 2, kKeyClient = 100;
 constexpr int32_t kPanel = 40;
@@ -96,19 +99,26 @@ struct Screen {
 struct Window {
   bool used;
   bool minimized;
+  bool closing;       // пользователь закрыл: окно больше не показываем
+  bool popup;
+  bool unresponsive;  // клиент не забирает ввод: страница зависла
   uint32_t id;
   uint32_t generation;
   int client;
-  Rect frame;  // с заголовком; содержимое — frame.y + kTitle
+  Rect frame;  // с необязательным заголовком; смещение задаёт title_height()
   int32_t w, h;
   char title[64];
   const uint32_t* buf[2];
   int shown;    // показываемый буфер (-1 — ещё нет кадра)
   int pending;  // присланный PRESENT, ещё не выведенный (-1 — нет)
   Rect pending_damage;
+  uint64_t unresponsive_since;  // 0 — ввод забирается
+  uint64_t close_deadline;      // 0 — закрытие ещё не начато
   sc::InputRingHeader* ring;
   sc::InputEvent* events;
 };
+
+int32_t title_height(const Window& window) { return window.popup ? 0 : kTitle; }
 
 constexpr unsigned kOutboundMessages=64;
 struct OutboundMessage {
@@ -142,6 +152,10 @@ bool g_browser_user_requested = false;
 volatile int g_browser_launch_state = 0;
 uint64_t g_browser_focus_deadline = 0;
 uint64_t g_browser_request_ns = 0;
+uint64_t g_browser_open_ns = 0;  // Card/shortcut input → first displayed frame.
+uint64_t g_browser_content_request_ns = 0;
+bool g_browser_open_warm = false;
+bool g_browser_preload_reported = false;
 Window g_win[kMaxWindows];
 int g_z[kMaxWindows];  // порядок снизу вверх (индексы g_win)
 int g_zn = 0;
@@ -487,17 +501,11 @@ bool browser_match() {
 // names. Returns -1 when the browser window is not present.
 int find_browser_window() {
   if (g_browser_window >= 0 && g_browser_window < kMaxWindows &&
-      g_win[g_browser_window].used) {
+      g_win[g_browser_window].used && !g_win[g_browser_window].closing) {
     return g_browser_window;
   }
-  for (int i = 0; i < g_zn; ++i) {
-    const char* title = g_win[g_z[i]].title;
-    if (strstr(title, "Chromium") != nullptr ||
-        strstr(title, "CharmOS") != nullptr) {
-      g_browser_window = g_z[i];
-      return g_browser_window;
-    }
-  }
+  // The initial opt-in marker is recorded at CREATE. Page titles are neither
+  // stable identities nor a reason to adopt an unrelated application window.
   return -1;
 }
 
@@ -522,9 +530,15 @@ void request_browser_start(bool kill_first) {
 }
 
 void launch_browser() {
+  // Repeated clicks during one launch must not reset its measured latency.
+  if (!g_browser_open_ns) g_browser_open_ns = charm::now_ns();
   g_browser_user_requested = true;
   int wi = find_browser_window();
+  g_browser_open_warm = wi >= 0 && g_win[wi].shown >= 0;
+  if (!g_browser_open_warm && !g_browser_content_request_ns)
+    g_browser_content_request_ns = g_browser_open_ns;
   if (wi >= 0) {
+    g_quick_notice[0] = 0;
     raise(wi); set_focus(wi);
     if (g_launcher) launcher_toggle();
     printf("wm: focus browser\n");
@@ -547,7 +561,12 @@ void launch_browser() {
   snprintf(g_quick_notice, sizeof g_quick_notice, "Браузер запускается…");
   if (g_launcher) launcher_toggle();
   damage(g_s.all());
-  request_browser_start(false);
+  // No window means there is no live page to preserve. Ask init to stop a
+  // process that may still be wedged (a crash before reaping, or a hang whose
+  // kill never completed) before starting a fresh one; otherwise "start"
+  // answers "running" and the card would do nothing. On a truly cold start the
+  // kill is a no-op.
+  request_browser_start(true);
   if (g_init_ctl == 0) {
     printf("wm: no init control channel\n");
   }
@@ -579,9 +598,10 @@ void poll_browser_focus() {
     // ("running" for a process that just died). Keep asking every 3 s; init
     // answers "running" while the service is alive, which is harmless.
     if (g_browser_request_ns != 0 &&
-        charm::now_ns() - g_browser_request_ns > 3'000'000'000ull) {
-      init_command("start browser");
-      g_browser_request_ns = charm::now_ns();
+        charm::now_ns() - g_browser_request_ns > 15'000'000'000ull) {
+      // A windowless service is not a page the user can be looking at:
+      // replace it instead of waiting for a process that may never answer.
+      request_browser_start(true);
     }
     return;
   }
@@ -589,6 +609,7 @@ void poll_browser_focus() {
   g_browser_focus_deadline = 0;
   g_browser_request_ns = 0;
   __atomic_store_n(&g_browser_launch_state, 0, __ATOMIC_RELEASE);
+  g_quick_notice[0] = 0;
   raise(wi); set_focus(wi);
   printf("wm: focused pending browser\n");
 }
@@ -642,7 +663,7 @@ int launcher_item(int ordinal) {
   if (browser_match() && ordinal-- == 0) return 102;
   int visible = 0;
   for (int i = 0; i < g_zn && visible < launcher_windows(); ++i) {
-    if (!title_matches(g_win[g_z[i]].title)) continue;
+    if (g_win[g_z[i]].closing || !title_matches(g_win[g_z[i]].title)) continue;
     ++visible;
     if (ordinal-- == 0) return 2 + g_z[i];
   }
@@ -828,10 +849,11 @@ void launcher_draw(Rect d) {
     rounded({tx + 1, ty + 1, 198, 46}, 9, 0x141416, d);
     text(w.title, tx + 16, ty + (w.minimized ? 20 : 29), 0xf3efe7, intersect({tx + 8, ty, 184, 48}, d), false, 14);
     if (w.minimized) text("Свёрнуто", tx + 16, ty + 38, 0x8e887d, d, false, 10);
+    else if (w.unresponsive) text("Не отвечает", tx + 16, ty + 38, 0xffa38f, d, false, 10);
   }
 }
 
-Rect content(const Window& w) { return {w.frame.x, w.frame.y + kTitle, w.w, w.h}; }
+Rect content(const Window& w) { return {w.frame.x, w.frame.y + title_height(w), w.w, w.h}; }
 
 void damage(Rect r) {
   if (r.empty()) return;
@@ -890,7 +912,7 @@ void send_event(int client,uint32_t type,uint32_t window,uint32_t value,uint32_t
   if(g_cl[client].version==wm::kManagedVersion) {
     for(const auto& candidate:g_win) if(candidate.used && candidate.client==client && candidate.id==window) {
       if(!generation) event.generation=candidate.generation;
-      event.x=candidate.frame.x; event.y=candidate.frame.y+kTitle;
+      event.x=candidate.frame.x; event.y=candidate.frame.y+title_height(candidate);
       event.width=static_cast<uint32_t>(candidate.w); event.height=static_cast<uint32_t>(candidate.h);
       break;
     }
@@ -900,6 +922,7 @@ void send_event(int client,uint32_t type,uint32_t window,uint32_t value,uint32_t
 }
 
 void raise(int wi) {
+  if (wi >= 0 && g_win[wi].closing) return;
   int at = -1;
   for (int i = 0; i < g_zn; ++i) {
     if (g_z[i] == wi) at = i;
@@ -924,6 +947,7 @@ void release_capture() {
 }
 
 void set_focus(int wi) {
+  if (wi >= 0 && g_win[wi].closing) wi = -1;
   if (wi == g_focus) return;
   if(g_capture>=0 && g_capture!=wi) release_capture();
   if (g_focus >= 0 && g_win[g_focus].used) {
@@ -939,7 +963,8 @@ void set_focus(int wi) {
 
 int window_at(int32_t x, int32_t y) {
   for (int i = g_zn - 1; i >= 0; --i) {
-    if (!g_win[g_z[i]].minimized && g_win[g_z[i]].frame.contains(x, y)) return g_z[i];
+    Window& w = g_win[g_z[i]];
+    if (!w.minimized && !w.closing && w.frame.contains(x, y)) return g_z[i];
   }
   return -1;
 }
@@ -974,7 +999,8 @@ Rect hover_rect() {
 
 void focus_top_visible() {
   for (int i = g_zn - 1; i >= 0; --i) {
-    if (!g_win[g_z[i]].minimized) { set_focus(g_z[i]); return; }
+    Window& w = g_win[g_z[i]];
+    if (!w.minimized && !w.closing) { set_focus(g_z[i]); return; }
   }
   set_focus(-1);
 }
@@ -991,6 +1017,34 @@ void minimize(int wi) {
   printf("wm: window %u minimized\n", w.id);
 }
 
+// User-initiated close. The browser is a real application: closing it stops
+// the service (init terminates the process and does not restart it), so a hung
+// page never leaves a hidden process behind. The window disappears at once so
+// the close button always reads as "pressed", even if the process is wedged in
+// the kernel; the connection is dropped after a short grace period. The next
+// card click is a fresh start; that is what the cold-start measurement covers.
+void request_close(int wi) {
+  if (wi < 0 || wi >= kMaxWindows || !g_win[wi].used || g_win[wi].closing) return;
+  if (wi == g_browser_window) {
+    g_browser_user_requested = false;
+    g_browser_open_ns = 0;
+    g_browser_focus_pending = false;
+    g_browser_focus_deadline = g_browser_request_ns = 0;
+    __atomic_store_n(&g_browser_launch_state, 0, __ATOMIC_RELEASE);
+    if (g_capture == wi) release_capture();
+    if (g_drag == wi) g_drag = -1;
+    g_win[wi].closing = true;
+    g_win[wi].close_deadline = charm::now_ns() + kCloseGraceNs;
+    damage(g_win[wi].frame);
+    if (g_focus == wi) g_focus = -1;
+    focus_top_visible();
+    init_command("stop browser");
+    printf("wm: browser close requested\n");
+    return;
+  }
+  send_event(g_win[wi].client, wm::kCloseRequest, g_win[wi].id, 0);
+}
+
 void destroy_window(int wi) {
   Window& w = g_win[wi];
   bool focused = g_focus == wi;
@@ -1005,7 +1059,11 @@ void destroy_window(int wi) {
   g_zn = k;
   if (g_focus == wi) g_focus = -1;
   if (g_drag == wi) g_drag = -1;
-  if (g_browser_window == wi) g_browser_window = -1;
+  if (g_browser_window == wi) {
+    g_browser_window = -1;
+    g_browser_content_request_ns = 0;
+    g_browser_preload_reported = false;
+  }
   for (auto& buf : w.buf) {
     if (buf != nullptr) (void)charm::vmo_unmap(reinterpret_cast<uint64_t>(buf));
     buf = nullptr;
@@ -1038,15 +1096,92 @@ void collect_failed_clients() {
   }
 }
 
+// How long an undrained input ring means "the page is hung" rather than
+// "the UI thread is busy painting". A cold start can take a few seconds and a
+// drag fills the ring with motion, so require both time and a solid backlog;
+// the compositor must not cry "hang" during a normal load.
+constexpr uint64_t kUnresponsiveNs = 10'000'000'000ull;
+constexpr uint32_t kUnresponsiveBacklog = 32;
+
+// Earliest absolute time the health poll needs the loop awake (0 — never).
+uint64_t health_deadline() {
+  uint64_t when = 0;
+  for (int i = 0; i < kMaxWindows; ++i) {
+    const Window& w = g_win[i];
+    if (!w.used) continue;
+    uint64_t at = 0;
+    if (w.closing) at = w.close_deadline;
+    else if (w.unresponsive_since != 0 && !w.unresponsive) at = w.unresponsive_since + kUnresponsiveNs;
+    if (at != 0 && (when == 0 || at < when)) when = at;
+  }
+  return when;
+}
+
+// Input that stays queued means the client stopped reading it. Mark the frame
+// and let the user close the window; never wait for the client to recover.
+void poll_client_health(uint64_t now) {
+  int force[kMaxWindows];
+  int nf = 0;
+  for (int i = 0; i < kMaxWindows; ++i) {
+    Window& w = g_win[i];
+    if (!w.used) continue;
+    if (w.closing) {
+      if (w.close_deadline != 0 && now >= w.close_deadline) {
+        printf("wm: window %u close timeout\n", w.id);
+        if (i == g_browser_window) init_command("kill browser");
+        bool seen = false;
+        for (int k = 0; k < nf; ++k) if (force[k] == w.client) seen = true;
+        if (!seen && nf < kMaxWindows) force[nf++] = w.client;
+      }
+      continue;
+    }
+    bool queued = false;
+    uint32_t backlog = 0;
+    if (!w.minimized && w.ring != nullptr) {
+      uint32_t tail = __atomic_load_n(&w.ring->tail, __ATOMIC_ACQUIRE);
+      uint32_t head = __atomic_load_n(&w.ring->head, __ATOMIC_ACQUIRE);
+      backlog = tail - head;
+      queued = backlog != 0;
+    }
+    if (queued) {
+      if (w.unresponsive_since == 0) w.unresponsive_since = now;
+      if (!w.unresponsive && backlog >= kUnresponsiveBacklog &&
+          now - w.unresponsive_since > kUnresponsiveNs) {
+        w.unresponsive = true;
+        damage({w.frame.x, w.frame.y, w.frame.w, kTitle});
+        printf("wm: window %u is not responding\n", w.id);
+      }
+    } else if (w.unresponsive_since != 0) {
+      w.unresponsive_since = 0;
+      if (w.unresponsive) {
+        w.unresponsive = false;
+        if (!w.minimized) damage({w.frame.x, w.frame.y, w.frame.w, kTitle});
+        printf("wm: window %u responds again\n", w.id);
+      }
+    }
+  }
+  for (int k = 0; k < nf; ++k) drop_client(force[k]);
+}
+
 // Событие в кольцо окна (wm.md §3) и INPUT, если кольцо было пусто.
+// Кольцо фиксированного размера. Движение мыши идёт потоком и может забить
+// его целиком, пока клиент рисует кадр или завис; тогда нажатие кнопки
+// терялось бы навсегда. Оставляем несколько слотов под кнопки, клавиши и
+// колесо: движение сверх этого порога отбрасывается (координаты всё равно
+// устарели), а управляющие события доходят.
+constexpr uint32_t kControlSlots = 8;
 void forward(int wi, const sc::InputEvent& e) {
   Window& w = g_win[wi];
   uint32_t head = __atomic_load_n(&w.ring->head, __ATOMIC_ACQUIRE), tail = w.ring->tail;
-  if (tail - head >= w.ring->capacity) {
+  uint32_t capacity = w.ring->capacity;
+  uint32_t limit = capacity;
+  if (e.type == sc::kInputMotion && capacity > kControlSlots)
+    limit = capacity - kControlSlots;
+  if (tail - head >= limit) {
     ++w.ring->dropped;
     return;
   }
-  w.events[tail % w.ring->capacity] = e;
+  w.events[tail % capacity] = e;
   // Publish before testing emptiness again. Paired with the client's SC head
   // store + tail recheck: either it drains this event or we send a wakeup.
   if (lib::input::publish_tail(&w.ring->tail, &w.ring->head, tail + 1)) send_event(w.client, wm::kInput, w.id, 0);
@@ -1065,9 +1200,9 @@ bool map_framebuffers(const Handle* handles,uint32_t count,uint64_t bytes,uint64
   return true;
 }
 void clamp_position(Window& window,int32_t content_x,int32_t content_y) {
-  int64_t x=content_x,y=int64_t{content_y}-kTitle;
+  int64_t x=content_x,y=int64_t{content_y}-title_height(window);
   int64_t maximum_x=int64_t{g_s.width}-window.w;
-  int64_t maximum_y=int64_t{g_s.height}-window.h-kTitle;
+  int64_t maximum_y=int64_t{g_s.height}-window.h-title_height(window);
   if(maximum_y<kPanel) maximum_y=kPanel;
   if(x<0) x=0;
   if(x>maximum_x) x=maximum_x;
@@ -1109,13 +1244,14 @@ void create_window(int ci, const wm::Create& m, const Handle* hs, uint32_t nh,ui
   w.generation=g_cl[ci].version==wm::kManagedVersion ? 1 : 0;
   w.client = ci;
   w.minimized=(flags&wm::kCreateInvisible)!=0;
+  w.popup=(flags&wm::kCreatePopup)!=0;
   w.w = static_cast<int32_t>(m.width);
   w.h = static_cast<int32_t>(m.height);
   memcpy(w.title, m.title, sizeof w.title);
   w.title[sizeof w.title - 1] = 0;
   // Каскад по слоту: каждое следующее окно правее и ниже.
   int32_t n = static_cast<int32_t>(wi);
-  w.frame = {80 + n * 300, 80 + n * 150, w.w, w.h + kTitle};
+  w.frame = {80 + n * 300, 80 + n * 150, w.w, w.h + title_height(w)};
   if (w.w > static_cast<int32_t>(g_s.width) / 2) {
     w.frame.x = (static_cast<int32_t>(g_s.width) - w.w) / 2;
     w.frame.y = kPanel + 56;
@@ -1124,7 +1260,7 @@ void create_window(int ci, const wm::Create& m, const Handle* hs, uint32_t nh,ui
     if (w.frame.y + w.frame.h > static_cast<int32_t>(g_s.height)) w.frame.y = static_cast<int32_t>(g_s.height) - w.frame.h;
     if (w.frame.y < kPanel) w.frame.y = kPanel;
   }
-  if(g_cl[ci].version==wm::kManagedVersion) clamp_position(w,w.frame.x,w.frame.y+kTitle);
+  if(g_cl[ci].version==wm::kManagedVersion) clamp_position(w,w.frame.x,w.frame.y+title_height(w));
   w.buf[0] = reinterpret_cast<const uint32_t*>(map0);
   w.buf[1] = reinterpret_cast<const uint32_t*>(map1);
   w.shown = w.pending = -1;
@@ -1134,15 +1270,23 @@ void create_window(int ci, const wm::Create& m, const Handle* hs, uint32_t nh,ui
   w.ring->version = 1;
   w.ring->capacity = 128;
   g_z[g_zn++] = wi;
-  bool browser_window = g_browser_window < 0 &&
-      (strstr(w.title, "Chromium") != nullptr || strstr(w.title, "CharmOS") != nullptr);
+  bool browser_window = g_browser_available &&
+      g_cl[ci].version == wm::kManagedVersion &&
+      strcmp(w.title, "CharmOS Browser") == 0 &&
+      (g_browser_window < 0 || !g_win[g_browser_window].used ||
+       g_win[g_browser_window].closing);
   if (browser_window) {
+    // A fresh process can appear while the old (closing or wedged) window is
+    // still in the table. Adopt the live one; otherwise the card would keep
+    // answering "запускается" forever.
     g_browser_window = wi;
+    g_browser_preload_reported = false;
+    g_browser_content_request_ns = 0;
   }
   damage(w.frame);
   reply.window = w.id;
   reply.x = w.frame.x;
-  reply.y = w.frame.y + kTitle;
+  reply.y = w.frame.y + title_height(w);
   Handle give = static_cast<Handle>(ring.value);
   if(send_message(ci,&reply,sizeof reply,give)!=Status::Ok) {
     (void)charm::handle_close(give);
@@ -1185,7 +1329,7 @@ void configure_window(int ci,const wm::Configure& request,const Handle* handles,
   window.buf[0]=reinterpret_cast<const uint32_t*>(first);
   window.buf[1]=reinterpret_cast<const uint32_t*>(second);
   window.w=static_cast<int32_t>(request.width); window.h=static_cast<int32_t>(request.height);
-  window.frame.w=window.w; window.frame.h=window.h+kTitle;
+  window.frame.w=window.w; window.frame.h=window.h+title_height(window);
   window.generation=request.generation;
   window.shown=window.pending=-1; window.pending_damage={};
   clamp_position(window,request.x,request.y);
@@ -1213,7 +1357,7 @@ void client_message(int ci) {
       }
       if(managed && len==sizeof(wm::CreateV3)) {
         auto& request=*reinterpret_cast<wm::CreateV3*>(msg);
-        if(nh==2 && !(request.flags&~(wm::kCreateInvisible|wm::kCreateInactive))) {
+        if(nh==2 && !(request.flags&~(wm::kCreateInvisible|wm::kCreateInactive|wm::kCreatePopup))) {
           create_window(ci,request.base,hs,nh,request.flags);
           continue;
         }
@@ -1255,6 +1399,14 @@ void client_message(int ci) {
       int wi=find_window(ci,request.window);
       if(wi<0 || !memchr(request.title,0,sizeof request.title)) { g_cl[ci].failed=true; return; }
       memcpy(g_win[wi].title,request.title,sizeof request.title);
+      if (wi == g_browser_window && strcmp(request.title, "CharmOS Unicode probe ready") == 0) {
+        printf("wm: browser Unicode probe ready\n");
+        if (g_browser_content_request_ns) {
+          printf("wm: browser DOM ready %llu us\n",
+                 static_cast<unsigned long long>((charm::now_ns() - g_browser_content_request_ns) / 1000));
+          g_browser_content_request_ns = 0;
+        }
+      }
       damage(g_s.all());
     } else if(managed && type==wm::kSetPosition && len==sizeof(wm::SetPosition)) {
       const auto& request=*reinterpret_cast<wm::SetPosition*>(msg);
@@ -1334,7 +1486,7 @@ void door_message(Handle door) {
     wm::WelcomeV3 welcome{{wm::kWelcome,m.version,g_s.bgrx ? sc::kDisplayBgrx : sc::kDisplayRgbx,
                           g_s.width,g_s.height},kTitle,0,kPanel,g_s.width,g_s.height-kPanel,
                          wm::kFeatureTitle|wm::kFeatureBounds|wm::kFeatureVisibility|wm::kFeatureActivation|
-                         wm::kFeatureCapture};
+                         wm::kFeatureCapture|wm::kFeaturePopup};
     uint32_t bytes=m.version==wm::kManagedVersion ? sizeof welcome : sizeof welcome.base;
     if(send_message(ci,&welcome,bytes)!=Status::Ok) g_cl[ci].failed=true;
     rearm_client(ci);
@@ -1375,7 +1527,7 @@ void input_event(const sc::InputEvent& e) {
       int wi = g_z[0]; raise(wi); set_focus(wi); return;
     }
     if (g_alt && e.value == 1 && e.code == 0x3d && g_focus >= 0) {
-      send_event(g_win[g_focus].client, wm::kCloseRequest, g_win[g_focus].id, 0); return;
+      request_close(g_focus); return;
     }
     if (g_launcher) {
       if (e.value == 0) return;
@@ -1446,7 +1598,7 @@ void input_event(const sc::InputEvent& e) {
       w.frame.y += g_cursor.y - old.y;
       if (w.frame.y < kPanel) w.frame.y = kPanel;
       if(g_cl[w.client].version==wm::kManagedVersion) {
-        clamp_position(w,w.frame.x,w.frame.y+kTitle);
+        clamp_position(w,w.frame.x,w.frame.y+title_height(w));
         send_event(w.client,wm::kBoundsChanged,w.id,0);
       }
       damage(w.frame);
@@ -1465,11 +1617,27 @@ void input_event(const sc::InputEvent& e) {
     return;
   }
   if(g_capture>=0 && (e.type==sc::kInputButton || e.type==sc::kInputWheel)) {
-    auto event=e;
-    Rect bounds=content(g_win[g_capture]);
-    event.x=g_cursor.x-bounds.x; event.y=g_cursor.y-bounds.y;
-    forward(g_capture,event);
-    return;
+    // Рамка окна и панель принадлежат компоновщику. Нажатие на них забирает
+    // указатель назад, даже если клиент держит захват: иначе зависшее окно
+    // «съедало» бы кнопки закрытия и сворачивания, и закрыть его мышью было
+    // бы невозможно. Клиент получает CAPTURE_CHANGED(0), как при потере фокуса.
+    bool chrome = false;
+    if (e.type == sc::kInputButton && e.code == 1 && e.value != 0) {
+      if (g_cursor.y < kPanel) {
+        chrome = true;
+      } else {
+        int wi = window_at(g_cursor.x, g_cursor.y);
+        chrome = wi >= 0 && g_cursor.y < g_win[wi].frame.y + title_height(g_win[wi]);
+      }
+    }
+    if (!chrome) {
+      auto event=e;
+      Rect bounds=content(g_win[g_capture]);
+      event.x=g_cursor.x-bounds.x; event.y=g_cursor.y-bounds.y;
+      forward(g_capture,event);
+      return;
+    }
+    release_capture();
   }
   if (e.type == sc::kInputButton && e.value == 1 && e.code == 1 && g_cursor.y < kPanel) {
     if (g_cursor.x >= static_cast<int32_t>(g_s.width) - 262 && g_cursor.x < static_cast<int32_t>(g_s.width) - 162) control_toggle();
@@ -1517,9 +1685,9 @@ void input_event(const sc::InputEvent& e) {
       if (wi >= 0) {
         raise(wi);
         set_focus(wi);
-        if (g_cursor.y < g_win[wi].frame.y + kTitle) {
+        if (g_cursor.y < g_win[wi].frame.y + title_height(g_win[wi])) {
           if (e.code == 1 && Rect{g_win[wi].frame.x + 16, g_win[wi].frame.y + 16, 20, 20}.contains(g_cursor.x, g_cursor.y)) {
-            send_event(g_win[wi].client, wm::kCloseRequest, g_win[wi].id, 0); return;
+            request_close(wi); return;
           }
           if (e.code == 1 && Rect{g_win[wi].frame.x + g_win[wi].frame.w - 36, g_win[wi].frame.y + 16, 20, 20}.contains(g_cursor.x, g_cursor.y)) {
             minimize(wi); return;
@@ -1558,21 +1726,30 @@ void compose_region(Rect d) {
   desktop(d);
   for (int i = 0; i < g_zn; ++i) {
     Window& w = g_win[g_z[i]];
-    if (w.minimized) continue;
-    Rect bar{w.frame.x, w.frame.y, w.frame.w, kTitle};
+    if (w.minimized || w.closing) continue;
+    Rect bar{w.frame.x, w.frame.y, w.frame.w, title_height(w)};
     if (g_shadows) {
       shadow({bar.x - 12, bar.y - 4, w.frame.w + 24, w.frame.h + 24}, w.frame, 28, 24, d);
       shadow({bar.x - 6, bar.y, w.frame.w + 12, w.frame.h + 12}, w.frame, 22, 40, d);
     }
     rounded({bar.x - 1, bar.y - 1, w.frame.w + 2, w.frame.h + 2}, 18, g_z[i] == g_focus ? 0x5b5140 : 0x2a2a2e, d);
     rounded(w.frame, 17, 0x17171a, d);
-    g_s.fill({bar.x, bar.y + kTitle - 1, bar.w, 1}, 0x2a2a2e, d);
+    if (!w.popup) {
+    g_s.fill({bar.x, bar.y + bar.h - 1, bar.w, 1}, 0x2a2a2e, d);
     if (hot({bar.x + 16, bar.y + 16, 20, 20})) rounded({bar.x + 12, bar.y + 12, 28, 28}, 7, 0x542522, d);
     rounded({bar.x + 16, bar.y + 20, 12, 12}, 3, hot({bar.x + 16, bar.y + 16, 20, 20}) ? 0xff6559 : 0xe0352b, d);
     rounded({bar.x + bar.w - 36, bar.y + 16, 20, 20}, 5, hot({bar.x + bar.w - 36, bar.y + 16, 20, 20}) ? 0x51452a : 0x29251b, d);
     g_s.fill({bar.x + bar.w - 31, bar.y + 26, 10, 2}, kAmber, d);
     text(w.title, bar.x + 44, bar.y + 31, g_z[i] == g_focus ? 0xf3efe7 : 0x8e887d,
          intersect({bar.x + 40, bar.y, bar.w - 84, bar.h}, d), false, 14);
+    if (w.unresponsive) {
+      // Честный индикатор вместо «мёртвых» кнопок: страница не забирает ввод.
+      int32_t cx = bar.x + bar.w - 138;
+      rounded({cx, bar.y + 15, 96, 22}, 11, 0x3d211b, d);
+      g_s.fill({cx + 10, bar.y + 25, 5, 2}, 0xff8b73, d);
+      text("Не отвечает", cx + 13, bar.y + 30, 0xffa38f, d, false, 11);
+    }
+    }
     Rect c = intersect(intersect(content(w), d), g_s.all());
     if (c.empty()) continue;
     if (w.shown < 0) {
@@ -1695,10 +1872,14 @@ extern "C" int main(int, char**) {
 
   uint64_t last_frame = 0;
   for (;;) {
+    uint64_t health_now = charm::now_ns();
+    poll_client_health(health_now);
     poll_browser_focus();
     if (ring != nullptr) (void)charm::object_bind(g_port, input, kKeyInput);
     uint64_t deadline = charm::kForever;
     if (!g_damage.empty()) deadline = last_frame + kFrameNs;
+    uint64_t health = health_deadline();
+    if (health != 0 && (deadline == charm::kForever || health < deadline)) deadline = health;
     if (g_browser_focus_pending) {
       // Retry the pending card focus while the browser service is still
       // starting, without spinning: wake up a few times per second.
@@ -1740,9 +1921,23 @@ extern "C" int main(int, char**) {
           g_win[i].shown = g_win[i].pending;
           g_win[i].pending = -1;
           g_win[i].pending_damage = {};
+          if (i == g_browser_window && !g_browser_preload_reported) {
+            g_browser_preload_reported = true;
+            printf("wm: browser preloaded frame ready\n");
+          }
         }
       }
       compose();
+      if (g_browser_open_ns && g_browser_window >= 0 &&
+          g_win[g_browser_window].used && !g_win[g_browser_window].minimized &&
+          g_win[g_browser_window].shown >= 0) {
+        auto elapsed = (charm::now_ns() - g_browser_open_ns) / 1000;
+        printf("wm: browser visible %llu us (%s)\n",
+               static_cast<unsigned long long>(elapsed),
+               g_browser_open_warm ? "warm" : "cold");
+        g_browser_open_ns = 0;
+        g_quick_notice[0] = 0;
+      }
       last_frame = now;
       for (int k = 0; k < nd; ++k) {
         Window& w = g_win[done_win[k]];
