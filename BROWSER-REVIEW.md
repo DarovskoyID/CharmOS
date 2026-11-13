@@ -21,6 +21,10 @@
   profile (без Temporal, pointer compression, WASM и cppgc cage), что и Blink.
   По требованию владельца сборка и QEMU не запускались; это изменение пока
   проверено только чтением конфигурации.
+- В Ozone разрешены opaque popup/tooltip/menu top-level surfaces, которые ранее
+  отклонялись. Временно WM отображает их как обычные managed окна с рамкой, а не
+  как бесрамочные popup. Меню toolbar включено; translucent surfaces по-прежнему
+  честно отклоняются. Это исходная правка, гостевой клик по меню ещё не проверен.
 - Следующая реализация должна либо подключить настоящий desktop Chrome target,
   либо явно реализовать эквивалентные profile/history/tabs/extensions/PDFium
   сервисы в shell. Пустые пункты меню и desktop-only GN правки не засчитываются.

@@ -1,5 +1,7 @@
 #include "build/charmos/platform_window_charmos.h"
 #include <algorithm>
+#include "build/charmos/startup_profile_charmos.h"
+#include "base/command_line.h"
 
 #include "base/functional/bind.h"
 #include "base/logging.h"
@@ -21,11 +23,14 @@ PlatformWindowCharmOS::~PlatformWindowCharmOS() {
   if (presenter_) presenter_->Close();
 }
 bool PlatformWindowCharmOS::Initialize(const PlatformWindowInitProperties& properties) {
-  if(properties.type!=PlatformWindowType::kWindow || properties.remove_standard_frame ||
-     properties.opacity==PlatformWindowOpacity::kTranslucentWindow) {
-    LOG(ERROR)<<"Requested window needs a WM capability not yet available";
+  CharmStartupStage("native-window-start");
+  if(properties.opacity==PlatformWindowOpacity::kTranslucentWindow) {
+    LOG(ERROR)<<"Translucent windows are unavailable on the opaque WM canvas";
     return false;
   }
+  // Views menus and tooltips are short-lived opaque top-level surfaces. The WM
+  // gives them ordinary managed-window decorations until it exposes a popup
+  // role; refusing them here makes the browser menu abort its owner.
   activatable_=properties.activatable;
   uint32_t width = properties.bounds.width() > 0 ?
       static_cast<uint32_t>(properties.bounds.width()) : 800;
@@ -36,7 +41,9 @@ bool PlatformWindowCharmOS::Initialize(const PlatformWindowInitProperties& prope
   widget_ = registry_->Add(this);
   uint32_t flags = abi::wm::kCreateInvisible |
       (properties.activatable ? 0u : abi::wm::kCreateInactive);
-  auto status = presenter_->Initialize("Chromium",width,height,
+  const char* title = base::CommandLine::ForCurrentProcess()->HasSwitch("charmos-browser-window")
+      ? "CharmOS Browser" : "Chromium";
+  auto status = presenter_->Initialize(title,width,height,
       base::BindRepeating(&PlatformWindowCharmOS::OnNativeEvent,
                           weak_factory_.GetWeakPtr()),flags);
   if (status != charm::Status::Ok) {
@@ -46,6 +53,7 @@ bool PlatformWindowCharmOS::Initialize(const PlatformWindowInitProperties& prope
     presenter_.reset();
     return false;
   }
+  CharmStartupStage("native-window-created");
   bounds_ = gfx::Rect(presenter_->window().x(),presenter_->window().y(),
                       static_cast<int>(presenter_->window().width()),
                       static_cast<int>(presenter_->window().height()));
@@ -172,9 +180,8 @@ void PlatformWindowCharmOS::SetUseNativeFrame(bool use_native_frame) {
 }
 bool PlatformWindowCharmOS::ShouldUseNativeFrame() const { return true; }
 void PlatformWindowCharmOS::SetCursor(scoped_refptr<PlatformCursor> cursor) {
-  // The WM owns the pointer bitmap; keeping the platform cursor alive here
-  // made Chromium dereference a cursor it never negotiated with the WM (a
-  // FlatMap CHECK in the compositor path). Drop it instead.
+  // The WM owns the pointer bitmap. No custom-cursor protocol is negotiated
+  // yet, so there is no native cursor object for this window to retain.
   (void)cursor;
 }
 void PlatformWindowCharmOS::MoveCursorTo(const gfx::Point& location) {
@@ -283,6 +290,9 @@ void PlatformWindowCharmOS::OnNativeEvent(charm::Status status,
       abi::syscall::InputEvent input{};
       while (presenter_->window().next_input(&input)) {
         registry_->NoteInput();
+        if (input.type == abi::syscall::kInputButton)
+          LOG(ERROR) << "charmos-input button code=" << input.code
+                     << " value=" << input.value << " at " << input.x << "," << input.y;
         if (input.type != abi::syscall::kInputKey) {
           registry_->SetCursorScreenPoint(bounds_.origin() +
               gfx::Vector2d(input.x,input.y));
