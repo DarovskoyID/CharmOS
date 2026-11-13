@@ -32,7 +32,7 @@ args = {
     # Adds a root only; native base/compiler configuration stays unchanged.
     "charmos_build_graphics": sys.argv[4] in ("--graphics", "--graphics-graph", "--ozone-graph"),
     "charmos_build_v8": sys.argv[4] in ("--v8", "--v8-graph"),
-    "charmos_build_blink": sys.argv[4] in ("--blink", "--blink-graph"),
+    "charmos_build_blink": sys.argv[4] in ("--blink", "--blink-graph", "--graphics", "--graphics-graph", "--ozone-graph"),
     "use_partition_alloc": True, "use_allocator_shim": False, "use_crash_key_stubs": True,
     "enable_backup_ref_ptr_support": False,
     "absl_build_tests": False,
@@ -58,7 +58,7 @@ args = {
 destination = pathlib.Path(sys.argv[2])
 # V8: drop the Rust Temporal bridge, avoid the large pointer-compression cage,
 # and skip WASM trap/signal handling for the initial native JS port.
-if sys.argv[4] in ("--v8", "--v8-graph", "--blink", "--blink-graph"):
+if sys.argv[4] in ("--v8", "--v8-graph", "--blink", "--blink-graph", "--graphics", "--graphics-graph", "--ozone-graph"):
     args.update({
         "v8_enable_temporal_support": False,
         "v8_enable_pointer_compression": False,
@@ -73,7 +73,7 @@ if sys.argv[4] in ("--v8", "--v8-graph", "--blink", "--blink-graph"):
     })
 # Blink: no Rust. JXL is Rust-only; XML uses the C++/libxml2 parser via
 # blink-patches.py. Blink needs V8 and cppgc, so the V8 profile above applies.
-if sys.argv[4] in ("--blink", "--blink-graph"):
+if sys.argv[4] in ("--blink", "--blink-graph", "--graphics", "--graphics-graph", "--ozone-graph"):
     args.update({
         "enable_jxl_decoder": False,
         "media_use_symphonia": False,

@@ -1,5 +1,30 @@
 # Нативный Chromium: изменения для ревью
 
+## Аудит рабочего браузера (2026-11-13)
+
+- Подтверждённый исполняемый продукт — native `content_shell`, а не `chrome`:
+  `content_port` зависит от `//content/shell:content_shell` в
+  `tools/chromium/platform/BUILD.gn`. Поэтому правки desktop `chrome/browser`
+  сами по себе не добавляют функции в запускаемый браузер.
+- Адресная строка, назад/вперёд, reload/stop, поиск и in-memory закладки
+  реализованы через `tools/chromium/shell-toolbar-patches.py`. Меню намеренно
+  отключено до поддержки popup-окон. В этом UI нет вкладок, истории, настроек,
+  команды incognito, установки расширений или PDF viewer.
+- Отдельный off-the-record `ShellBrowserContext` существует в engine, но не
+  считается доступным пользователю incognito без команды создания окна и проверки
+  отсутствия записи истории.
+- Настоящий Google/example.com rendering, Unicode, HTTPS foundation и регрессии
+  уже подтверждены в `docs/browser-startup-review.md`; cold 668,571 мс не
+  соответствует цели <500 мс (`passed=false`).
+- Исправлена конфигурационная ошибка в `tools/chromium/build-platform.sh`:
+  graphics/Ozone включают Blink, поэтому теперь получают тот же обязательный V8
+  profile (без Temporal, pointer compression, WASM и cppgc cage), что и Blink.
+  По требованию владельца сборка и QEMU не запускались; это изменение пока
+  проверено только чтением конфигурации.
+- Следующая реализация должна либо подключить настоящий desktop Chrome target,
+  либо явно реализовать эквивалентные profile/history/tabs/extensions/PDFium
+  сервисы в shell. Пустые пункты меню и desktop-only GN правки не засчитываются.
+
 ## Повторное ревью V8 (2026-11-05)
 
 **Финальная проверка пакета 2026-11-06:** m4/ipc также PASS. Исправлена
