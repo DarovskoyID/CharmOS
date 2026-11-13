@@ -651,6 +651,13 @@ def blink_patches():
             "df3d47996cff0d94771a692d5d19a4184d61103b47ac17cb5756dece82012458", [
                 ('                             std::move(socket_handle),',
                  '                             base::SyncSocket::ScopedHandle(),'),
+                 ('  DCHECK(data_pipe->socket.is_valid_platform_file());\n',
+                  '  // CharmOS has no audio output device yet: fail the stream instead of\n'
+                  '  // aborting the renderer when a page (YouTube) starts playback.\n'
+                  '  if (!data_pipe->socket.is_valid_platform_file()) {\n'
+                  '    delegate_->OnError();\n'
+                  '    return;\n'
+                  '  }\n'),
             ]),
         "components/policy/core/common/cloud/cloud_policy_util.cc": (
             "792e95152fa99df555138805883521a71f948b45248f18e1ca1372661f193913", [
@@ -1123,12 +1130,36 @@ def blink_patches():
                  'enable_screen_capture = is_linux || is_chromeos || (is_apple && use_blink) ||\n'
                  '                        is_win || is_android || is_fuchsia || is_charmos'),
             ]),
+        "content/shell/browser/shell_browser_main_parts.h": (
+            "db577e2141dc3660ee5980006e0d9963ae0779034f881ef6a9b98f2e801b596b", [
+                ('  ShellBrowserContext* off_the_record_browser_context() {\n    return off_the_record_browser_context_.get();\n  }', '  ShellBrowserContext* off_the_record_browser_context();'),
+            ]),
+        "content/shell/browser/shell_browser_main_parts.cc": (
+            "5d4282dd42e07cd46b132f00faa78f3f28a667c76441ffedc9ae3791207b8687", [
+                ('#include "content/shell/browser/shell_browser_main_parts.h"', '#include "content/shell/browser/shell_browser_main_parts.h"\n#include "build/charmos/startup_profile_charmos.h"'),
+                ('int ShellBrowserMainParts::PreEarlyInitialization() {', 'int ShellBrowserMainParts::PreEarlyInitialization() {\n  CharmStartupStage("PreEarlyInitialization");'),
+                ('int ShellBrowserMainParts::PreCreateThreads() {', 'int ShellBrowserMainParts::PreCreateThreads() {\n  CharmStartupStage("PreCreateThreads");'),
+                ('int ShellBrowserMainParts::PostCreateThreads() {', 'int ShellBrowserMainParts::PostCreateThreads() {\n  CharmStartupStage("PostCreateThreads");'),
+                ('int ShellBrowserMainParts::PreMainMessageLoopRun() {', 'int ShellBrowserMainParts::PreMainMessageLoopRun() {\n  CharmStartupStage("PreMainMessageLoopRun");'),
+                ('void ShellBrowserMainParts::PostCreateMainMessageLoop() {', 'void ShellBrowserMainParts::PostCreateMainMessageLoop() {\n  CharmStartupStage("PostCreateMainMessageLoop");'),
+                ('void ShellBrowserMainParts::InitializeBrowserContexts() {', 'void ShellBrowserMainParts::InitializeBrowserContexts() {\n  CharmStartupStage("InitializeBrowserContexts");'),
+                ('void ShellBrowserMainParts::InitializeMessageLoopContext() {', 'void ShellBrowserMainParts::InitializeMessageLoopContext() {\n  CharmStartupStage("InitializeMessageLoopContext");'),
+                ('void ShellBrowserMainParts::ToolkitInitialized() {', 'void ShellBrowserMainParts::ToolkitInitialized() {\n  CharmStartupStage("ToolkitInitialized");'),
+                ('  set_browser_context(new ShellBrowserContext(false));', '  set_browser_context(new ShellBrowserContext(false));\n  CharmStartupStage("context-normal-done");'),
+                ('  set_off_the_record_browser_context(new ShellBrowserContext(true));', '  set_off_the_record_browser_context(new ShellBrowserContext(true));\n  CharmStartupStage("context-private-done");'),
+                ('  browser_context_->GetOriginTrialsControllerDelegate();', '  browser_context_->GetOriginTrialsControllerDelegate();\n  CharmStartupStage("trials-normal-done");'),
+                ('  off_the_record_browser_context_->GetOriginTrialsControllerDelegate();', '  off_the_record_browser_context_->GetOriginTrialsControllerDelegate();\n  CharmStartupStage("trials-private-done");'),
+                ('  off_the_record_browser_context_->GetOriginTrialsControllerDelegate();\n  CharmStartupStage("trials-private-done");', '#if !BUILDFLAG(IS_CHARMOS)\n  off_the_record_browser_context_->GetOriginTrialsControllerDelegate();\n#endif\n  CharmStartupStage("private-context-prepared");'),
+                ('void ShellBrowserMainParts::InitializeBrowserContexts() {', 'ShellBrowserContext* ShellBrowserMainParts::off_the_record_browser_context() {\n#if BUILDFLAG(IS_CHARMOS)\n  // Prepare private-profile services before its first consumer, rather than\n  // opening a second unused StoragePartition during a normal-window launch.\n  if (off_the_record_browser_context_)\n    off_the_record_browser_context_->GetOriginTrialsControllerDelegate();\n#endif\n  return off_the_record_browser_context_.get();\n}\n\nvoid ShellBrowserMainParts::InitializeBrowserContexts() {'),
+            ]),
         "content/shell/app/shell_main.cc": (
             "e5a969a5ceb315b6dfe666fb85f3c4d4f74991540ecbd2cc391dc41cae0097ba", [
                 ('int main(int argc, const char** argv) {\n'
                  '  content::ShellMainDelegate delegate;',
                  'extern "C" int main(int argc, const char** argv) {\n'
                  '  content::ShellMainDelegate delegate;'),
+                ('#include "build/build_config.h"', '#include "build/build_config.h"\n#include "build/charmos/startup_profile_charmos.h"'),
+                ('extern "C" int main(int argc, const char** argv) {', 'extern "C" int main(int argc, const char** argv) {\n  CharmStartupStage("main");'),
             ]),
         "base/allocator/partition_allocator/src/partition_alloc/partition_alloc_base/time/time_now_posix.cc": (
             "11b3295826f410c12400ecd6f11e235c3670e1520360cbc90c43689ff6608cb4", [
@@ -1486,6 +1517,11 @@ def blink_patches():
                  '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n'
                  '  if (switches::IsRunWebTestsSwitchPresent()) {\n'
                  '    renderer_client_ ='),
+                ('#include "content/shell/app/shell_main_delegate.h"', '#include "content/shell/app/shell_main_delegate.h"\n#include "build/charmos/startup_profile_charmos.h"'),
+                ('std::optional<int> ShellMainDelegate::BasicStartupComplete() {', 'std::optional<int> ShellMainDelegate::BasicStartupComplete() {\n  CharmStartupStage("basic");'),
+                ('void ShellMainDelegate::PreSandboxStartup() {', 'void ShellMainDelegate::PreSandboxStartup() {\n  CharmStartupStage("pre-sandbox");'),
+                ('  InitializeResourceBundle();', '  CharmStartupStage("resource-start");\n  InitializeResourceBundle();\n  CharmStartupStage("resource-done");'),
+                ('    MainFunctionParams main_function_params) {', '    MainFunctionParams main_function_params) {\n  CharmStartupStage("run-process");'),
             ]),
         "content/shell/app/shell_main_delegate.h": (
             "5948c20805ff067ebfcba616f2674de75234c07ef10286502de74e586b59fb61", [
@@ -1504,6 +1540,17 @@ def blink_patches():
                  '  void RegisterProtocolHandler(RenderFrameHost* requesting_frame,',
                  '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n'
                  '  void RegisterProtocolHandler(RenderFrameHost* requesting_frame,'),
+                ('  WebContents* web_contents() const { return web_contents_.get(); }',
+                 '  WebContents* web_contents() const { return web_contents_.get(); }\n\n'
+                 '  void NewTab(BrowserContext* browser_context, const GURL& url);\n'
+                 '  void SelectTab(size_t index);\n'
+                 '  void CloseActiveTab();\n'
+                 '  size_t tab_count() const { return inactive_tabs_.size() + 1; }\n'
+                 '  std::u16string TabTitle(size_t index) const;'),
+                ('  std::unique_ptr<WebContents> web_contents_;',
+                 '  std::unique_ptr<WebContents> web_contents_;\n'
+                 '  std::vector<std::unique_ptr<WebContents>> inactive_tabs_;\n\n'
+                 '  void ShowActiveTab();'),
             ]),
         "content/shell/browser/shell.cc": (
             "5b10c613e0a1bd3d49bafc5c9a6d11f6bbc390cf4034f55fe67e626670c128ff", [
@@ -1511,6 +1558,44 @@ def blink_patches():
                  'void Shell::RegisterProtocolHandler(RenderFrameHost* requesting_frame,',
                  '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n'
                  'void Shell::RegisterProtocolHandler(RenderFrameHost* requesting_frame,'),
+                ('void Shell::RenderFrameCreated(RenderFrameHost* frame_host) {',
+                 'void Shell::ShowActiveTab() {\n'
+                 '  web_contents_->SetDelegate(this);\n'
+                 '  Observe(web_contents_.get());\n'
+                 '  g_platform->DidCreateOrAttachWebContents(this, web_contents_.get());\n'
+                 '  g_platform->SetContents(this);\n'
+                 '  g_platform->SetAddressBarURL(this, web_contents_->GetLastCommittedURL());\n'
+                 '  g_platform->SetTitle(this, web_contents_->GetTitle());\n'
+                 '  UpdateNavigationControls(false);\n'
+                 '  web_contents_->Focus();\n'
+                 '}\n\n'
+                 'void Shell::NewTab(BrowserContext* browser_context, const GURL& url) {\n'
+                 '  inactive_tabs_.push_back(std::move(web_contents_));\n'
+                 '  WebContents::CreateParams params(browser_context);\n'
+                 '  web_contents_ = WebContents::Create(params);\n'
+                 '  ShowActiveTab();\n'
+                 '  if (!url.is_empty()) LoadURL(url);\n'
+                 '}\n\n'
+                 'void Shell::SelectTab(size_t index) {\n'
+                 '  if (index >= inactive_tabs_.size()) return;\n'
+                 '  web_contents_.swap(inactive_tabs_[index]);\n'
+                 '  ShowActiveTab();\n'
+                 '}\n\n'
+                 'void Shell::CloseActiveTab() {\n'
+                 '  if (inactive_tabs_.empty()) {\n'
+                 '    Close();\n'
+                 '    return;\n'
+                 '  }\n'
+                 '  Observe(nullptr);\n'
+                 '  web_contents_ = std::move(inactive_tabs_.back());\n'
+                 '  inactive_tabs_.pop_back();\n'
+                 '  ShowActiveTab();\n'
+                 '}\n\n'
+                 'std::u16string Shell::TabTitle(size_t index) const {\n'
+                 '  if (index < inactive_tabs_.size()) return inactive_tabs_[index]->GetTitle();\n'
+                 '  return web_contents_->GetTitle();\n'
+                 '}\n\n'
+                 'void Shell::RenderFrameCreated(RenderFrameHost* frame_host) {'),
             ]),
         "content/shell/utility/shell_content_utility_client.h": (
             "e03b6eeafbfd25d7145e9a9e6d505f222979d38be5073782ef3db257d1e01254", [
@@ -1595,6 +1680,15 @@ def blink_patches():
                  '  return SkFontMgr_New_Fontations_Empty()->makeFromFile(filename.c_str(),\n'
                  '                                                        ttc_index);\n'
                  '#endif'),
+            ]),
+        "third_party/blink/renderer/platform/image-decoders/skia/skia_image_decoder_base.cc": (
+            "b01c8d259eaf2f6ef89cd5dc16049b2675a5c85fac8ce38d33c5ba8436494545", [
+                ('#include <limits>', '#include <limits>\n#include "build/build_config.h"\n#if BUILDFLAG(IS_CHARMOS)\n#include "build/charmos/static_codec_frame_charmos.h"\n#endif'),
+                ('namespace {', 'namespace {\nbool GetFrameInfoForBlink(SkCodec* codec, bool all_received, int index,\n                          SkCodec::FrameInfo* info) {\n#if BUILDFLAG(IS_CHARMOS)\n  return charmos::CodecFrameInfo(codec, all_received, index, info);\n#else\n  return codec->getFrameInfo(index, info);\n#endif\n}\n'),
+                ('!codec_->getFrameInfo(index, &frame_info)', '!GetFrameInfoForBlink(codec_.get(), IsAllDataReceived(), index, &frame_info)'),
+                ('bool frame_info_received = codec_->getFrameInfo(index, &frame_info);', 'bool frame_info_received = GetFrameInfoForBlink(codec_.get(), IsAllDataReceived(), index, &frame_info);'),
+                ('\n          codec_->getFrameInfo(current_frame_index, &frame_info);', '\n          GetFrameInfoForBlink(codec_.get(), IsAllDataReceived(), current_frame_index, &frame_info);'),
+                ('\n            codec_->getFrameInfo(current_frame_index, &frame_info);', '\n            GetFrameInfoForBlink(codec_.get(), IsAllDataReceived(), current_frame_index, &frame_info);'),
             ]),
 
     }

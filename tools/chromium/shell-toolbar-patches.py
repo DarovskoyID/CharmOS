@@ -13,6 +13,7 @@ SHELL_VIEWS_DIGEST = "421f3f4318a1883de8bb3e26746b87b379901c03d3b8b68d9090b53372
 INCLUDES_BEFORE = """#include "ui/views/background.h"
 """
 INCLUDES_AFTER = """#include "ui/views/background.h"
+#include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
@@ -72,8 +73,12 @@ void RecordHistory(WebContents* contents) {
   auto& entries = HistoryEntries();
   if (!entries.empty() && entries.back() == url) return;
   entries.push_back(url);
-  base::AppendToFile(base::FilePath(FILE_PATH_LITERAL("/data/browser-history.txt")),
-                     url + "\n");
+  base::File history(base::FilePath(FILE_PATH_LITERAL("/data/browser-history.txt")),
+                     base::File::FLAG_OPEN_ALWAYS | base::File::FLAG_APPEND);
+  if (history.IsValid()) {
+    std::string line = url + "\n";
+    history.WriteAtCurrentPos(line.data(), static_cast<int>(line.size()));
+  }
 }
 
 std::u16string EngineLabel() {
@@ -213,6 +218,12 @@ BLOCK_BEFORE = """    if (!Shell::ShouldHideToolbar()) {
 BLOCK_AFTER = """    if (!Shell::ShouldHideToolbar()) {
       builder.AddChild(
           views::Builder<views::FlexLayoutView>()
+              .CopyAddressTo(&tab_strip_)
+              .SetOrientation(views::LayoutOrientation::kHorizontal)
+              .SetBackground(views::CreateSolidBackground(kToolbarColor))
+              .SetProperty(views::kMarginsKey, gfx::Insets::TLBR(6, 10, 0, 10)));
+      builder.AddChild(
+          views::Builder<views::FlexLayoutView>()
               .CopyAddressTo(&toolbar_view_)
               .SetOrientation(views::LayoutOrientation::kHorizontal)
               .SetBackground(views::CreateSolidBackground(kToolbarColor))
@@ -343,6 +354,7 @@ SET_WEB_CONTENTS_BEFORE = """  void SetWebContents(WebContents* web_contents, co
 """
 SET_WEB_CONTENTS_AFTER = """  void SetTitleText(const std::u16string& title) {
     if (title_label_) title_label_->SetText(title);
+    RebuildTabStrip();
   }
 
   void SetWebContents(WebContents* web_contents, const gfx::Size& size) {
@@ -351,6 +363,7 @@ SET_WEB_CONTENTS_AFTER = """  void SetTitleText(const std::u16string& title) {
 MEMBERS_BEFORE = """  raw_ptr<views::Textfield> url_entry_ = nullptr;
 """
 MEMBERS_AFTER = """  raw_ptr<views::Textfield> url_entry_ = nullptr;
+  raw_ptr<views::View> tab_strip_ = nullptr;
   raw_ptr<views::View> url_pill_ = nullptr;
   raw_ptr<views::Label> title_label_ = nullptr;
   raw_ptr<views::Button> downloads_button_ = nullptr;
@@ -386,13 +399,48 @@ METHODS_AFTER = """  template <typename T>
             std::move(action)));
   }
 
+  void RebuildTabStrip() {
+    if (!tab_strip_) return;
+    tab_strip_->RemoveAllChildViews();
+    for (size_t i = 0; i < shell_->tab_count(); ++i) {
+      std::u16string title = shell_->TabTitle(i);
+      if (title.empty()) title = u"Новая вкладка";
+      if (title.size() > 24) title = title.substr(0, 23) + u"…";
+      if (i + 1 == shell_->tab_count()) title = u"• " + title;
+      tab_strip_->AddChildView(
+          views::Builder<views::MdTextButton>()
+              .SetText(title)
+              .SetCallback(base::BindRepeating(
+                  &Shell::SelectTab, base::Unretained(shell_.get()), i))
+              .Build());
+    }
+    tab_strip_->AddChildView(
+        views::Builder<views::MdTextButton>()
+            .SetText(u"+")
+            .SetAccessibleName(u"Новая вкладка")
+            .SetCallback(base::BindRepeating(&ShellView::CreateTab,
+                base::Unretained(this),
+                shell_->web_contents()->GetBrowserContext()->IsOffTheRecord()))
+            .Build());
+    if (shell_->tab_count() > 1) {
+      tab_strip_->AddChildView(
+          views::Builder<views::MdTextButton>()
+              .SetText(u"×")
+              .SetAccessibleName(u"Закрыть вкладку")
+              .SetCallback(base::BindRepeating(
+                  &Shell::CloseActiveTab, base::Unretained(shell_.get())))
+              .Build());
+    }
+    tab_strip_->Layout();
+  }
+
   void CreateTab(bool incognito) {
     auto* client = static_cast<ShellContentBrowserClient*>(
         GetContentClient()->browser());
     BrowserContext* context = incognito
         ? client->off_the_record_browser_context()
         : client->browser_context();
-    Shell::CreateNewWindow(context, GURL("about:blank"), nullptr, gfx::Size());
+    shell_->NewTab(context, GURL("about:blank"));
   }
 
   void ToggleEngine() {
@@ -439,10 +487,10 @@ METHODS_AFTER = """  template <typename T>
     model->AddSeparator(ui::NORMAL_SEPARATOR);
     model->AddItem(kCmdNewTab, u"Новая вкладка");
     model->AddItem(kCmdNewIncognito, u"Новое окно инкогнито");
-    int tab_index = 0;
-    for (Shell* tab : Shell::windows()) {
-      model->AddItem(kCmdTabBase + tab_index++,
-                     tab->web_contents()->GetTitle());
+    for (size_t i = 0; i < shell_->tab_count(); ++i) {
+      std::u16string title = shell_->TabTitle(i);
+      model->AddItem(kCmdTabBase + static_cast<int>(i),
+                     title.empty() ? u"Новая вкладка" : title);
     }
     model->AddSeparator(ui::NORMAL_SEPARATOR);
     size_t history_start = HistoryEntries().size() > 10
@@ -513,11 +561,7 @@ METHODS_AFTER = """  template <typename T>
     }
     if (command_id >= kCmdTabBase) {
       size_t index = static_cast<size_t>(command_id - kCmdTabBase);
-      if (index < Shell::windows().size()) {
-        Shell* tab = Shell::windows()[index];
-        views::Widget::GetWidgetForNativeWindow(tab->window())->Activate();
-        tab->web_contents()->Focus();
-      }
+      if (index < shell_->tab_count()) shell_->SelectTab(index);
       return;
     }
     if (command_id >= kCmdBookmarkBase) {

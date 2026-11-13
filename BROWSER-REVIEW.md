@@ -6,13 +6,9 @@
   `content_port` зависит от `//content/shell:content_shell` в
   `tools/chromium/platform/BUILD.gn`. Поэтому правки desktop `chrome/browser`
   сами по себе не добавляют функции в запускаемый браузер.
-- Адресная строка, назад/вперёд, reload/stop, поиск и in-memory закладки
-  реализованы через `tools/chromium/shell-toolbar-patches.py`. Меню намеренно
-  отключено до поддержки popup-окон. В этом UI нет вкладок, истории, настроек,
-  команды incognito, установки расширений или PDF viewer.
-- Отдельный off-the-record `ShellBrowserContext` существует в engine, но не
-  считается доступным пользователю incognito без команды создания окна и проверки
-  отсутствия записи истории.
+- Исходный toolbar содержал адресную строку, назад/вперёд, reload/stop, поиск
+  и in-memory закладки. Ниже отдельно перечислены последующие дополнения;
+  расширения и PDF viewer ещё не реализованы.
 - Настоящий Google/example.com rendering, Unicode, HTTPS foundation и регрессии
   уже подтверждены в `docs/browser-startup-review.md`; cold 668,571 мс не
   соответствует цели <500 мс (`passed=false`).
@@ -25,10 +21,10 @@
   отклонялись. Временно WM отображает их как обычные managed окна с рамкой, а не
   как бесрамочные popup. Меню toolbar включено; translucent surfaces по-прежнему
   честно отклоняются. Это исходная правка, гостевой клик по меню ещё не проверен.
-- В toolbar shell добавлены команды новой вкладки, списка/активации вкладок и
-  нового incognito-окна через настоящие `ShellContentBrowserClient`/
-  `ShellBrowserContext`. Это отдельные native WebContents в managed-окнах WM,
-  пока не общая tab strip одного окна.
+- Промежуточные managed-окна заменены настоящими вкладками одного `Shell`:
+  `Shell::NewTab/SelectTab/CloseActiveTab` сохраняют независимые WebContents,
+  а Views tab strip показывает заголовки, `+` и закрытие. Incognito использует
+  настоящий off-the-record ShellBrowserContext; новые вкладки наследуют профиль.
 - Добавлена история последних URL обычного профиля с открытием и очисткой.
   Запись выполняется в `/data/browser-history.txt`; incognito отфильтровывается
   через `IsOffTheRecord()`. Это не Chromium History Service: время визитов,
