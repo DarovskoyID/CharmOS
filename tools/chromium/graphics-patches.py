@@ -1482,6 +1482,20 @@ def graphics_patches():
                  'assert(is_win || is_mac || is_linux || is_chromeos || is_charmos)'),
                 ('    "//chrome/browser/ui/views:close_bubble_on_tab_activation_helper",\n', ''),
             ]),
+        "chrome/app/chrome_exe_main_aura.cc": (
+            "c856eeaa5d6d15cce6ecd0d1494cf1f0a3c6a32ae63589c414237a23440f1a68", [
+                ('int main(int argc, const char** argv) {',
+                 'extern "C" int main(int argc, const char** argv) {'),
+            ]),
+        "chrome/app/chrome_main_delegate.cc": (
+            "f0c26e4db79a0ec99cb1de5876f8b162a3ce0ac9f1fdad574f5161a6d4bb6f44", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \\\n'
+                 '    BUILDFLAG(IS_MAC)\n'
+                 '#include "components/webapps/isolated_web_apps/scheme.h"',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \\\n'
+                 '    BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHARMOS)\n'
+                 '#include "components/webapps/isolated_web_apps/scheme.h"'),
+            ]),
         "chrome/BUILD.gn": (
             "b94f91e929415599b79d48a242c6afc8265c03454045e17adf0dbf7b1dc775f0", [
                 ('    if (is_linux || is_chromeos) {\n'

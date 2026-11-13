@@ -42,6 +42,10 @@
   dependencies. В этом профиле upstream по умолчанию включает `enable_extensions`
   и `enable_pdf` (PDFium). Проверены 409 patch contexts и bash syntax; GN gen и
   компиляция ещё не выполнялись, поэтому расширения/PDF не объявляются рабочими.
+- Полный Chrome получил native C `main` в Aura entrypoint и регистрацию isolated
+  web app scheme на CharmOS. PDF child initialization остаётся штатным
+  `ENABLE_PDF` кодом `ChromeMainDelegate`; отдельной подмены PDFium нет.
+  Проверены 411 pinned contexts; запуск полного Chrome ещё не подтверждён.
 - Следующая реализация должна либо подключить настоящий desktop Chrome target,
   либо явно реализовать эквивалентные profile/history/tabs/extensions/PDFium
   сервисы в shell. Пустые пункты меню и desktop-only GN правки не засчитываются.
