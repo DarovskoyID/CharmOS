@@ -78,6 +78,14 @@ def main():
                             "build/browser-unicode-review.png"], cwd=root, check=True)
             ui_smoke_passed = True
             if args.ui_smoke:
+                # Actual pointer input: click the toolbar overflow button.
+                monitor("mouse_move 360 -180")
+                monitor("mouse_button 1")
+                monitor("mouse_button 0")
+                wait(lambda t: "charmos-ui: main-menu" in t, "user menu click")
+                subprocess.run([sys.executable, "tools/qemu-shot.py",
+                                "build/browser-ui-menu.png"], cwd=root, check=True)
+                monitor("sendkey esc 20")
                 monitor("sendkey ctrl-t 20")
                 wait(lambda t: "charmos-ui: new-tab 2 incognito=0" in t,
                      "user new tab")
@@ -94,7 +102,8 @@ def main():
                 subprocess.run([sys.executable, "tools/qemu-shot.py",
                                 "build/browser-ui-close-tab.png"], cwd=root, check=True)
                 ui_smoke_passed = all(marker in log.read_text(errors="replace")
-                    for marker in ("charmos-ui: new-tab 2 incognito=0",
+                    for marker in ("charmos-ui: main-menu",
+                                   "charmos-ui: new-tab 2 incognito=0",
                                    "charmos-ui: new-tab 3 incognito=1",
                                    "charmos-ui: close-tab 2"))
             for sample in range(args.samples):

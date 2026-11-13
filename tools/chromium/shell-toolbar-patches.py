@@ -518,6 +518,7 @@ METHODS_AFTER = """  template <typename T>
   }
 
   void OpenMainMenu() {
+    LOG(WARNING) << "charmos-ui: main-menu";
     auto delegate = std::make_unique<ToolbarMenuDelegate>(
         base::BindRepeating(&ShellView::OnMenuCommand, base::Unretained(this)));
     delegate->SetChecked(kCmdEngineGoogle, !YandexSearch());
