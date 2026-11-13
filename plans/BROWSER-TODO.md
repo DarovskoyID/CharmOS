@@ -1,6 +1,6 @@
 # Нативный браузер CharmOS
 
-Актуально: 2026-11-06. Журнал изменений и проверок: ../BROWSER-REVIEW.md.
+Актуально: 2026-11-13. Журнал изменений и проверок: ../BROWSER-REVIEW.md.
 Этот список относится к явно запрошенному порту Chromium и не меняет порядок
 остальных фаз ROADMAP.md. Готовность подтверждается гостевыми тестами.
 
@@ -58,41 +58,26 @@
   one-shot bootstrap, read-only VMO, child restart; normal/ipcz channels, 5 MiB,
   capability batches, backpressure/rejection; public invitation, message pipe,
   shared-buffer transfer, restart. FD-based broker отключён для CharmOS.
-- [ ] Доделать сетевой адаптер Chromium: адреса/DNS, асинхронные сокеты,
-  реальные запросы и TLS-проверка сертификатов.
-- [ ] Собрать и запустить Blink/content: настоящие HTML/CSS-страницы с DOM и
-  рендерингом. **V8 уже зелёный** (`m10/v8_runtime`, interpreter-only); Blink
-  ещё не начат и требует V8 + `//third_party/blink` в графе.
-  JIT-профиль V8 (RWX code range / PKU) — отдельная задача ядра.
-  **Рекогносцировка 2026-11-06 (`blink-recon.sh`):** `//third_party/blink/public:blink`
-  — 7223 зависимости, `//content/public/app:app` — 12171; тянут
-  ui/gpu/media/device/cc/services. Rust удаляется для CharmOS: `xml_ffi`
-  заменён на C++/libxml2 `XMLDocumentParser`; `jxl`/`symphonia`/`dav1d`
-  отключены; `base32` и WebAudio FFT переведены на C++; `rust_crash` исключён;
-  шаблон `rust_target` при `enable_rust=false` даёт пустую C++-группу без
-  Rust-кода. Дальше — `--blink` compile и закрытие платформенных ошибок.
-- [ ] Доделать интерфейс браузера: адресная строка, вкладки, навигация,
-  загрузки, настройки и установка/запуск из оболочки ОС.
+- [x] Проверить native Blink/content_shell на реальных HTML/CSS/JS страницах,
+  вводе и HTTPS. Просмотрены снимки Google/example.com и Unicode; см.
+  `docs/browser-startup-review.md`.
+- [ ] Довести новый shell UI до гостевого PASS: tab strip одного окна, меню,
+  сохранение истории/закладок/поисковика и incognito уже реализованы в исходниках,
+  но требуют компиляции и пользовательских mouse/keyboard проверок.
+- [ ] Собрать и запустить настоящий `//chrome:chrome`: цель, entrypoint, ресурсы,
+  initial preferences Яндекс, PDF/extension fixtures и full-Chrome harness уже
+  добавлены; `chrome.elf` ещё отсутствует, поэтому extensions/PDFium не готовы.
+- [ ] Проверить новый popup-role WM в реальных меню и регрессиях окон.
+- [ ] Достичь cold <500 мс без предзагрузки: последний подтверждённый cold
+  668,571 мс; warm и стабильность не закрывают этот критерий.
 - [ ] Добавить кнопку «Сохранить DNS сайта». Перед реализацией уточнить,
   требуется экспорт DNS-записей или сохранение в локальном кэше.
-- [ ] Завершить недостающие оконные функции и общие проверки браузера:
-  несколько окон, ошибки сети, перезапуск, сохранение данных и ресурсы.
 
 ## Текущее состояние
 
-**2026-11-05: фундамент зелёный.** Канонический `verify-browser-foundation.sh`
-проходит целиком — OS-сборка, GN, графы Ozone (2450 deps/9425 команд) и Mojo
-(1444/6455) без Rust, оба ELF-аудита, гостевые тесты `m10/network_review`,
-`m10/ozone_runtime`, `m10/mojo_runtime` — все `ok`. Это Ozone-платформа, native
-Mojo-транспорт и сетевой слой; **это ещё не браузер.**
-
-**Следующий этап — сам браузер (content/Blink/V8 + UI).** Измерено по GN (без
-компиляции): `//content/shell:content_shell` — 19286 зависимостей, из них 5
-Rust-крейтов: `third_party/rust/harfrust`, `jxl`, `sfv`, `temporal_capi`, `xml`;
-`//content:content` — 12143/6; `//chrome:chrome` — 15270/6. Крупные модули:
-third_party 10529, components 2357, services 2062, ui 1770, media 626, content 429,
-gpu 266, mojo 190, v8 85, skia 73, sandbox 39. Нужно: заменить/исключить эти Rust
-крейты (sfv→QUICHE и harfrust→C++ уже сделаны для net/graphics, но в content-shell
-замыкании они ещё видны), закрыть платформенные пробелы content/Blink/V8/sandbox/GPU
-и собрать ~19k целей. Это на порядок больше фундамента и требует отдельных больших
-пакетов; Ozone-тест не считается готовым браузером.
+**2026-11-13: native content_shell реально запускается и отображает сайты.**
+Подтверждённые регрессии, снимки и latency зафиксированы в
+`docs/browser-startup-review.md`. Это ещё не полный Chromium: полный Chrome target
+только добавлен и не собран, новые UI/WM изменения не прошли гостевые проверки.
+Готовность отмечается только после пользовательских сценариев в CharmOS и просмотра
+снимков; статические patch contexts и Python syntax не заменяют их.
