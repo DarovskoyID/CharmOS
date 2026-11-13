@@ -62,6 +62,11 @@
   профиля. First-run initial preferences loader подключён на CharmOS без Linux
   upgrade utility; файл ставится рядом с `/bin/chrome`. JSON, bash и 413 patch
   contexts проверены, фактическое применение preferences в госте ещё не проверено.
+- Добавлены стандартные Ctrl+T/Ctrl+W/Ctrl+Shift+N в shell. Browser harness
+  получил `--ui-smoke`: реальные QEMU sendkey создают обычную и incognito вкладки,
+  закрывают вкладку и сохраняют три PNG. PASS требует подтверждающих маркеров,
+  стабильности процесса и cold target. Python AST и 413 patch contexts проверены;
+  сам guest-сценарий и просмотр новых снимков ещё не выполнялись.
 - Следующая реализация должна либо подключить настоящий desktop Chrome target,
   либо явно реализовать эквивалентные profile/history/tabs/extensions/PDFium
   сервисы в shell. Пустые пункты меню и desktop-only GN правки не засчитываются.

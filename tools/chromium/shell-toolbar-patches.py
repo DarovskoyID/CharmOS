@@ -676,6 +676,46 @@ ADDRESS_AFTER = """  void SetAddressBarURL(const GURL& url) {
   }
 """
 
+ACCELERATORS_BEFORE = """    for (size_t i = 0; i < std::size(keys); ++i) {
+      GetFocusManager()->RegisterAccelerator(
+          ui::Accelerator(keys[i], ui::EF_NONE),
+          ui::AcceleratorManager::kNormalPriority, this);
+    }
+  }
+"""
+ACCELERATORS_AFTER = """    for (size_t i = 0; i < std::size(keys); ++i) {
+      GetFocusManager()->RegisterAccelerator(
+          ui::Accelerator(keys[i], ui::EF_NONE),
+          ui::AcceleratorManager::kNormalPriority, this);
+    }
+    GetFocusManager()->RegisterAccelerator(
+        ui::Accelerator(ui::VKEY_T, ui::EF_CONTROL_DOWN),
+        ui::AcceleratorManager::kNormalPriority, this);
+    GetFocusManager()->RegisterAccelerator(
+        ui::Accelerator(ui::VKEY_W, ui::EF_CONTROL_DOWN),
+        ui::AcceleratorManager::kNormalPriority, this);
+    GetFocusManager()->RegisterAccelerator(
+        ui::Accelerator(ui::VKEY_N, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN),
+        ui::AcceleratorManager::kNormalPriority, this);
+  }
+"""
+
+ACCELERATOR_PRESS_BEFORE = """    switch (accelerator.key_code()) {
+      case ui::VKEY_F5:
+"""
+ACCELERATOR_PRESS_AFTER = """    switch (accelerator.key_code()) {
+      case ui::VKEY_T:
+        CreateTab(shell_->web_contents()->GetBrowserContext()->IsOffTheRecord());
+        return true;
+      case ui::VKEY_W:
+        shell_->CloseActiveTab();
+        return true;
+      case ui::VKEY_N:
+        CreateTab(true);
+        return true;
+      case ui::VKEY_F5:
+"""
+
 URL_BEFORE = """      GURL url(text);
       if (!url.has_scheme()) {
         url = GURL(std::string("http://") + text);
@@ -710,6 +750,8 @@ def shell_toolbar_patches():
         (MEMBERS_BEFORE, MEMBERS_AFTER),
         (METHODS_BEFORE, METHODS_AFTER),
         (ADDRESS_BEFORE, ADDRESS_AFTER),
+        (ACCELERATORS_BEFORE, ACCELERATORS_AFTER),
+        (ACCELERATOR_PRESS_BEFORE, ACCELERATOR_PRESS_AFTER),
         (URL_BEFORE, URL_AFTER),
         (SET_TITLE_BEFORE, SET_TITLE_AFTER),
     ]
