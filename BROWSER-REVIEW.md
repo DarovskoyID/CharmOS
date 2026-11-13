@@ -37,6 +37,11 @@
 - Патч применён к pinned `content_shell` и Python-файл разобран синтаксически;
   компиляция и гостевые клики по новым командам ещё не выполнялись по запрету
   повторной сборки. Нельзя считать этот пакет гостевым PASS.
+- Начат переход к настоящему desktop Chrome: добавлены `chrome_port`,
+  `--chrome/--chrome-graph`, CharmOS entrypoint в `chrome_initial` и native link
+  dependencies. В этом профиле upstream по умолчанию включает `enable_extensions`
+  и `enable_pdf` (PDFium). Проверены 409 patch contexts и bash syntax; GN gen и
+  компиляция ещё не выполнялись, поэтому расширения/PDF не объявляются рабочими.
 - Следующая реализация должна либо подключить настоящий desktop Chrome target,
   либо явно реализовать эквивалентные profile/history/tabs/extensions/PDFium
   сервисы в shell. Пустые пункты меню и desktop-only GN правки не засчитываются.

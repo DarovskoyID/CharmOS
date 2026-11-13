@@ -2,7 +2,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd -P)"
 mode="${1:-}"
-case "$mode" in ''|--full-runtime|--json-runtime|--base|--base-graph|--graphics|--graphics-graph|--ozone-graph|--v8|--v8-graph|--blink|--blink-graph) ;; *) echo 'Expected a runtime, base, graphics, v8 or blink mode' >&2; exit 2;; esac
+case "$mode" in ''|--full-runtime|--json-runtime|--base|--base-graph|--graphics|--graphics-graph|--ozone-graph|--v8|--v8-graph|--blink|--blink-graph|--chrome|--chrome-graph) ;; *) echo 'Expected a runtime, base, graphics, v8, blink or chrome mode' >&2; exit 2;; esac
 cache="$root/build/chromium/linux-cache"
 mountpoint -q "$cache" || { echo 'Run through with-cache.sh' >&2; exit 2; }
 python3 "$root/tools/chromium/prepare-platform.py"
@@ -30,9 +30,10 @@ args = {
     # must not toggle allocator/buildflags and invalidate unrelated objects.
     "charmos_build_base": True,
     # Adds a root only; native base/compiler configuration stays unchanged.
-    "charmos_build_graphics": sys.argv[4] in ("--graphics", "--graphics-graph", "--ozone-graph"),
+    "charmos_build_graphics": sys.argv[4] in ("--graphics", "--graphics-graph", "--ozone-graph", "--chrome", "--chrome-graph"),
     "charmos_build_v8": sys.argv[4] in ("--v8", "--v8-graph"),
-    "charmos_build_blink": sys.argv[4] in ("--blink", "--blink-graph", "--graphics", "--graphics-graph", "--ozone-graph"),
+    "charmos_build_blink": sys.argv[4] in ("--blink", "--blink-graph", "--graphics", "--graphics-graph", "--ozone-graph", "--chrome", "--chrome-graph"),
+    "charmos_build_chrome": sys.argv[4] in ("--chrome", "--chrome-graph"),
     "use_partition_alloc": True, "use_allocator_shim": False, "use_crash_key_stubs": True,
     "enable_backup_ref_ptr_support": False,
     "absl_build_tests": False,
@@ -58,7 +59,7 @@ args = {
 destination = pathlib.Path(sys.argv[2])
 # V8: drop the Rust Temporal bridge, avoid the large pointer-compression cage,
 # and skip WASM trap/signal handling for the initial native JS port.
-if sys.argv[4] in ("--v8", "--v8-graph", "--blink", "--blink-graph", "--graphics", "--graphics-graph", "--ozone-graph"):
+if sys.argv[4] in ("--v8", "--v8-graph", "--blink", "--blink-graph", "--graphics", "--graphics-graph", "--ozone-graph", "--chrome", "--chrome-graph"):
     args.update({
         "v8_enable_temporal_support": False,
         "v8_enable_pointer_compression": False,
@@ -73,7 +74,7 @@ if sys.argv[4] in ("--v8", "--v8-graph", "--blink", "--blink-graph", "--graphics
     })
 # Blink: no Rust. JXL is Rust-only; XML uses the C++/libxml2 parser via
 # blink-patches.py. Blink needs V8 and cppgc, so the V8 profile above applies.
-if sys.argv[4] in ("--blink", "--blink-graph", "--graphics", "--graphics-graph", "--ozone-graph"):
+if sys.argv[4] in ("--blink", "--blink-graph", "--graphics", "--graphics-graph", "--ozone-graph", "--chrome", "--chrome-graph"):
     args.update({
         "enable_jxl_decoder": False,
         "media_use_symphonia": False,
@@ -125,6 +126,16 @@ if [[ "$mode" == --v8-graph ]]; then
 fi
 if [[ "$mode" == --blink-graph ]]; then
   python3 "$root/tools/chromium/audit-cpp-graph.py" "$source" "$output" blink_runtime
+  exit 0
+fi
+if [[ "$mode" == --chrome-graph ]]; then
+  python3 "$root/tools/chromium/audit-cpp-graph.py" "$source" "$output" chrome_port
+  exit 0
+fi
+if [[ "$mode" == --chrome ]]; then
+  ninja -C "$output" -k 0 -j"${CHARMOS_BUILD_JOBS:-4}" chrome_port
+  "$compiler/llvm-objcopy" --strip-debug "$output/chrome.elf" "$root/build/user/user/chrome.bin"
+  python3 "$root/tools/chromium/audit-elf.py" "$root/build/user/user/chrome.bin"
   exit 0
 fi
 if [[ "$mode" == --blink ]]; then

@@ -526,6 +526,7 @@ patches = {
           "  charmos_build_graphics = false\n"
           "  charmos_build_v8 = false\n"
           "  charmos_build_blink = false\n"
+          "  charmos_build_chrome = false\n"
           "}\n"),
          ("  charmos_build_graphics = false\n",
           "  charmos_build_graphics = false\n  charmos_repo = \"\"\n")]),
@@ -746,6 +747,14 @@ blink = runpy.run_path(str(repo / "tools/chromium/blink-patches.py"))["blink_pat
 if set(blink).intersection(patches):
     raise SystemExit("Duplicate Blink patch ownership")
 patches.update(blink)
+shell_toolbar = runpy.run_path(str(repo / "tools/chromium/shell-toolbar-patches.py"))["shell_toolbar_patches"]()
+if set(shell_toolbar).intersection(patches):
+    raise SystemExit("Duplicate shell toolbar patch ownership")
+patches.update(shell_toolbar)
+camera = runpy.run_path(str(repo / "tools/chromium/camera-patches.py"))["camera_patches"]()
+if set(camera).intersection(patches):
+    raise SystemExit("Duplicate camera patch ownership")
+patches.update(camera)
 base_replacements.append((
     '      "//build/charmos/sync_socket_charmos.cc",',
     '      "//build/charmos/sync_socket_charmos.cc",\n      "//build/charmos/allocator_charmos.cc",'))

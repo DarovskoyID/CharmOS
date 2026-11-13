@@ -163,6 +163,12 @@ if (charmos_build_blink) {
     deps = [ "//content/shell:content_shell" ]
   }
 
+  if (charmos_build_chrome) {
+    group("chrome_port") {
+      deps = [ "//chrome:chrome" ]
+    }
+  }
+
   # Native replacements for Rust-only defaults and for platform services that
   # upstream compiles per-OS. Kept in one source set so the content shell links
   # real C++ implementations without touching its GN argument list.
@@ -215,7 +221,7 @@ if (charmos_build_blink) {
 
 if (charmos_build_graphics) {
   executable("graphics_runtime") {
-    sources = [ "graphics_runtime.cc", "window_event_source_charmos.cc" ]
+    sources = [ "graphics_runtime.cc", "window_event_source_charmos.cc", "partition_alloc_charmos.cc" ]
     include_dirs = [ "$charmos_repo/user/libwm/include" ]
     libs = [
       "$charmos_repo/build/user/user/libwm/libwm_client.a",

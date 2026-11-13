@@ -224,6 +224,8 @@ def graphics_patches():
                 ('#include <mutex>', '#if BUILDFLAG(IS_CHARMOS)\n#include "third_party/skia/include/ports/SkFontMgr_directory.h"\n#endif\n#include <mutex>'),
                 ('#elif defined(SK_FONTMGR_FREETYPE_EMPTY_AVAILABLE)',
                  '#elif BUILDFLAG(IS_CHARMOS)\n  return SkFontMgr_New_Custom_Directory("/fonts");\n#elif defined(SK_FONTMGR_FREETYPE_EMPTY_AVAILABLE)'),
+                ('#include <mutex>', '#include <mutex>\n#include "build/charmos/startup_profile_charmos.h"'),
+                ('  return SkFontMgr_New_Custom_Directory("/fonts");', '  CharmStartupStage("font-manager-start");\n  auto manager = SkFontMgr_New_Custom_Directory("/fonts");\n  CharmStartupStage("font-manager-done");\n  return manager;'),
             ]),
         "third_party/harfbuzz/BUILD.gn": (
             "ab62f7d988f46e9d11756d6c261ce1ac73707f13edcf6dea0c0cd08629d97d67", [
@@ -1480,6 +1482,34 @@ def graphics_patches():
                  'assert(is_win || is_mac || is_linux || is_chromeos || is_charmos)'),
                 ('    "//chrome/browser/ui/views:close_bubble_on_tab_activation_helper",\n', ''),
             ]),
+        "chrome/BUILD.gn": (
+            "b94f91e929415599b79d48a242c6afc8265c03454045e17adf0dbf7b1dc775f0", [
+                ('    if (is_linux || is_chromeos) {\n'
+                 '      sources += [\n'
+                 '        "app/chrome_dll_resource.h",',
+                 '    if (is_linux || is_chromeos || is_charmos) {\n'
+                 '      sources += [\n'
+                 '        "app/chrome_dll_resource.h",'),
+                ('        "//content/public/app",\n'
+                 '      ]\n\n'
+                 '      public_deps = [',
+                 '        "//content/public/app",\n'
+                 '      ]\n'
+                 '      if (is_charmos) {\n'
+                 '        libs = [ "$charmos_repo/build/user/user/libwm/libwm_client.a" ]\n'
+                 '        deps += [\n'
+                 '          "//build/charmos:content_platform",\n'
+                 '          "//build/charmos:numeric_runtime",\n'
+                 '          "//build/charmos:v8_platform_for_content",\n'
+                 '          "//third_party/libjpeg_turbo:simd",\n'
+                 '        ]\n'
+                 '      }\n\n'
+                 '      public_deps = ['),
+                ('      data_deps += [ "//components/crash/core/app:chrome_crashpad_handler" ]',
+                 '      if (!is_charmos) {\n'
+                 '        data_deps += [ "//components/crash/core/app:chrome_crashpad_handler" ]\n'
+                 '      }'),
+            ]),
         "content/shell/BUILD.gn": (
             "8b952574b939aa81d0dba0113206efa708b3f1c3718ef874aadc2a7b2a4eb13e", [
                 ('      "//third_party/breakpad:dump_syms",\n', ''),
@@ -1745,5 +1775,26 @@ def graphics_patches():
              '        depfile = "$outfile.d"\n',
              '      if (invoker_toolchain_args.current_os == "charmos") {\n'
              '        depfile = "$outfile.d"\n'),
+        ])
+    patches["ui/base/clipboard/clipboard_non_backed.cc"] = (
+        "4fce616baaef2db42eb62cbdeb1e2ba112feb1ea2022d7c038a887b6b15afa5d", [
+            ('#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_FUCHSIA)\n'
+             '    ClipboardBuffer::kSelection,\n',
+             '#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHARMOS)\n'
+             '    ClipboardBuffer::kSelection,\n'),
+        ])
+    patches["third_party/skia/src/ports/SkFontMgr_custom_directory.cpp"] = (
+        "df070be7e666d7a2aa6c2b1cb77cfa001884708bf2e311ad80d6710b9f414f97", [
+            ('#include "include/core/SkFontScanner.h"', '#include "include/core/SkFontScanner.h"\n#include "build/build_config.h"'),
+            ('            std::unique_ptr<SkStreamAsset> stream = SkStream::MakeFromFile(filename.c_str());', "#if BUILDFLAG(IS_CHARMOS)\n            // mmap is an eager private snapshot on CharmOS. Font discovery\n            // only needs directory/name tables; use Skia's real file stream.\n            std::unique_ptr<SkStreamAsset> stream = SkFILEStream::Make(filename.c_str());\n#else\n            std::unique_ptr<SkStreamAsset> stream = SkStream::MakeFromFile(filename.c_str());\n#endif"),
+        ])
+    patches["base/feature_list.cc"] = (
+        "febab4572daa31d63b28b8a509215bae1aeaca40b1e8d57342f2b2e78dd7b2f6", [
+            ('  auto it = feature_identity_tracker_.find(feature.name);',
+             '  const std::string_view name(feature.name);\n  auto it = feature_identity_tracker_.find(name);'),
+        ])
+    patches["ui/views/widget/desktop_aura/desktop_window_tree_host_platform.cc"] = (
+        "ec0ab3d538728fc4ac3646fa8ec85325a892a96bf32eb27f0eea19317703ea95", [
+            ('    ui::mojom::ModalType modal_type) {\n  NOTIMPLEMENTED_LOG_ONCE();', '    ui::mojom::ModalType modal_type) {\n#if BUILDFLAG(IS_CHARMOS)\n  if (modal_type == ui::mojom::ModalType::kNone) return;\n#endif\n  NOTIMPLEMENTED_LOG_ONCE();'),
         ])
     return patches
