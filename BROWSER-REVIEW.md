@@ -90,6 +90,11 @@
 - Popup с запрошенной Views translucency больше не отклоняются: содержимое
   выводится opaque, скругление/тень принадлежат WM. Per-pixel alpha не заявляется;
   обычные translucent application windows по-прежнему получают явный отказ.
+- После разрешения владельца запущена реальная сборка `--chrome`. Первый GN gate
+  нашёл unresolved `linux_cros_extra_data` и `eula_dialog_linux`; Linux integration
+  data исключены на CharmOS, platform-independent EULA target подключён отдельно.
+  PDF fixture исправлен: фактическая длина content stream 99 байт совпадает с
+  `/Length`. Результат повторной сборки ещё не получен.
 - Следующая реализация должна либо подключить настоящий desktop Chrome target,
   либо явно реализовать эквивалентные profile/history/tabs/extensions/PDFium
   сервисы в shell. Пустые пункты меню и desktop-only GN правки не засчитываются.

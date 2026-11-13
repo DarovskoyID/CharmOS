@@ -1482,6 +1482,26 @@ def graphics_patches():
                  'assert(is_win || is_mac || is_linux || is_chromeos || is_charmos)'),
                 ('    "//chrome/browser/ui/views:close_bubble_on_tab_activation_helper",\n', ''),
             ]),
+        "chrome/browser/ui/views/BUILD.gn": (
+            "330529c12fa4d9ac797f45112830835b9301819b41669b0f141ff829fd924207", [
+                ('}\n\nsource_set("find_bar_owner") {',
+                 '}\n\n'
+                 'if (is_charmos) {\n'
+                 '  source_set("eula_dialog_linux") {\n'
+                 '    public = [ "eula_dialog_linux.h" ]\n'
+                 '    sources = [ "eula_dialog_linux.cc" ]\n'
+                 '    public_deps = [ "//ui/views" ]\n'
+                 '    deps = [\n'
+                 '      "//base",\n'
+                 '      "//chrome/app:branded_strings",\n'
+                 '      "//components/strings:components_locale_settings",\n'
+                 '      "//ui/base",\n'
+                 '      "//ui/gfx",\n'
+                 '    ]\n'
+                 '  }\n'
+                 '}\n\n'
+                 'source_set("find_bar_owner") {'),
+            ]),
         "chrome/browser/first_run/BUILD.gn": (
             "842ad61506ca3b1a1a39d5d3ce494d6db41afb688d7f20560529655ec6e31aa0", [
                 ('    if (is_linux) {\n'
@@ -1552,6 +1572,16 @@ def graphics_patches():
                  '        ]\n'
                  '      }\n\n'
                  '      public_deps = ['),
+                ('      public_deps = [\n'
+                 '        # Needs to be public for installer to consume files from\n'
+                 '        # linux_cros_extra_data.\n'
+                 '        ":linux_cros_extra_data",\n'
+                 '        "//chrome/common:buildflags",\n'
+                 '      ]',
+                 '      public_deps = [ "//chrome/common:buildflags" ]\n'
+                 '      if (!is_charmos) {\n'
+                 '        public_deps += [ ":linux_cros_extra_data" ]\n'
+                 '      }'),
                 ('      data_deps += [ "//components/crash/core/app:chrome_crashpad_handler" ]',
                  '      if (!is_charmos) {\n'
                  '        data_deps += [ "//components/crash/core/app:chrome_crashpad_handler" ]\n'
