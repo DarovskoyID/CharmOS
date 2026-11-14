@@ -6,7 +6,7 @@ mkdir -p "$work"
 cat >"$work/init.conf" <<'EOF'
 service logd /bin/logd
 service wm /bin/wm
-service managed /bin/window_managed
+console managed /bin/window_managed
 console sh /bin/sh
 EOF
 puts=(--put "2:/etc/init.conf=$work/init.conf")

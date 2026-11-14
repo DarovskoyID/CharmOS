@@ -1,3 +1,5 @@
+managed window: inactive popup pointer capture ok
+managed window: client-drawn frame geometry ok
 managed window: resize generations, rollback, title, visibility and focus ok
 managed window: captured pointer outside content ok
 managed window: input after resize rendered

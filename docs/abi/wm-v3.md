@@ -81,17 +81,18 @@ painting with the actual dimensions after CONFIGURED, and inspect its result.
 Controls and IDs are scoped to the connection that owns the window. Invalid
 wire shapes, reserved flags, IDs or generations close that connection. Normal
 configuration resource/range failures use the rejection reply. This extension
-does not yet advertise fullscreen, borderless popups or custom cursor
-bitmaps. Their future implementation must add real capabilities and behavior.
+does not yet advertise fullscreen or custom cursor bitmaps. Popup windows and
+client-drawn top-level frames are described separately in `wm.md`.
 
 ## Pointer capture capability
 
 Feature bit16 advertises pointer capture. SET_CAPTURE type10 is 12 bytes:
 uint32 type/window/captured, with the last field limited to0/1. CAPTURE_CHANGED
 event110 reports actual capture ownership (value0/1), using the regular v3
-event geometry and generation. Capture is connection scoped and can only be
-acquired by the focused, visible window while no shell modal UI or title-bar
-drag is active.
+event geometry and generation. Capture is connection scoped. A focused, visible
+window can acquire it while no shell modal UI or title-bar drag is active. A
+visible popup created with `kCreatePopup` can also acquire it without activation;
+its parent retains focus and keyboard routing.
 An ineligible request is acknowledged with value0; it never steals capture
 from another window. Releasing a window that does not own capture likewise
 reports0 and does not affect the actual owner.

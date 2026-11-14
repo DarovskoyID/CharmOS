@@ -61,6 +61,7 @@ class Window {
   uint32_t pending_width_=0,pending_height_=0;
   uint32_t* pending_pixels_[2]={};
   WindowDisplay display_{};
+  bool borderless_=false;
   bool visible_=false,active_=false,captured_=false;
   abi::syscall::InputRingHeader* ring_ = nullptr;
   abi::syscall::InputEvent* input_ = nullptr;

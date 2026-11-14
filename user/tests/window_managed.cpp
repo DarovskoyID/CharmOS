@@ -157,6 +157,30 @@ extern "C" int main() {
   other.close();
   VERIFY(Await(window,[&] { return window.active(); }));
 
+  charm::gui::Window popup;
+  VERIFY(popup.create_managed("Inactive popup capture",64,32,
+         abi::wm::kCreateInvisible|abi::wm::kCreateInactive|abi::wm::kCreatePopup)==charm::Status::Ok);
+  VERIFY(popup.set_visible(true,false)==charm::Status::Ok &&
+         Await(popup,[&] { return popup.visible(); }) && window.active() && !popup.active());
+  VERIFY(popup.set_capture(true)==charm::Status::Ok && Await(popup,[&] { return popup.captured(); }) &&
+         window.active() && !popup.active());
+  VERIFY(window.set_capture(true)==charm::Status::Ok && Await(window,[&] { return window.captured(); }));
+  VERIFY(Await(popup,[&] { return !popup.captured(); }));
+  popup.close();
+  printf("managed window: inactive popup pointer capture ok\n");
+
+  charm::gui::Window client_frame;
+  VERIFY(client_frame.create_managed("Client-drawn frame",480,80,
+         abi::wm::kCreateInvisible|abi::wm::kCreateInactive|abi::wm::kCreateBorderless)==charm::Status::Ok);
+  VERIFY(client_frame.set_visible(true,false)==charm::Status::Ok &&
+         Await(client_frame,[&] { return client_frame.visible(); }));
+  VERIFY(client_frame.request_bounds(100,display.work.y,480,display.work.height)==charm::Status::Ok &&
+         Await(client_frame,[&] { return !client_frame.configuration_pending(); }) &&
+         client_frame.x()==100 && client_frame.y()==display.work.y &&
+         client_frame.width()==480 && client_frame.height()==display.work.height);
+  client_frame.close();
+  printf("managed window: client-drawn frame geometry ok\n");
+
   charm::gui::Window rogue;
   VERIFY(rogue.create_managed("Invalid generation",64,32,
          abi::wm::kCreateInvisible|abi::wm::kCreateInactive)==charm::Status::Ok);

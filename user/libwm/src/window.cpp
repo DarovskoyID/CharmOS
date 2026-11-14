@@ -50,12 +50,14 @@ void Window::close() {
   ring_ = nullptr; input_ = nullptr; id_ = 0; owned_[0] = owned_[1] = false;
   width_=0; height_=0; format_=0; x_=0; y_=0;
   protocol_=0; generation_=0; display_={}; visible_=active_=captured_=false;
+  borderless_=false;
 }
 Status Window::create(const char* title, uint32_t width, uint32_t height) {
   return create_impl(title,width,height,wm::kVersion,0);
 }
 Status Window::create_managed(const char* title,uint32_t width,uint32_t height,uint32_t flags) {
-  if(flags&~(wm::kCreateInvisible|wm::kCreateInactive)) return Status::InvalidArgs;
+  if(flags&~(wm::kCreateInvisible|wm::kCreateInactive|wm::kCreatePopup|wm::kCreateBorderless)) return Status::InvalidArgs;
+  if((flags&wm::kCreateBorderless) && (flags&wm::kCreatePopup)) return Status::InvalidArgs;
   return create_impl(title,width,height,wm::kManagedVersion,flags);
 }
 Status Window::create_impl(const char* title,uint32_t width,uint32_t height,uint32_t version,uint32_t flags) {
@@ -94,8 +96,12 @@ Status Window::create_impl(const char* title,uint32_t width,uint32_t height,uint
     display_.title_height=extended.title_height;
     display_.features=extended.features;
     display_.work={extended.work_x,extended.work_y,extended.work_width,extended.work_height};
+    if((flags&wm::kCreateBorderless) && !(extended.features&wm::kFeatureBorderless)) {
+      close(); return Status::NotSupported;
+    }
+    borderless_=(flags&wm::kCreateBorderless)!=0;
     if(width>extended.work_width) width=extended.work_width;
-    uint32_t maximum_height=extended.work_height-extended.title_height;
+    uint32_t maximum_height=extended.work_height-(borderless_ ? 0u : extended.title_height);
     if(height>maximum_height) height=maximum_height;
   } else if(width>welcome.screen_w || height>welcome.screen_h) {
     close(); return Status::InvalidArgs;
@@ -189,7 +195,7 @@ Status Window::request_bounds(int32_t x,int32_t y,uint32_t width,uint32_t height
   if(!supports(wm::kFeatureBounds)) return Status::NotSupported;
   if(pending_generation_) return Status::WouldBlock;
   if(width>display_.work.width) width=display_.work.width;
-  uint32_t maximum_height=display_.work.height-display_.title_height;
+  uint32_t maximum_height=display_.work.height-(borderless_ ? 0u : display_.title_height);
   if(height>maximum_height) height=maximum_height;
   if(width==width_ && height==height_) return set_position(x,y);
   if(generation_==UINT32_MAX) return Status::NoSpace;
@@ -251,7 +257,7 @@ Status Window::wait(wm::WindowEvent* event, uint64_t deadline) {
         return Status::InvalidArgs;
       if(!managed.base.value) {
         if(managed.width!=pending_width_ || managed.height!=pending_height_ ||
-           managed.x<display_.work.x || int64_t{managed.y}<int64_t{display_.work.y}+display_.title_height ||
+           managed.x<display_.work.x || int64_t{managed.y}<int64_t{display_.work.y}+(borderless_ ? 0u : display_.title_height) ||
            int64_t{managed.x}+managed.width>int64_t{display_.work.x}+display_.work.width ||
            int64_t{managed.y}+managed.height>int64_t{display_.work.y}+display_.work.height)
           return Status::InvalidArgs;

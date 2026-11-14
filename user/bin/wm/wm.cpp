@@ -101,6 +101,7 @@ struct Window {
   bool minimized;
   bool closing;       // пользователь закрыл: окно больше не показываем
   bool popup;
+  bool borderless;
   bool unresponsive;  // клиент не забирает ввод: страница зависла
   uint32_t id;
   uint32_t generation;
@@ -118,7 +119,7 @@ struct Window {
   sc::InputEvent* events;
 };
 
-int32_t title_height(const Window& window) { return window.popup ? 0 : kTitle; }
+int32_t title_height(const Window& window) { return window.popup || window.borderless ? 0 : kTitle; }
 
 constexpr unsigned kOutboundMessages=64;
 struct OutboundMessage {
@@ -984,7 +985,7 @@ Rect hover_rect() {
   }
   if (g_launcher || g_drag >= 0) return {};
   int wi = window_at(x, y);
-  if (wi >= 0) {
+  if (wi >= 0 && title_height(g_win[wi]) > 0) {
     Rect frame = g_win[wi].frame;
     Rect buttons[] = {{frame.x + 16, frame.y + 16, 20, 20}, {frame.x + frame.w - 36, frame.y + 16, 20, 20}};
     for (Rect r : buttons) if (r.contains(x, y)) return r;
@@ -1220,8 +1221,9 @@ void create_window(int ci, const wm::Create& m, const Handle* hs, uint32_t nh,ui
     }
   }
   uint64_t bytes = uint64_t{m.width} * m.height * 4;
+  const uint32_t frame_title=(flags&(wm::kCreatePopup|wm::kCreateBorderless)) ? 0u : kTitle;
   bool ok = wi >= 0 && nh == 2 && m.width > 0 && m.height > 0 && m.width <= g_s.width && m.height <= g_s.height;
-  if(g_cl[ci].version==wm::kManagedVersion && uint64_t{m.height}+kTitle+kPanel>g_s.height) ok=false;
+  if(g_cl[ci].version==wm::kManagedVersion && uint64_t{m.height}+frame_title+kPanel>g_s.height) ok=false;
   uint64_t map0 = 0, map1 = 0;
   if(ok) ok=map_framebuffers(hs,nh,bytes,&map0,&map1);
   // Кольцо ввода окна: создаём, отдаём клиенту дубликат (он двигает head).
@@ -1245,6 +1247,7 @@ void create_window(int ci, const wm::Create& m, const Handle* hs, uint32_t nh,ui
   w.client = ci;
   w.minimized=(flags&wm::kCreateInvisible)!=0;
   w.popup=(flags&wm::kCreatePopup)!=0;
+  w.borderless=(flags&wm::kCreateBorderless)!=0;
   w.w = static_cast<int32_t>(m.width);
   w.h = static_cast<int32_t>(m.height);
   memcpy(w.title, m.title, sizeof w.title);
@@ -1318,7 +1321,7 @@ void configure_window(int ci,const wm::Configure& request,const Handle* handles,
   }
   Window& window=g_win[wi];
   bool valid=request.width && request.height && request.width<=g_s.width &&
-      uint64_t{request.height}+kTitle+kPanel<=g_s.height;
+      uint64_t{request.height}+static_cast<uint32_t>(title_height(window))+kPanel<=g_s.height;
   uint64_t first=0,second=0;
   if(valid) valid=map_framebuffers(handles,count,uint64_t{request.width}*request.height*4,&first,&second);
   for(uint32_t i=0;i<count;++i) (void)charm::handle_close(handles[i]);
@@ -1357,7 +1360,8 @@ void client_message(int ci) {
       }
       if(managed && len==sizeof(wm::CreateV3)) {
         auto& request=*reinterpret_cast<wm::CreateV3*>(msg);
-        if(nh==2 && !(request.flags&~(wm::kCreateInvisible|wm::kCreateInactive|wm::kCreatePopup))) {
+        if(nh==2 && !(request.flags&~(wm::kCreateInvisible|wm::kCreateInactive|wm::kCreatePopup|wm::kCreateBorderless)) &&
+           (request.flags&(wm::kCreatePopup|wm::kCreateBorderless))!=(wm::kCreatePopup|wm::kCreateBorderless)) {
           create_window(ci,request.base,hs,nh,request.flags);
           continue;
         }
@@ -1443,7 +1447,8 @@ void client_message(int ci) {
       const auto& request=*reinterpret_cast<wm::SetCapture*>(msg);
       int wi=find_window(ci,request.window);
       if(wi<0 || request.captured>1) { g_cl[ci].failed=true; return; }
-      if(request.captured && g_focus==wi && !g_win[wi].minimized && !g_launcher && !g_control && g_drag<0) {
+      if(request.captured && (g_focus==wi || g_win[wi].popup) && !g_win[wi].minimized &&
+         !g_win[wi].closing && !g_launcher && !g_control && g_drag<0) {
         if(g_capture!=wi) release_capture();
         g_capture=wi;
       } else if(!request.captured && g_capture==wi) {
@@ -1486,7 +1491,7 @@ void door_message(Handle door) {
     wm::WelcomeV3 welcome{{wm::kWelcome,m.version,g_s.bgrx ? sc::kDisplayBgrx : sc::kDisplayRgbx,
                           g_s.width,g_s.height},kTitle,0,kPanel,g_s.width,g_s.height-kPanel,
                          wm::kFeatureTitle|wm::kFeatureBounds|wm::kFeatureVisibility|wm::kFeatureActivation|
-                         wm::kFeatureCapture|wm::kFeaturePopup};
+                         wm::kFeatureCapture|wm::kFeaturePopup|wm::kFeatureBorderless};
     uint32_t bytes=m.version==wm::kManagedVersion ? sizeof welcome : sizeof welcome.base;
     if(send_message(ci,&welcome,bytes)!=Status::Ok) g_cl[ci].failed=true;
     rearm_client(ci);
@@ -1734,7 +1739,7 @@ void compose_region(Rect d) {
     }
     rounded({bar.x - 1, bar.y - 1, w.frame.w + 2, w.frame.h + 2}, 18, g_z[i] == g_focus ? 0x5b5140 : 0x2a2a2e, d);
     rounded(w.frame, 17, 0x17171a, d);
-    if (!w.popup) {
+    if (!w.popup && !w.borderless) {
     g_s.fill({bar.x, bar.y + bar.h - 1, bar.w, 1}, 0x2a2a2e, d);
     if (hot({bar.x + 16, bar.y + 16, 20, 20})) rounded({bar.x + 12, bar.y + 12, 28, 28}, 7, 0x542522, d);
     rounded({bar.x + 16, bar.y + 20, 12, 12}, 3, hot({bar.x + 16, bar.y + 16, 20, 20}) ? 0xff6559 : 0xe0352b, d);
