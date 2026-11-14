@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # A workspace-local ext4 image avoids per-file DrvFS overhead and the full C: disk.
 set -euo pipefail
+# Serialize loop-device discovery and mount verification across WSL invocations.
+exec {cache_lock}>/tmp/charmos-chromium-cache.lock
+flock -x "$cache_lock"
 [[ $(id -u) == 0 ]] || { echo 'Run this helper as WSL root' >&2; exit 2; }
 [[ ${1:-} =~ ^[0-9]+$ && ${2:-} =~ ^[0-9]+$ ]] || { echo 'Expected owner uid and gid' >&2; exit 2; }
 root="$(cd "$(dirname "$0")/../.." && pwd -P)"
