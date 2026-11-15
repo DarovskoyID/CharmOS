@@ -1479,16 +1479,6 @@ def blink_patches():
             ]),
         "content/shell/app/shell_main_delegate.cc": (
             "c22470ba2711a4c3c5a672da9d23519234aee785fb9d82a1ab03b97478a6b260", [
-                ('  InitLogging(command_line);\n',
-                 '  InitLogging(command_line);\n'
-                 '\n'
-                 '#if BUILDFLAG(IS_CHARMOS)\n'
-                 '  // CharmOS has no fork/exec or zygote; render in the browser\n'
-                 '  // process.\n'
-                 '  if (command_line.GetSwitchValueASCII(switches::kProcessType).empty()) {\n'
-                 '    command_line.AppendSwitch(switches::kSingleProcess);\n'
-                 '  }\n'
-                 '#endif\n'),
                 ('#if !BUILDFLAG(IS_ANDROID)\n'
                  '#include "content/web_test/browser/web_test_browser_main_runner.h"  // nogncheck',
                  '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n'

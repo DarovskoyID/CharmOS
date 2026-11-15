@@ -12,8 +12,10 @@
 #include <charm/libc.h>
 #include <charm/memory.hpp>
 #include <array>
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 #include <thread>
 #include <atomic>
 #include <chrono>
@@ -193,6 +195,29 @@ bool Transfer(bool ipcz) {
   return Wait(pair.first, pair.second, [&] { return pair.first.errors == 1; }) &&
          pair.first.error == Channel::Error::kDisconnected && !pair.second.errors;
 }
+bool FileDescriptorTransfer() {
+  constexpr char path[] = "/data/mojo-fd-transfer.txt";
+  constexpr char payload[] = "native-fd-transfer";
+  base::ScopedFD source(open(path, O_CREAT | O_TRUNC | O_RDWR, 0600));
+  if (!source.is_valid() || write(source.get(), payload, sizeof payload) != sizeof payload)
+    return false;
+  std::vector<mojo::PlatformHandle> handles;
+  handles.emplace_back(std::move(source));
+  auto message = Channel::Message::CreateMessage(0, handles.size());
+  message->SetHandles(std::move(handles));
+  Pair pair;
+  pair.a->Start(); pair.b->Start();
+  pair.a->Write(std::move(message));
+  if (!Wait(pair.first, pair.second, [&] { return pair.second.messages.size() == 1; }))
+    return false;
+  auto& received = pair.second.messages[0];
+  if (received.handles.size() != 1) return false;
+  auto imported = received.handles[0].TakeFD();
+  char actual[sizeof payload]{};
+  return imported.is_valid() &&
+         pread(imported.get(), actual, sizeof actual, 0) == sizeof actual &&
+         memcmp(actual, payload, sizeof payload) == 0;
+}
 bool Backpressure() {
   Pair pair;
   pair.a->Start();
@@ -304,6 +329,7 @@ bool CheckNativeMojoChannels() {
   if (!HandleOwnership()) { printf("Native Mojo: handle ownership failed\n"); return false; }
   if (!Transfer(false)) { printf("Native Mojo: normal channel transfer failed\n"); return false; }
   if (!Transfer(true)) { printf("Native Mojo: ipcz channel transfer failed\n"); return false; }
+  if (!FileDescriptorTransfer()) { printf("Native Mojo: FD transfer failed\n"); return false; }
   if (!Backpressure()) { printf("Native Mojo: backpressure failed\n"); return false; }
   if (!ConcurrentWrites()) { printf("Native Mojo: concurrent writes failed\n"); return false; }
   if (!QueueLimitAndShutdown()) { printf("Native Mojo: queue limit/shutdown failed\n"); return false; }

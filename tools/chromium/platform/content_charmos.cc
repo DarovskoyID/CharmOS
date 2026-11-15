@@ -1,24 +1,30 @@
 // CharmOS content-process architecture.
 //
 // CharmOS starts programs explicitly through charm_spawn and has no fork/exec
-// or setuid/namespace sandbox. Content Shell therefore runs the renderer
-// in-process (--single-process). The symbols below are the Linux zygote and
-// sandbox entry points that upstream content still references unconditionally;
-// they report "no zygote / no sandbox" instead of pretending a process was
-// created. This keeps failures explicit while allowing the browser to run.
+// or setuid/namespace sandbox. Child processes are launched directly (without
+// a zygote) and receive their Mojo bootstrap endpoint as a native startup
+// capability. The remaining symbols below are Linux zygote and sandbox entry
+// points which upstream content still references unconditionally.
 #include <memory>
 #include <optional>
 #include <utility>
 #include <vector>
 
+#include "base/check.h"
+#include "base/command_line.h"
 #include "base/functional/bind.h"
+#include "base/logging.h"
 #include "base/memory/singleton.h"
 #include "base/no_destructor.h"
 #include "base/process/kill.h"
 #include "base/process/process.h"
 #include "base/process/process_handle.h"
+#include "base/process/launch.h"
 #include "content/browser/child_process_launcher_helper.h"
+#include "content/browser/child_process_launcher.h"
+#include "content/browser/posix_file_descriptor_info_impl.h"
 #include "content/browser/sandbox_host_linux.h"
+#include "content/browser/sandboxed_process_launcher_delegate.h"
 #include "content/browser/scheduler/responsiveness/native_event_observer.h"
 #include "content/browser/zygote_host/zygote_host_impl_linux.h"
 #include "content/common/zygote/zygote_communication_linux.h"
@@ -27,6 +33,8 @@
 #include "content/public/common/zygote/zygote_fork_delegate_linux.h"
 #include "content/renderer/renderer_main_platform_delegate.h"
 #include "content/zygote/zygote_main.h"
+#include "mojo/public/cpp/platform/platform_channel.h"
+#include <charm/libc.h>
 
 namespace content {
 
@@ -158,7 +166,8 @@ void RendererMainPlatformDelegate::PlatformInitialize() {}
 void RendererMainPlatformDelegate::PlatformUninitialize() {}
 
 bool RendererMainPlatformDelegate::EnableSandbox() {
-  // No seccomp/namespace layer exists; the renderer is in-process.
+  // There is no seccomp/namespace layer. Process isolation still comes from
+  // the native address space and capability table.
   return true;
 }
 
@@ -175,7 +184,9 @@ void ChildProcessLauncherHelper::BeforeLaunchOnClientThread() {}
 
 std::unique_ptr<FileMappedForLaunch>
 ChildProcessLauncherHelper::GetFilesToMap() {
-  return nullptr;
+  // CharmOS transfers startup objects through LaunchOptions capabilities,
+  // but the common launcher still requires a non-null staging container.
+  return PosixFileDescriptorInfoImpl::Create();
 }
 
 bool ChildProcessLauncherHelper::IsUsingLaunchOptions() {
@@ -184,39 +195,71 @@ bool ChildProcessLauncherHelper::IsUsingLaunchOptions() {
 
 bool ChildProcessLauncherHelper::BeforeLaunchOnLauncherThread(
     FileMappedForLaunch& /*files_to_register*/,
-    base::LaunchOptions* /*options*/) {
-  return false;
+    base::LaunchOptions* options) {
+  if (!options) return false;
+  // PlatformChannel performs the one-shot role allocation and appends the
+  // serialized role switch. No descriptor numbers cross this boundary.
+  mojo_channel_->PrepareToPassRemoteEndpoint(options, command_line());
+  options->environment = delegate_->GetEnvironment();
+  options->charmos_capabilities =
+      CHARM_GIVE_ROOT | CHARM_GIVE_CWD | CHARM_GIVE_NET | CHARM_GIVE_CONSOLE;
+  options->charmos_priority = 8;
+  return true;
 }
 
 ChildProcessLauncherHelper::Process
 ChildProcessLauncherHelper::LaunchProcessOnLauncherThread(
-    const base::LaunchOptions* /*options*/,
+    const base::LaunchOptions* options,
     std::unique_ptr<FileMappedForLaunch> /*files_to_register*/,
     bool* is_synchronous_launch,
     int* launch_result) {
   if (is_synchronous_launch) *is_synchronous_launch = true;
-  if (launch_result) *launch_result = 0;
-  return Process();
+  Process process;
+  if (!options) {
+    if (launch_result) *launch_result = LAUNCH_RESULT_FAILURE;
+    return process;
+  }
+  process.process = base::LaunchProcess(*command_line(), *options);
+  if (!process.process.IsValid())
+    LOG(ERROR) << "charmos-child: launch " << GetProcessType()
+               << " failed, errno=" << errno;
+  if (launch_result) {
+    *launch_result = process.process.IsValid() ? LAUNCH_RESULT_SUCCESS
+                                               : LAUNCH_RESULT_FAILURE;
+  }
+  return process;
 }
 
 void ChildProcessLauncherHelper::AfterLaunchOnLauncherThread(
     const ChildProcessLauncherHelper::Process& /*process*/,
-    const base::LaunchOptions* /*options*/) {}
+    const base::LaunchOptions* /*options*/) {
+  file_data_.reset();
+}
 
 ChildProcessTerminationInfo ChildProcessLauncherHelper::GetTerminationInfo(
-    const ChildProcessLauncherHelper::Process& /*process*/,
-    bool /*known_dead*/) {
-  return ChildProcessTerminationInfo();
+    const ChildProcessLauncherHelper::Process& process,
+    bool known_dead) {
+  ChildProcessTerminationInfo info;
+  if (known_dead) {
+    info.status = base::GetKnownDeadTerminationStatus(
+        process.process.Handle(), &info.exit_code);
+  } else {
+    info.status = base::GetTerminationStatus(process.process.Handle(),
+                                             &info.exit_code);
+  }
+  return info;
 }
 
 bool ChildProcessLauncherHelper::TerminateProcess(
-    const base::Process& /*process*/,
-    int /*exit_code*/) {
-  return false;
+    const base::Process& process,
+    int exit_code) {
+  return process.Terminate(exit_code, false);
 }
 
 void ChildProcessLauncherHelper::ForceNormalProcessTerminationSync(
-    ChildProcessLauncherHelper::Process /*process*/) {}
+    ChildProcessLauncherHelper::Process process) {
+  base::EnsureProcessTerminated(std::move(process.process));
+}
 
 void ChildProcessLauncherHelper::SetProcessPriorityOnLauncherThread(
     base::Process /*process*/,

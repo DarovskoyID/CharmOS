@@ -18,10 +18,13 @@ INCLUDES_AFTER = """#include "ui/views/background.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/strings/string_split.h"
+#include "base/task/thread_pool.h"
 #include "components/vector_icons/vector_icons.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/save_page_type.h"
 #include "content/public/common/content_client.h"
+#include "content/shell/browser/shell_browser_context.h"
 #include "content/shell/browser/shell_content_browser_client.h"
 #include "ui/base/models/image_model.h"
 #include "ui/menus/simple_menu_model.h"
@@ -33,6 +36,8 @@ INCLUDES_AFTER = """#include "ui/views/background.h"
 #include "ui/views/controls/menu/menu_model_adapter.h"
 #include "ui/views/controls/menu/menu_runner.h"
 #include "ui/views/vector_icons.h"
+#include "ui/views/window/client_view.h"
+#include "ui/views/window/frame_view.h"
 #include <cctype>
 #include <set>
 #include <string>
@@ -73,10 +78,15 @@ std::vector<std::string> ReadLines(const char* path) {
                            base::SPLIT_WANT_NONEMPTY);
 }
 
-void WriteLines(const char* path, const std::vector<std::string>& lines) {
+void WriteLinesTask(std::string path, std::vector<std::string> lines) {
   std::string contents;
   for (const auto& line : lines) contents += line + "\\n";
   base::WriteFile(base::FilePath(FILE_PATH_LITERAL(path)), contents);
+}
+
+void WriteLines(const char* path, const std::vector<std::string>& lines) {
+  base::ThreadPool::PostTask(FROM_HERE, {base::MayBlock()},
+      base::BindOnce(&WriteLinesTask, path, lines));
 }
 
 void EnsureBrowserState() {
@@ -109,6 +119,15 @@ void SaveBookmarks() {
              std::vector<std::string>(BookmarkStore().begin(), BookmarkStore().end()));
 }
 
+void WriteHistoryLine(std::string url) {
+  base::File history(base::FilePath(FILE_PATH_LITERAL("/data/browser-history.txt")),
+                     base::File::FLAG_OPEN_ALWAYS | base::File::FLAG_APPEND);
+  if (history.IsValid()) {
+    std::string line = url + "\\n";
+    history.WriteAtCurrentPos(base::as_byte_span(line));
+  }
+}
+
 void RecordHistory(WebContents* contents) {
   if (contents->GetBrowserContext()->IsOffTheRecord()) return;
   std::string url = contents->GetLastCommittedURL().spec();
@@ -116,12 +135,8 @@ void RecordHistory(WebContents* contents) {
   auto& entries = HistoryEntries();
   if (!entries.empty() && entries.back() == url) return;
   entries.push_back(url);
-  base::File history(base::FilePath(FILE_PATH_LITERAL("/data/browser-history.txt")),
-                     base::File::FLAG_OPEN_ALWAYS | base::File::FLAG_APPEND);
-  if (history.IsValid()) {
-    std::string line = url + "\n";
-    history.WriteAtCurrentPos(line.data(), static_cast<int>(line.size()));
-  }
+  base::ThreadPool::PostTask(FROM_HERE, {base::MayBlock()},
+      base::BindOnce(&WriteHistoryLine, std::move(url)));
 }
 
 std::u16string EngineLabel() {
@@ -178,6 +193,102 @@ class ToolbarMenuDelegate : public ui::SimpleMenuModel::Delegate {
   std::set<int> disabled_;
   std::set<int> checked_;
 };
+
+class TitleDragView final : public views::View {
+  METADATA_HEADER(TitleDragView, views::View)
+ public:
+  TitleDragView() { SetPreferredSize(gfx::Size(80, 40)); }
+
+  bool OnMousePressed(const ui::MouseEvent& event) override {
+    if (!event.IsLeftMouseButton() || !GetWidget()) return false;
+    pointer_ = ConvertPointToScreen(this, event.location());
+    origin_ = GetWidget()->GetWindowBoundsInScreen().origin();
+    dragging_ = true;
+    LOG(ERROR) << "charmos-ui: drag-start " << pointer_.x() << "," << pointer_.y();
+    return true;
+  }
+
+  bool OnMouseDragged(const ui::MouseEvent& event) override {
+    if (!dragging_ || !GetWidget()) return false;
+    gfx::Rect bounds = GetWidget()->GetWindowBoundsInScreen();
+    bounds.set_origin(origin_ + (ConvertPointToScreen(this, event.location()) - pointer_));
+    LOG(ERROR) << "charmos-ui: drag-move " << bounds.x() << "," << bounds.y();
+    GetWidget()->SetBounds(bounds);
+    return true;
+  }
+
+  void OnMouseReleased(const ui::MouseEvent&) override { StopDragging(); }
+  void OnMouseCaptureLost() override {
+    LOG(ERROR) << "charmos-ui: drag-cancel";
+    dragging_ = false;
+  }
+
+ private:
+  void StopDragging() {
+    if (!dragging_) return;
+    dragging_ = false;
+    if (GetWidget()) GetWidget()->ReleaseCapture();
+  }
+
+  gfx::Point pointer_;
+  gfx::Point origin_;
+  bool dragging_ = false;
+};
+
+BEGIN_METADATA(TitleDragView)
+END_METADATA
+
+constexpr int kTabStripHeight = 40;
+
+class ShellFrameView final : public views::FrameView {
+  METADATA_HEADER(ShellFrameView, views::FrameView)
+ public:
+  ShellFrameView() { SetBackground(views::CreateSolidBackground(kPillColor)); }
+
+  void SetTabStrip(std::unique_ptr<views::FlexLayoutView> strip) {
+    tab_strip_ = strip.get();
+    AddChildView(std::move(strip));
+  }
+
+  gfx::Rect GetBoundsForClientView() const override {
+    return gfx::Rect(0, kTabStripHeight, width(),
+                     std::max(0, height() - kTabStripHeight));
+  }
+
+  gfx::Rect GetWindowBoundsForClientBounds(
+      const gfx::Rect& client_bounds) const override {
+    gfx::Rect bounds = client_bounds;
+    bounds.set_height(bounds.height() + kTabStripHeight);
+    return bounds;
+  }
+
+  gfx::Size CalculatePreferredSize(
+      const views::SizeBounds& available) const override {
+    auto* client = GetWidget()->client_view();
+    gfx::Size size = client ? client->GetPreferredSize(available)
+                            : gfx::Size(800, 600);
+    return gfx::Size(size.width(), size.height() + kTabStripHeight);
+  }
+
+  gfx::Size GetMinimumSize() const override {
+    auto* client = GetWidget()->client_view();
+    gfx::Size size = client ? client->GetMinimumSize() : gfx::Size();
+    return gfx::Size(size.width(), size.height() + kTabStripHeight);
+  }
+
+  void Layout(PassKey pass_key) override {
+    if (tab_strip_)
+      tab_strip_->SetBoundsRect(gfx::Rect(0, 0, width(), kTabStripHeight));
+    if (auto* client = GetWidget()->client_view())
+      client->SetBoundsRect(GetBoundsForClientView());
+  }
+
+ private:
+  raw_ptr<views::FlexLayoutView> tab_strip_ = nullptr;
+};
+
+BEGIN_METADATA(ShellFrameView)
+END_METADATA
 
 // Command ids for the toolbar menu.
 constexpr int kCmdZoomIn = 1;
@@ -264,8 +375,8 @@ BLOCK_AFTER = """    if (!Shell::ShouldHideToolbar()) {
           views::Builder<views::FlexLayoutView>()
               .CopyAddressTo(&tab_strip_)
               .SetOrientation(views::LayoutOrientation::kHorizontal)
-              .SetBackground(views::CreateSolidBackground(kToolbarColor))
-              .SetProperty(views::kMarginsKey, gfx::Insets::TLBR(6, 10, 0, 10)));
+              .SetBackground(views::CreateSolidBackground(kPillColor))
+              .SetProperty(views::kMarginsKey, gfx::Insets::TLBR(0, 8, 0, 8)));
       builder.AddChild(
           views::Builder<views::FlexLayoutView>()
               .CopyAddressTo(&toolbar_view_)
@@ -337,18 +448,7 @@ BLOCK_AFTER = """    if (!Shell::ShouldHideToolbar()) {
                                   views::FlexSpecification(
                                       views::LayoutOrientation::kHorizontal,
                                       views::MinimumFlexSizeRule::kScaleToMinimum,
-                                      views::MaximumFlexSizeRule::kUnbounded)),
-                          views::Builder<views::Label>()
-                              .CopyAddressTo(&title_label_)
-                              .SetEnabledColor(kIconColor)
-                              .SetProperty(
-                                  views::kFlexBehaviorKey,
-                                  views::FlexSpecification(
-                                      views::LayoutOrientation::kHorizontal,
-                                      views::MinimumFlexSizeRule::kScaleToMinimum,
-                                      views::MaximumFlexSizeRule::kUnbounded))
-                              .SetProperty(views::kMarginsKey,
-                                           gfx::Insets::TLBR(0, 8, 0, 8))),
+                                      views::MaximumFlexSizeRule::kUnbounded))),
                   IconButton(&downloads_button_, vector_icons::kFolderOpenIcon,
                              u"Загрузки",
                              base::BindRepeating(&ShellView::OpenDownloadsMenu,
@@ -450,10 +550,17 @@ METHODS_AFTER = """  template <typename T>
       std::u16string title = shell_->TabTitle(i);
       if (title.empty()) title = u"Новая вкладка";
       if (title.size() > 24) title = title.substr(0, 23) + u"…";
-      if (i + 1 == shell_->tab_count()) title = u"• " + title;
+      const bool active = i + 1 == shell_->tab_count();
       tab_strip_->AddChildView(
           views::Builder<views::MdTextButton>()
               .SetText(title)
+              .SetPreferredSize(gfx::Size(180, 36))
+              .SetBackground(views::CreateRoundedRectBackground(
+                  active ? kToolbarColor : kPillColor, 12))
+              .SetProperty(views::kFlexBehaviorKey,
+                  views::FlexSpecification(views::LayoutOrientation::kHorizontal,
+                      views::MinimumFlexSizeRule::kScaleToMinimum,
+                      views::MaximumFlexSizeRule::kUnbounded))
               .SetCallback(base::BindRepeating(
                   &Shell::SelectTab, base::Unretained(shell_.get()), i))
               .Build());
@@ -461,6 +568,7 @@ METHODS_AFTER = """  template <typename T>
     tab_strip_->AddChildView(
         views::Builder<views::MdTextButton>()
             .SetText(u"+")
+            .SetPreferredSize(gfx::Size(44, 36))
             .SetAccessibleName(u"Новая вкладка")
             .SetCallback(base::BindRepeating(&ShellView::CreateTab,
                 base::Unretained(this),
@@ -470,17 +578,45 @@ METHODS_AFTER = """  template <typename T>
       tab_strip_->AddChildView(
           views::Builder<views::MdTextButton>()
               .SetText(u"×")
+              .SetPreferredSize(gfx::Size(40, 36))
               .SetAccessibleName(u"Закрыть вкладку")
               .SetCallback(base::BindRepeating(
                   &Shell::CloseActiveTab, base::Unretained(shell_.get())))
               .Build());
     }
-    tab_strip_->Layout();
+    auto drag_area = std::make_unique<TitleDragView>();
+    drag_area->SetProperty(views::kFlexBehaviorKey,
+        views::FlexSpecification(views::LayoutOrientation::kHorizontal,
+            views::MinimumFlexSizeRule::kScaleToMinimum,
+            views::MaximumFlexSizeRule::kUnbounded));
+    tab_strip_->AddChildView(std::move(drag_area));
+    tab_strip_->AddChildView(
+        views::Builder<views::MdTextButton>()
+            .SetText(u"—")
+            .SetPreferredSize(gfx::Size(44, 40))
+            .SetAccessibleName(u"Свернуть окно")
+            .SetCallback(base::BindRepeating(&views::Widget::Minimize,
+                base::Unretained(GetWidget())))
+            .Build());
+    tab_strip_->AddChildView(
+        views::Builder<views::MdTextButton>()
+            .SetText(u"×")
+            .SetPreferredSize(gfx::Size(44, 40))
+            .SetAccessibleName(u"Закрыть окно")
+            .SetCallback(base::BindRepeating(&ShellView::CloseWindow,
+                base::Unretained(this)))
+            .Build());
+    tab_strip_->DeprecatedLayoutImmediately();
+  }
+
+  void CloseWindow() {
+    LOG(ERROR) << "charmos-ui: close-window";
+    shell_->Close();
   }
 
   void CreateTab(bool incognito) {
     auto* client = static_cast<ShellContentBrowserClient*>(
-        GetContentClient()->browser());
+        GetContentClientForTesting()->browser());
     BrowserContext* context = incognito
         ? client->off_the_record_browser_context()
         : client->browser_context();
@@ -657,7 +793,8 @@ METHODS_AFTER = """  template <typename T>
         break;
       case kCmdClearHistory:
         HistoryEntries().clear();
-        base::DeleteFile(base::FilePath(FILE_PATH_LITERAL("/data/browser-history.txt")));
+        base::ThreadPool::PostTask(FROM_HERE, {base::MayBlock()}, base::BindOnce(
+            [] { base::DeleteFile(base::FilePath(FILE_PATH_LITERAL("/data/browser-history.txt"))); }));
         break;
       default:
         break;
@@ -755,5 +892,21 @@ def shell_toolbar_patches():
         (ACCELERATOR_PRESS_BEFORE, ACCELERATOR_PRESS_AFTER),
         (URL_BEFORE, URL_AFTER),
         (SET_TITLE_BEFORE, SET_TITLE_AFTER),
+        ("  void AddedToWidget() override { InitAccelerators(); }\n",
+         "  void AddedToWidget() override {\n"
+         "    InitAccelerators();\n"
+         "    if (tab_strip_) {\n"
+         "      auto frame = std::make_unique<ShellFrameView>();\n"
+         "      auto* strip = static_cast<views::FlexLayoutView*>(tab_strip_);\n"
+         "      frame->SetTabStrip(RemoveChildViewT(strip));\n"
+         "      GetWidget()->non_client_view()->SetFrameView(std::move(frame));\n"
+         "      RebuildTabStrip();\n"
+         "    }\n"
+         "  }\n"),
+        ("  params.delegate = delegate.release();\n",
+         "  params.delegate = delegate.release();\n"
+         "#if BUILDFLAG(IS_CHARMOS)\n"
+         "  params.remove_standard_frame = true;\n"
+         "#endif\n"),
     ]
     return {SHELL_VIEWS: (SHELL_VIEWS_DIGEST, replacements)}

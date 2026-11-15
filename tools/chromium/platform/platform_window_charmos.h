@@ -77,12 +77,14 @@ class PlatformWindowCharmOS final : public PlatformWindow {
   std::optional<gfx::Rect> queued_bounds_;
   bool bounds_in_flight_=false;
   bool activatable_=true;
+  bool native_frame_=true;
   PlatformWindowState state_ = PlatformWindowState::kNormal;
   InputTranslatorCharmOS input_;
   scoped_refptr<PlatformCursor> cursor_;
   bool visible_ = false;
   bool active_ = false;
   bool closed_ = false;
+  bool capture_requested_ = false;
   base::WeakPtrFactory<PlatformWindowCharmOS> weak_factory_{this};
 };
 }  // namespace ui

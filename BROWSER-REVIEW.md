@@ -2,6 +2,174 @@
 
 ## Аудит рабочего браузера (2026-11-13)
 
+### Проверка рабочего UI, HTTPS и настроек (2026-11-15)
+
+- Frame-сценарий реальными mouse/keyboard действиями завершён: drag, minimize,
+  restore и Close не приводят к перезапуску или FATAL. В JSON было
+  `frame_smoke_passed=true`, `passed=true`; снимки drag/minimized/restored
+  просмотрены. Поздний Viz crash устранён порядком `OnClosed` → unregister.
+- Multi-process сценарий подтверждает обычную и incognito вкладки, адресную
+  строку и `https://example.com/`. Последний прогон: `history_smoke_passed=true`,
+  `ui_smoke_passed=true`, `stability_passed=true`, `fatal_seen=false`,
+  холодный старт 1287,431 мс при пределе проверки 2500 мс. Отдельная цель
+  500 мс этим не закрыта.
+- `build/browser-ui-history.png` и `build/browser-ui-settings.png` просмотрены:
+  в меню есть `https://example.com/`, после настоящего клика Google отмечен
+  галочкой, а кнопка поиска изменилась с `Я` на `G`. Это подтверждает
+  пользовательское переключение настройки, а не только запись в JSON.
+- Harness больше не использует номер старого incognito WM window как признак
+  закрытия popup: ожидается destroy после текущего выбора, а большие перемещения
+  указателя получают паузу перед кликом. Два прежних timeout относились к этим
+  условиям ожидания, а не к FATAL браузера.
+- Full-Chrome harness больше не ждёт несуществующий serial-лог смены заголовка
+  расширения: `https://example.com` открывается явно, затем сохраняется снимок
+  с видимым маркером content script. Расширение и PDF оба требуют визуального
+  ревью; это изменение сценария ещё не является гостевым PASS полного Chrome.
+- Временные логи Views/Aura, native input/capture, process-type и Mojo message
+  diagnostics удалены. Пустые pinned patch entries явно восстанавливают upstream
+  `widget.cc`, `root_view.cc` и `window_targeter.cc`: простое удаление записи из
+  patch dictionary оставляло старый текст в source cache без пересборки. Миграция
+  разрешает только точные прежние diagnostic fragments, 419 контекстов проверены,
+  а очищенные исходники в кеше дополнительно прочитаны и подтверждены.
+- После очистки инкрементальный Ninja завершил `[6/6] LINK ./content_shell.elf`
+  и ELF audit. Новый бинарь повторно прошёл frame PASS и HTTPS/UI PASS:
+  `history_smoke_passed=true`, `ui_smoke_passed=true`, `stability_passed=true`,
+  `fatal_seen=false`, холодный старт 1318,174 мс. Все новые снимки просмотрены.
+- Frame harness ждёт финальный `drag-move 340,...`, а не первый промежуточный
+  кадр. Прежние два timeout были гонкой между двумя mouse-move: клик попадал
+  либо в пустой заголовок, либо в Close; serial это подтвердил. После ожидания
+  конечной позиции drag/minimize/restore/Close проходят на новом ELF.
+
+### Повторное ревью чек-листа, 2026-11-14
+
+### WM: popup capture и client-drawn рамка (2026-11-14)
+
+- Видимый неактивный `kCreatePopup` теперь может захватывать указатель без смены
+  фокуса. Это устраняет мгновенное закрытие Views-меню; прежний процесс доходил
+  до `Esc`, а не исчезал до создания canvas. Координаты и ABI сообщений не менялись.
+- Добавлены `kCreateBorderless=8` и `kFeatureBorderless=64`. Клиентская рамка
+  использует полную рабочую высоту; обычные приложения сохраняют системный
+  заголовок. Это основа для переноса вкладок Chromium в верхнюю строку окна,
+  но не подтверждение готового Chromium UI: его сборка и screenshots отдельно.
+- `window_managed` проверяет popup capture и borderless на всю рабочую высоту.
+  Тест переведён на однократный `console managed`, чтобы после успешного выхода
+  init не перезапускал его и не создавал ложный поздний сбой при poweroff.
+- Проверка `tools/test.sh m10 90 window_managed`: PASS, штатный exit code 33,
+  без второго запуска и без `managed window: failed` в serial.
+- Shell теперь передаёт существующую init-команду `start` как `svc start <name>`;
+  соответствующий запуск manual-сервиса был проверен в QEMU.
+
+### Перенос вкладок в настоящий FrameView (текущая работа)
+
+- Первый borderless снимок `build/browser-title-tabs-early.png` выявил две строки:
+  стандартный Views title с кнопками, а под ним отдельный tab strip. Это не
+  принимается как готовый результат.
+- Добавлен `ShellFrameView`: tab strip переносится в него из content view,
+  `GetBoundsForClientView()` отводит остальную высоту toolbar и странице.
+  `TitleDragView` перемещает окно через native pointer capture; кнопки окна
+  вызывают реальные `Widget::Minimize` и `Shell::Close`.
+- WM различает явное `Destroy` приложения и обрыв соединения: первое не должно
+  перезапускать браузер, второе сохраняет восстановление после падения.
+- `tools/test.sh m10 120 mojo_runtime`: PASS, включая native endpoint, запуск
+  ребёнка, IPC и повторный запуск. Следующий шаг — собрать FrameView и пройти
+  пользовательские клики со свежими screenshots; пока PASS не объявляется.
+
+- Свежие `build/browser-unicode-review.png`, `browser-ui-new-tab.png` и
+  `browser-ui-menu.png` просмотрены: одна верхняя строка вкладок вместо синего
+  title, адресная строка ниже, страница без дополнительной рамки. Настоящий click
+  по `+` даёт `charmos-ui: new-tab 2 incognito=0`; меню полностью нарисовано,
+  видны команды, история, выбор поиска и popup canvas. Отдельная проверка drag и
+  window controls ещё требуется.
+- Single-process incognito по-прежнему останавливается на штатном Chromium
+  `DCHECK: single-process mode does not support multiple browser contexts`.
+  Следующий запуск использует `CHARMOS_BROWSER_MULTIPROCESS=1` и GDB стеки выхода.
+
+- Multi-process диагностика: utility и renderer получают `valid=1 errno=0` от
+  `base::LaunchProcess`, а затем завершаются с `status=0 exit=0`. Ошибочный
+  `GetProcessType()` в probe заменён на безопасный PID. Добавлены записи
+  `charmos-main: process-type` и `charmos-mojo: recover role` для следующего запуска.
+- Drag диагностика: `drag-start` и `capture-changed 1` подтверждены, но
+  `drag-move` отсутствовал. В `Widget::OnMouseEvent` при этом были
+  `pressed=0 capture=0`, а `RootView::OnMouseDragged` не вызывался.
+- Найден конфликт захвата: `TitleDragView::OnMousePressed` вызывал
+  `Widget::SetCapture` до завершения обработки нажатия самим `Widget`.
+  Изменение global capture не проходило штатную проверку `current_capture`,
+  поэтому `is_mouse_button_pressed_` оставался false. Лишний вызов и обходной
+  `OnMouseMoved` удалены: Views должен сам выдать capture после pressed.
+  Harness теперь посылает два реальных mouse-move и требует `drag-move`.
+  Первый повторный QEMU показал `pressed=1 capture=0` на обоих движениях:
+  подтверждение WM пришло только после release. Добавлено локальное ожидание
+  capture request в Ozone; отказ WM по-прежнему приводит к `OnLostCapture`.
+- После закрытия меню Viz поздно запросил surface уже удалённого widget 2 и
+  упал на `Check failed: surface_ozone`. `PlatformWindowCharmOS::Close` теперь
+  сначала вызывает `OnClosed` для разрушения host/compositor и только затем
+  удаляет presenter из registry. Повторный QEMU больше не содержит
+  `no presenter` или Viz FATAL после закрытия меню.
+- Просмотрены свежие `browser-ui-drag.png`, `browser-ui-minimized.png` и
+  `browser-ui-restored.png`: окно перемещается мышью, исчезает при minimize и
+  возвращается по Alt+B. В serial оба движения имеют `pressed=1 capture=1`,
+  `root-drag handler=1` и `drag-move`. `--close-first` PASS: настоящий Close
+  вызывает `browser close requested/stopped`. После restore `WindowTargeter`
+  показывал `visible=0` и отбрасывал ввод. Restore приходит без pending state,
+  поэтому `UpdateState` не вызывался. Добавлены `kNormal` fallback и
+  `Show`/`Hide` на `aura::Window`. Полный frame PASS пока не объявляется.
+- Mojo probe показал согласованные буферы: например, `data_bytes=136` с
+  `ids_offset=80` и `data_bytes=256` с `ids_offset=200`; указатель относителен
+  к полю на смещении 40 и массив целиком помещается в сообщение. Ослаблять
+  проверки `payload_num_interface_ids` не требуется. Избыточный log ограничен
+  сообщениями с ненулевым смещением.
+- Symbolizer показал, что повторяющийся SIGTRAP multi-process находится в
+  `Message::version/header_v2`: probe безусловно читал V2 header также у
+  сообщений версии 0/1. Это probe-induced DCHECK, а не доказанная порча Mojo
+  transport. Добавлено `version() >= 2`; после инкрементальной сборки нужен
+  новый пользовательский incognito-сценарий.
+- Kernel GDB уточнил основной multi-process fault: `#PF` при `CR2=4` в
+  `NotifyPeerClosureForSerializedHandles`, на ответе `Directory_OpenFile`.
+  После ошибки отправки `TakeMojoMessage()` оставляет moved-from Message;
+  повторное чтение его пустого `payload_buffer_` недопустимо. Добавлен выход
+  для `!serialized_`, как и в соседней deserialize-ветке. Это устраняет только
+  crash error-path, а не саму ошибку доставки.
+- Для реальной доставки файловых handles ChannelCharmOS теперь преобразует
+  Chromium FD в duplicate исходной kernel capability с сохранением прав;
+  обратный `PlatformHandle::TakeFD()` импортирует capability как file/dir/socket
+  FD через `charm_fd_from_handle`. Ранее не-capability handle просто отклонялся.
+  `mojo_channel_checks` получил roundtrip `open/write → transfer → TakeFD/pread`.
+  Первая линковка минимального runtime упала на `CollectStackTrace`;
+  лишний LOG удалён, а существующий `partition_alloc_charmos.cc` добавлен
+  в sources runtime, как и в других minimal executables.
+  `tools/test.sh m10 120 mojo_runtime`: PASS, включая FD roundtrip.
+  `--samples 0 --ui-smoke --cold-limit-ms 2500`: `passed=true`,
+  `stability_passed=true`, `ui_smoke_passed=true`. Incognito создаётся и
+  закрывается настоящими Ctrl+Shift+N/Ctrl+W, снимки просмотрены. Холодный
+  multi-process старт 1,44 с; прежняя цель 500 мс отдельно не достигнута.
+- Диагностика стека отдельно исключила stack overflow у Mojo IO thread: у него
+  было около 12 КиБ использованного стека. TCP-probe GDB порта удалён из harness;
+  ожидание `ss -ltn` не подключается к QEMU stub и не снимает `-S`.
+- Следующий renderer fault доказал переполнение начального main stack:
+  `RSP=0x7fffffef0000` — нижняя граница 64 КиБ, `CR2=base-8`, запись.
+  `ContentMain` теперь целиком выполняется на dedicated pthread с 8-МиБ стеком,
+  как и V8; startup handles и `RunContentProcess` не обходятся. На новом ELF
+  renderer проходит HTML probe, открывает вкладки и incognito без прежнего #PF.
+
+- Popup и обычная вкладка подтверждены настоящим pointer input в QEMU; ожидание
+  harness исправлено на attachment второго Ozone canvas, потому что popup не
+  создаёт второй startup-stage `Shell`.
+- Incognito действительно упирался в `--single-process`: off-the-record
+  BrowserContext нельзя подключить к renderer обычного профиля. Подключён
+  прямой child launcher через native `base::LaunchProcess` и Mojo startup
+  capability; отдельные renderer/GPU/network процессы реально стартуют.
+- Удалён старый patch, скрыто возвращавший `--single-process` внутри
+  `ShellMainDelegate`. Для уже подготовленных source caches добавлена точная
+  миграция, не разрешающая произвольные vendor edits.
+- Исправлены два следующих блокера: libc теперь сообщает документированный
+  фиксированный stack главного потока через `pthread_getattr_np`; GPU можно
+  оставить in-process при отдельном renderer.
+- Полный многопроцессный gate пока НЕ зелёный: utility/network child-процессы
+  завершаются и перезапускаются без диагностического FATAL, DOM-ready не
+  достигается. До выяснения bootstrap failure обычный образ сохраняет
+  проверенный `--single-process`; эксперимент включается только явным
+  `CHARMOS_BROWSER_MULTIPROCESS=1`. Incognito поэтому ещё не закрыт.
+
 - Подтверждённый исполняемый продукт — native `content_shell`, а не `chrome`:
   `content_port` зависит от `//content/shell:content_shell` в
   `tools/chromium/platform/BUILD.gn`. Поэтому правки desktop `chrome/browser`

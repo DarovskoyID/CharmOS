@@ -8,6 +8,7 @@ import shlex
 import subprocess
 import re
 import sys
+import difflib
 
 if sys.argv[1:] not in ([], ["--check-only"]):
     raise SystemExit("usage: prepare-platform.py [--check-only]")
@@ -778,6 +779,55 @@ base_replacements.append((
     '      "//build/charmos/allocator_charmos.cc",',
     '      "//build/charmos/allocator_charmos.cc",\n'
     '      "//build/charmos/base_paths_charmos.cc",'))
+legacy_diagnostics = {
+    "content/shell/app/shell_main_delegate.cc": (
+        ('#include "build/charmos/startup_profile_charmos.h"\n#include "base/logging.h"',
+         '#include "build/charmos/startup_profile_charmos.h"'),
+        '  LOG(ERROR) << "charmos-main: process-type " << process_type;\n',
+    ),
+    "mojo/public/cpp/platform/platform_channel_endpoint.cc": (
+        '  LOG(ERROR) << "charmos-mojo: recover role=" << role << " valid=" << !!endpoint;\n',
+    ),
+    "mojo/public/cpp/bindings/lib/message.cc": (
+        ('#include "base/feature_list.h"\n#include "base/logging.h"',
+         '#include "base/feature_list.h"'),
+        '  if (version() >= 2 && header_v2()->payload_interface_ids.offset)\n'
+        '    LOG(ERROR) << "charmos-mojo: message version=" << version()\n'
+        '               << " bytes=" << header()->num_bytes\n'
+        '               << " data_bytes=" << data_num_bytes()\n'
+        '               << " ids_offset=" << header_v2()->payload_interface_ids.offset;\n',
+    ),
+    "ui/views/widget/widget.cc": (
+        ('#include "ui/views/widget/widget.h"\n#include "base/logging.h"',
+         '#include "ui/views/widget/widget.h"'),
+        '      LOG(ERROR) << "charmos-ui: widget-press "\n'
+        '                 << event->location().x() << "," << event->location().y();\n',
+        '      LOG(ERROR) << "charmos-ui: widget-motion " << static_cast<int>(event->type())\n'
+        '                 << " pressed=" << is_mouse_button_pressed_\n'
+        '                 << " capture=" << native_widget_->HasCapture();\n',
+    ),
+    "ui/views/widget/root_view.cc": (
+        ('#include "ui/views/widget/root_view.h"\n#include "base/logging.h"',
+         '#include "ui/views/widget/root_view.h"'),
+        '  if (event.location().y() < 40) {\n'
+        '    auto* target = GetEventHandlerForPoint(event.location());\n'
+        '    LOG(ERROR) << "charmos-ui: root-target "\n'
+        '               << (target ? target->GetClassName() : "none");\n'
+        '  }\n',
+        '  LOG(ERROR) << "charmos-ui: root-drag handler=" << !!mouse_pressed_handler_;\n',
+        '      LOG(ERROR) << "charmos-ui: root-press "\n'
+        '                 << mouse_pressed_handler_->GetClassName();\n',
+    ),
+    "ui/aura/window_targeter.cc": (
+        ('#include "ui/aura/window_targeter.h"\n#include "base/logging.h"',
+         '#include "ui/aura/window_targeter.h"'),
+        '  if (event.location().y() < 40 && event.location().x() > 700) {\n'
+        '    LOG(ERROR) << "charmos-ui: aura-target " << window->bounds().ToString()\n'
+        '               << " visible=" << window->IsVisible()\n'
+        '               << " policy=" << static_cast<int>(window->event_targeting_policy());\n'
+        '  }\n',
+    ),
+}
 for name, (digest, replacements) in patches.items():
     target, backup = source / name, originals / name
     current = target.read_bytes()
@@ -793,13 +843,42 @@ for name, (digest, replacements) in patches.items():
         known.append(modified.encode())
     modified = modified.encode()
     if current not in known:
+        legacy_single_process = (
+            b'\n#if BUILDFLAG(IS_CHARMOS)\n'
+            b'  // CharmOS has no fork/exec or zygote; render in the browser\n'
+            b'  // process.\n'
+            b'  if (command_line.GetSwitchValueASCII(switches::kProcessType).empty()) {\n'
+            b'    command_line.AppendSwitch(switches::kSingleProcess);\n'
+            b'  }\n'
+            b'#endif\n')
+        recognized_legacy = (name == "content/shell/app/shell_main_delegate.cc" and
+                             current.count(legacy_single_process) == 1 and
+                             current.replace(legacy_single_process, b'', 1) == modified)
+        diagnostic_fragments = legacy_diagnostics.get(name, ())
+        without_diagnostics = current
+        for fragment in diagnostic_fragments:
+            before, after = fragment if isinstance(fragment, tuple) else (fragment, '')
+            encoded = before.encode()
+            if without_diagnostics.count(encoded) != 1:
+                break
+            without_diagnostics = without_diagnostics.replace(
+                encoded, after.encode(), 1)
+        else:
+            recognized_legacy = (recognized_legacy or
+                                 bool(diagnostic_fragments) and
+                                 without_diagnostics == modified)
         # Permit previous prepared subsets only when reversing our exact
         # replacements produces the hash-checked original byte for byte.
         restored = current.decode()
         for before, after in reversed(replacements):
             if restored.count(after) == 1:
                 restored = restored.replace(after, before, 1)
-        if restored.encode() != original:
+        if not recognized_legacy and restored.encode() != original:
+            difference = difflib.unified_diff(
+                modified.decode().splitlines(), current.decode().splitlines(),
+                fromfile=name + " (expected)", tofile=name + " (current)",
+                lineterm="")
+            print("\n".join(difference), file=sys.stderr)
             raise SystemExit("Refusing to replace unknown local vendor edits: " + name)
     operations.append((target, backup, original, modified))
 if sys.argv[1:] == ["--check-only"]:

@@ -130,7 +130,7 @@ generated_file("omitted_rust_audit") {
 
 if (charmos_build_base) {
   executable("mojo_runtime") {
-    sources = [ "mojo_runtime.cc", "mojo_channel_checks.cc", "mojo_ipcz_checks.cc" ]
+    sources = [ "mojo_runtime.cc", "mojo_channel_checks.cc", "mojo_ipcz_checks.cc", "partition_alloc_charmos.cc" ]
     libs = [ "$charmos_repo/build/user/user/libc.a" ]
     deps = [ "//base", ":numeric_runtime", "//mojo/public/cpp/platform", "//mojo/public/cpp/system", "//mojo/core/embedder" ]
   }

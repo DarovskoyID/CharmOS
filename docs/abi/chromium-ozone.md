@@ -36,11 +36,13 @@ resolves that ID and creates `SurfaceOzoneCanvasCharmOS` for the same
 `NativeWindowPresenterCharmOS` that owns the window and its FD watcher.
 
 Construction creates the managed native window before reporting
-`OnAcceleratedWidgetAvailable`. Destruction unregisters the ID, stops event
-delivery and closes native resources. A connection failure reports widget
-destruction/closure and completes a pending swap with an empty size. Callbacks
-may destroy their window; implementations use weak pointers or retain the
-presenter across callbacks as appropriate.
+`OnAcceleratedWidgetAvailable`. On application close, `OnClosed` first tears
+down the Views host and its compositor; only then is the widget ID unregistered
+and the presenter closed. This prevents a late render-thread factory request
+from resolving a widget whose native window has already disappeared. A
+connection failure reports widget destruction/closure and completes a pending
+swap with an empty size. Callbacks may destroy their window; implementations
+use weak pointers or retain the presenter across callbacks as appropriate.
 
 ## Geometry, state and events
 
@@ -48,14 +50,22 @@ Bounds are physical pixels with scale 1.0 in the initial profile. They describe
 the client content area, as do WM v3 events. Requests are asynchronous: getters
 change only after `CONFIGURED` or `BOUNDS_CHANGED`; rejected configuration does
 not update Chromium geometry. Focus, visibility and close notifications map to
-the corresponding delegate callbacks. Minimize/restore use real WM visibility.
-Native decorations remain enabled.
+the corresponding delegate callbacks. Minimize/restore use real WM visibility
+and explicitly update visibility through `SetVisible` on the tree host and
+`Show`/`Hide` on its `aura::Window`, so WindowTargeter continues to accept input after restoration.
+Browser top-level windows request `kCreateBorderless` and draw their tab strip,
+window controls and drag area in the same canvas. Other native applications keep
+server-side decorations.
 
 Pointer capture uses the negotiated WM feature16 and actual CAPTURE_CHANGED
-notifications. Fullscreen, borderless/popup windows, cursor bitmaps, cursor
-warping and confinement require real WM capabilities. Until then the platform
-must not report those states as acquired or completed. Later protocol additions
-must be additive and feature negotiated.
+notifications. Since `PlatformWindow::SetCapture` is synchronous to Views, the
+Ozone adapter tracks a locally pending request until that notification arrives;
+a denial clears the request and reports `OnLostCapture`. Opaque popup windows
+use `kFeaturePopup`; an inactive visible popup can capture the pointer while its
+parent retains keyboard focus. Fullscreen, cursor bitmaps, cursor warping and
+confinement still require real WM capabilities. Until then the platform must
+not report those states as acquired or completed. Later protocol additions must
+be additive and feature negotiated.
 
 ## Input
 

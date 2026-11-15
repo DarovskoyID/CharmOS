@@ -10,12 +10,26 @@ def mojo_patches():
         "mojo/public/cpp/platform/platform_handle.h": (
             "2f7d3a39ed4211ef714aa3ab99e320bc2631743ad78d293d52ba72d1f8dd7a70", [
                 ('#include "mojo/public/c/system/platform_handle.h"',
-                 '#include "mojo/public/c/system/platform_handle.h"\n#if BUILDFLAG(IS_CHARMOS)\n#include <charm/handle.hpp>\n#endif'),
+                 '#include "mojo/public/c/system/platform_handle.h"\n#if BUILDFLAG(IS_CHARMOS)\n#include <charm/handle.hpp>\n#include <charm/libc.h>\n#endif'),
                 ('    kNone,', '    kNone,\n#if BUILDFLAG(IS_CHARMOS)\n    kCapability,\n#endif'),
                 ('  PlatformHandle(PlatformHandle&& other);',
                  '  PlatformHandle(PlatformHandle&& other);\n#if BUILDFLAG(IS_CHARMOS)\n  explicit PlatformHandle(charm::UniqueHandle capability);\n  bool is_capability() const { return type_ == Type::kCapability; }\n  const charm::UniqueHandle& GetCapability() const { return capability_; }\n  charm::UniqueHandle TakeCapability() {\n    if (type_ != Type::kCapability) return {};\n    type_ = Type::kNone;\n    return std::move(capability_);\n  }\n#endif'),
                 ('#elif BUILDFLAG(IS_POSIX)\n  bool is_valid() const { return is_valid_fd(); }',
                  '#elif BUILDFLAG(IS_CHARMOS)\n  bool is_valid() const { return bool(capability_) || is_valid_fd(); }\n#elif BUILDFLAG(IS_POSIX)\n  bool is_valid() const { return is_valid_fd(); }'),
+                ('  base::ScopedFD TakeFD() {\n    if (type_ == Type::kFd) {\n      type_ = Type::kNone;\n    }\n    return std::move(fd_);\n  }',
+                 '  base::ScopedFD TakeFD() {\n#if BUILDFLAG(IS_CHARMOS)\n'
+                 '    if (type_ == Type::kCapability) {\n'
+                 '      auto capability = TakeCapability();\n'
+                 '      for (int kind : {CHARM_FD_FILE, CHARM_FD_DIRECTORY, CHARM_FD_SOCKET}) {\n'
+                 '        int fd = charm_fd_from_handle(capability.get(), kind);\n'
+                 '        if (fd >= 0) {\n'
+                 '          (void)capability.release();\n'
+                 '          return base::ScopedFD(fd);\n'
+                 '        }\n'
+                 '      }\n'
+                 '      return base::ScopedFD();\n'
+                 '    }\n#endif\n'
+                 '    if (type_ == Type::kFd) {\n      type_ = Type::kNone;\n    }\n    return std::move(fd_);\n  }'),
                 ('  Type type_ = Type::kNone;',
                  '  Type type_ = Type::kNone;\n#if BUILDFLAG(IS_CHARMOS)\n  charm::UniqueHandle capability_;\n#endif'),
             ]),
@@ -159,6 +173,7 @@ PlatformHandle::PlatformHandle(charm::UniqueHandle capability)
             ('#include "mojo/public/cpp/platform/platform_channel.h"',
              '#include "mojo/public/cpp/platform/platform_channel.h"\n'
              '#if BUILDFLAG(IS_CHARMOS)\n'
+             '#include "base/logging.h"\n'
              '#include <charm/libc.h>\n#include <charm/handle.hpp>\n#endif'),
             ('#elif BUILDFLAG(IS_POSIX) && !BUILDFLAG(MOJO_USE_APPLE_CHANNEL)\nbool IsTargetDescriptorUsed',
              '#elif BUILDFLAG(IS_POSIX) && !BUILDFLAG(MOJO_USE_APPLE_CHANNEL) && !BUILDFLAG(IS_CHARMOS)\nbool IsTargetDescriptorUsed'),
@@ -196,6 +211,62 @@ PlatformHandle::PlatformHandle(charm::UniqueHandle capability)
              '    return {};\n'
              '  return PlatformChannelEndpoint(PlatformHandle(std::move(endpoint)));\n'
              '#elif BUILDFLAG(IS_FUCHSIA)\n  unsigned int handle_value = 0;'),
+        ])
+    patches["content/child/child_thread_impl.cc"] = (
+        "023bf8bc78fd5b947e2e33af2683b36bff5df7434d8885d56afd385b64d4e2a8", [
+            ('#elif BUILDFLAG(IS_POSIX)\n#if BUILDFLAG(IS_ANDROID)',
+             '#elif BUILDFLAG(IS_CHARMOS)\n'
+             '  endpoint = mojo::PlatformChannel::RecoverPassedEndpointFromCommandLine(\n'
+             '      *base::CommandLine::ForCurrentProcess());\n'
+             '#elif BUILDFLAG(IS_POSIX)\n#if BUILDFLAG(IS_ANDROID)'),
+        ])
+    patches["content/app/content_main.cc"] = (
+        "151a5bd97cb99c68058d5fa40a0fa7cb7893fec37475fe85c91d2205f35e329a", [
+            ('#include <memory>\n#include <optional>',
+             '#include <memory>\n#include <optional>\n#if BUILDFLAG(IS_CHARMOS)\n#include <pthread.h>\n#include <utility>\n#endif'),
+            ('NO_STACK_PROTECTOR int ContentMain(ContentMainParams params) {\n'
+             '  auto runner = ContentMainRunner::Create();\n'
+             '  return RunContentProcess(std::move(params), runner.get());\n'
+             '}',
+             '#if BUILDFLAG(IS_CHARMOS)\n'
+             'void* ContentMainOnLargeStack(void* arg) {\n'
+             '  auto params = std::unique_ptr<ContentMainParams>(\n'
+             '      static_cast<ContentMainParams*>(arg));\n'
+             '  auto runner = ContentMainRunner::Create();\n'
+             '  int result = RunContentProcess(std::move(*params), runner.get());\n'
+             '  return reinterpret_cast<void*>(static_cast<intptr_t>(result));\n'
+             '}\n'
+             '#endif\n\n'
+             'NO_STACK_PROTECTOR int ContentMain(ContentMainParams params) {\n'
+             '#if BUILDFLAG(IS_CHARMOS)\n'
+             '  pthread_attr_t attr;\n'
+             '  if (pthread_attr_init(&attr) != 0 ||\n'
+             '      pthread_attr_setstacksize(&attr, 8u << 20) != 0)\n'
+             '    return 1;\n'
+             '  auto args = std::make_unique<ContentMainParams>(std::move(params));\n'
+             '  pthread_t thread;\n'
+             '  int result = pthread_create(&thread, &attr, &ContentMainOnLargeStack, args.get());\n'
+             '  pthread_attr_destroy(&attr);\n'
+             '  if (result != 0) return result;\n'
+             '  void* exit_code = nullptr;\n'
+             '  result = pthread_join(thread, &exit_code);\n'
+             '  if (result != 0) return result;\n'
+             '  return static_cast<int>(reinterpret_cast<intptr_t>(exit_code));\n'
+             '#else\n'
+             '  auto runner = ContentMainRunner::Create();\n'
+             '  return RunContentProcess(std::move(params), runner.get());\n'
+             '#endif\n'
+             '}'),
+        ])
+    patches["mojo/public/cpp/bindings/lib/message.cc"] = (
+        "32f70fa823555bccbdf40833d2e52b26b7117bfd4205a44e33f6ae334969fa8b", [
+            ('void Message::NotifyPeerClosureForSerializedHandles(\n'
+             '    AssociatedGroupController* group_controller) {\n'
+             '  const uint32_t num_ids = payload_num_interface_ids();',
+             'void Message::NotifyPeerClosureForSerializedHandles(\n'
+             '    AssociatedGroupController* group_controller) {\n'
+             '  if (!serialized_) return;\n'
+             '  const uint32_t num_ids = payload_num_interface_ids();'),
         ])
     patches["mojo/core/BUILD.gn"] = (
         "5386990c8d8d43478265ebd1e3fefce057f5afbee63d6a15482fabf2bd26e214", [

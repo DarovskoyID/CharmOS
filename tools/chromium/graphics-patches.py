@@ -1482,6 +1482,51 @@ def graphics_patches():
                  'assert(is_win || is_mac || is_linux || is_chromeos || is_charmos)'),
                 ('    "//chrome/browser/ui/views:close_bubble_on_tab_activation_helper",\n', ''),
             ]),
+        "ui/aura/window_tree_host_platform.h": (
+            "209a4ebd30614b8e52c50c917404b15dc83a02a589b7d7076d947d696f3391e2", [
+                ('  // TODO: use compositor\'s size.\n'
+                 '  gfx::Size size_in_pixels_;',
+                 '  // Initial bounds remain available during platform window creation.\n'
+                 '  gfx::Point initial_origin_in_pixels_;\n'
+                 '  // TODO: use compositor\'s size.\n'
+                 '  gfx::Size size_in_pixels_;'),
+            ]),
+        "ui/aura/window_tree_host_platform.cc": (
+            "a5e7363ddbc32e50f2fab1a3532b4dc729e0cc7b365dc3c2816ee12a8db5d5ae", [
+                ('    : WindowTreeHost(std::move(window)),\n'
+                 '      widget_(gfx::kNullAcceleratedWidget),\n'
+                 '      current_cursor_(ui::mojom::CursorType::kNull) {\n'
+                 '  size_in_pixels_ = properties.bounds.size();',
+                 '    : WindowTreeHost(std::move(window)),\n'
+                 '      widget_(gfx::kNullAcceleratedWidget),\n'
+                 '      current_cursor_(ui::mojom::CursorType::kNull) {\n'
+                 '  initial_origin_in_pixels_ = properties.bounds.origin();\n'
+                 '  size_in_pixels_ = properties.bounds.size();'),
+                ('  // Cache initial size used to create |platform_window_| so that it does not\n'
+                 '  // end up propagating unneeded bounds change event when it is first notified\n'
+                 '  // through OnBoundsChanged, which may lead to unneeded re-layouts, etc.\n'
+                 '  size_in_pixels_ = properties.bounds.size();',
+                 '  // Cache initial size used to create |platform_window_| so that it does not\n'
+                 '  // end up propagating unneeded bounds change event when it is first notified\n'
+                 '  // through OnBoundsChanged, which may lead to unneeded re-layouts, etc.\n'
+                 '  initial_origin_in_pixels_ = properties.bounds.origin();\n'
+                 '  size_in_pixels_ = properties.bounds.size();'),
+                ('gfx::Rect WindowTreeHostPlatform::GetBoundsInPixels() const {\n'
+                 '  return platform_window_->GetBoundsInPixels();\n'
+                 '}',
+                 'gfx::Rect WindowTreeHostPlatform::GetBoundsInPixels() const {\n'
+                 '  if (!platform_window_)\n'
+                 '    return gfx::Rect(initial_origin_in_pixels_, size_in_pixels_);\n'
+                 '  return platform_window_->GetBoundsInPixels();\n'
+                 '}'),
+                ('gfx::Point WindowTreeHostPlatform::GetLocationOnScreenInPixels() const {\n'
+                 '  return platform_window_->GetBoundsInPixels().origin();\n'
+                 '}',
+                 'gfx::Point WindowTreeHostPlatform::GetLocationOnScreenInPixels() const {\n'
+                 '  if (!platform_window_) return initial_origin_in_pixels_;\n'
+                 '  return platform_window_->GetBoundsInPixels().origin();\n'
+                 '}'),
+            ]),
         "chrome/browser/ui/views/BUILD.gn": (
             "330529c12fa4d9ac797f45112830835b9301819b41669b0f141ff829fd924207", [
                 ('}\n\nsource_set("find_bar_owner") {',
@@ -1873,5 +1918,34 @@ def graphics_patches():
     patches["ui/views/widget/desktop_aura/desktop_window_tree_host_platform.cc"] = (
         "ec0ab3d538728fc4ac3646fa8ec85325a892a96bf32eb27f0eea19317703ea95", [
             ('    ui::mojom::ModalType modal_type) {\n  NOTIMPLEMENTED_LOG_ONCE();', '    ui::mojom::ModalType modal_type) {\n#if BUILDFLAG(IS_CHARMOS)\n  if (modal_type == ui::mojom::ModalType::kNone) return;\n#endif\n  NOTIMPLEMENTED_LOG_ONCE();'),
+            ('gfx::Rect DesktopWindowTreeHostPlatform::CalculateRootWindowBounds() const {\n'
+             '  return gfx::Rect(platform_window()->GetBoundsInDIP().size());\n'
+             '}',
+             'gfx::Rect DesktopWindowTreeHostPlatform::CalculateRootWindowBounds() const {\n'
+             '  // A Views popup may query this before its PlatformWindow exists.\n'
+             '  if (!platform_window()) return gfx::Rect();\n'
+             '  return gfx::Rect(platform_window()->GetBoundsInDIP().size());\n'
+             '}'),
+            ('  if (!aura::NativeWindowOcclusionTracker::\n'
+             '          IsNativeWindowOcclusionTrackingAlwaysEnabled(this) &&\n'
+             '      is_minimized != was_minimized) {',
+             '#if BUILDFLAG(IS_CHARMOS)\n'
+             '  const bool update_visibility = is_minimized != was_minimized;\n'
+             '#else\n'
+             '  const bool update_visibility = !aura::NativeWindowOcclusionTracker::\n'
+             '          IsNativeWindowOcclusionTrackingAlwaysEnabled(this) &&\n'
+             '      is_minimized != was_minimized;\n'
+             '#endif\n'
+             '  if (update_visibility) {\n'
+             '#if BUILDFLAG(IS_CHARMOS)\n'
+             '    if (is_minimized) GetContentWindow()->Hide();\n'
+             '    else GetContentWindow()->Show();\n'
+             '#endif'),
         ])
+    patches["ui/views/widget/widget.cc"] = (
+        "79d330de81f5cd78b8afdeb32d6569530b343f0913e9a17e707c1fb4e85f0524", [])
+    patches["ui/views/widget/root_view.cc"] = (
+        "fa0ce1b98b48f6eed82ea26a53cf13c2f59f4e519b8ca76131baef3face57e5f", [])
+    patches["ui/aura/window_targeter.cc"] = (
+        "11294dab7729c669ef3b0d06e583c366a286deea9267d283d0122cf230750751", [])
     return patches

@@ -9,6 +9,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "build/charmos/native_window_registry_charmos.h"
 #include "ui/base/cursor/platform_cursor.h"
+#include "ui/aura/env.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/events/event.h"
@@ -32,6 +33,8 @@ bool PlatformWindowCharmOS::Initialize(const PlatformWindowInitProperties& prope
   // Popup surfaces use the WM role and opaque content. Rounded popup shadows
   // belong to the compositor; no per-pixel client alpha is claimed.
   activatable_=properties.activatable;
+  native_frame_ = properties.type == PlatformWindowType::kWindow &&
+      !properties.remove_standard_frame;
   uint32_t width = properties.bounds.width() > 0 ?
       static_cast<uint32_t>(properties.bounds.width()) : 800;
   uint32_t height = properties.bounds.height() > 0 ?
@@ -41,7 +44,8 @@ bool PlatformWindowCharmOS::Initialize(const PlatformWindowInitProperties& prope
   widget_ = registry_->Add(this);
   uint32_t flags = abi::wm::kCreateInvisible |
       (properties.activatable ? 0u : abi::wm::kCreateInactive) |
-      (properties.type == PlatformWindowType::kWindow ? 0u : abi::wm::kCreatePopup);
+      (properties.type == PlatformWindowType::kWindow ?
+          (native_frame_ ? 0u : abi::wm::kCreateBorderless) : abi::wm::kCreatePopup);
   const char* title = base::CommandLine::ForCurrentProcess()->HasSwitch("charmos-browser-window")
       ? "CharmOS Browser" : "Chromium";
   auto status = presenter_->Initialize(title,width,height,
@@ -76,9 +80,10 @@ void PlatformWindowCharmOS::Hide() {
 void PlatformWindowCharmOS::Close() {
   if (closed_) return;
   closed_ = true;
+  capture_requested_ = false;
+  delegate_->OnClosed();
   UnregisterWidget();
   presenter_->Close();
-  delegate_->OnClosed();
 }
 bool PlatformWindowCharmOS::IsVisible() const { return visible_ && !closed_; }
 void PlatformWindowCharmOS::PrepareForShutdown() {
@@ -135,12 +140,17 @@ void PlatformWindowCharmOS::SetTitle(const std::u16string& title) {
   if (!closed_) presenter_->window().set_title(utf8.c_str());
 }
 void PlatformWindowCharmOS::SetCapture() {
-  if(!closed_) presenter_->window().set_capture(true);
+  if(closed_) return;
+  capture_requested_ = true;
+  presenter_->window().set_capture(true);
 }
 void PlatformWindowCharmOS::ReleaseCapture() {
+  capture_requested_ = false;
   if(!closed_) presenter_->window().set_capture(false);
 }
-bool PlatformWindowCharmOS::HasCapture() const { return !closed_ && presenter_->window().captured(); }
+bool PlatformWindowCharmOS::HasCapture() const {
+  return !closed_ && (capture_requested_ || presenter_->window().captured());
+}
 void PlatformWindowCharmOS::SetFullscreen(bool fullscreen,int64_t target_display_id) {
   if (fullscreen && delegate_->CanFullscreen())
     LOG(ERROR) << "Fullscreen is unavailable until WM borderless fullscreen is implemented";
@@ -150,7 +160,7 @@ void PlatformWindowCharmOS::Maximize() {
     return;
   restored_bounds_ = bounds_;
   auto work = presenter_->window().display().work;
-  const auto title=presenter_->window().display().title_height;
+  const auto title=native_frame_ ? presenter_->window().display().title_height : 0u;
   QueueBounds(gfx::Rect(work.x,work.y+title,static_cast<int>(work.width),
                          static_cast<int>(work.height-title)),PlatformWindowState::kMaximized);
 }
@@ -176,10 +186,10 @@ void PlatformWindowCharmOS::Deactivate() {
   if (!closed_) presenter_->window().activate(false);
 }
 void PlatformWindowCharmOS::SetUseNativeFrame(bool use_native_frame) {
-  if (!use_native_frame)
-    LOG(WARNING) << "Client-side decorations require WM borderless windows";
+  if (use_native_frame != native_frame_)
+    LOG(ERROR) << "WM frame mode cannot change after window creation";
 }
-bool PlatformWindowCharmOS::ShouldUseNativeFrame() const { return true; }
+bool PlatformWindowCharmOS::ShouldUseNativeFrame() const { return native_frame_; }
 void PlatformWindowCharmOS::SetCursor(scoped_refptr<PlatformCursor> cursor) {
   // The WM owns the pointer bitmap. No custom-cursor protocol is negotiated
   // yet, so there is no native cursor object for this window to retain.
@@ -269,8 +279,9 @@ void PlatformWindowCharmOS::OnNativeEvent(charm::Status status,
       if(visible_) registry_->NoteRaised(widget_);
       delegate_->OnOcclusionStateChanged(visible_ ?
           PlatformWindowOcclusionState::kVisible : PlatformWindowOcclusionState::kHidden);
-      if (weak && visibility_state_) {
-        const auto pending = *visibility_state_;
+      if (weak) {
+        const auto pending = visibility_state_.value_or(visible_ ?
+            PlatformWindowState::kNormal : PlatformWindowState::kMinimized);
         visibility_state_.reset();
         UpdateState(pending);
       }
@@ -282,6 +293,7 @@ void PlatformWindowCharmOS::OnNativeEvent(charm::Status status,
       delegate_->OnActivationChanged(active_);
       return;
     case abi::wm::kCaptureChanged:
+      capture_requested_ = false;
       if(!event.value) delegate_->OnLostCapture();
       return;
     case abi::wm::kCloseRequest:
@@ -291,14 +303,13 @@ void PlatformWindowCharmOS::OnNativeEvent(charm::Status status,
       abi::syscall::InputEvent input{};
       while (presenter_->window().next_input(&input)) {
         registry_->NoteInput();
-        if (input.type == abi::syscall::kInputButton)
-          LOG(ERROR) << "charmos-input button code=" << input.code
-                     << " value=" << input.value << " at " << input.x << "," << input.y;
         if (input.type != abi::syscall::kInputKey) {
           registry_->SetCursorScreenPoint(bounds_.origin() +
               gfx::Vector2d(input.x,input.y));
         }
         auto events=input_.Translate(input);
+        if (input.type == abi::syscall::kInputButton)
+          aura::Env::GetInstance()->set_mouse_button_flags(input_.mouse_flags());
         for(auto& translated:events) {
           delegate_->DispatchEvent(translated.get());
           if(!weak || closed_) return;

@@ -23,6 +23,17 @@ constexpr size_t kMaxBytes = 8 * 1024 * 1024;
 constexpr size_t kMaxHandles = 64;
 constexpr size_t kQueueBytes = 16 * 1024 * 1024;
 constexpr size_t kQueueMessages = 128;
+
+PlatformHandle NormalizeHandle(PlatformHandle handle) {
+  if (!handle.is_fd()) return handle;
+  const charm::Handle native = charm_fd_handle(handle.GetFD().get());
+  auto rights = charm::handle_rights(native);
+  if (!rights.ok() || !(rights.value & charm::rights::kTransfer)) return {};
+  auto copy = charm::handle_duplicate(native, static_cast<uint32_t>(rights.value));
+  if (!copy.ok()) return {};
+  return PlatformHandle(charm::UniqueHandle::adopt(static_cast<charm::Handle>(copy.value)));
+}
+
 struct Frame {
   uint32_t magic;
   uint16_t version, flags;
@@ -69,7 +80,8 @@ class ChannelCharmOS final : public Channel,
     if (valid) {
       pending.handles = pending.message->TakeHandles();
       valid = pending.handles.size() <= kMaxHandles;
-      for (const auto& handle : pending.handles) {
+      for (auto& handle : pending.handles) {
+        handle = PlatformHandleInTransit(NormalizeHandle(handle.TakeHandle()));
         if (handle.owning_process().IsValid() || !handle.handle().is_capability() ||
             !handle.handle().GetCapability()) valid = false;
       }

@@ -1,9 +1,9 @@
 # Native Chromium Mojo transport
 
-Status: ChannelCharmOS, capability/bootstrap adapters and new guest probes are
-prepared in the downstream overlay, but not compiled or guest-verified yet.
-NativeChannel/ChannelStream SDK tests do not verify Mojo. Completion requires
-the public Mojo invitation/message-pipe probe in two actual processes.
+Status: ChannelCharmOS and the native bootstrap adapters have passed the
+`m10/mojo_runtime` guest probe, including child restart. Full multi-process
+Chromium is a separate gate and is not verified yet. NativeChannel/ChannelStream
+SDK tests alone do not verify Mojo.
 
 Mojo uses CharmOS kernel channels and capabilities. It does not emulate Unix
 stream sockets, SCM_RIGHTS, PID authority or FD-valued shared memory.
@@ -15,6 +15,13 @@ A native Mojo `PlatformHandle` has a distinct CharmOS capability type and owns a
 ownership. File and VMO capabilities retain their native object identity and
 rights. A small poll-only libc FD may be used by the local I/O watcher, but it
 is never serialized as a Mojo handle or treated as the transmitted object.
+
+Chromium `ScopedFD` handles are normalized before a channel write: the adapter
+resolves the underlying native object with `charm_fd_handle` and duplicates its
+actual rights, requiring Transfer. On receipt, `PlatformHandle::TakeFD()` adopts
+the capability as a native file, directory or socket FD with
+`charm_fd_from_handle`. No raw descriptor number is meaningful in another
+process and no capability is cast to an FD for transmission.
 
 The public Mojo C representation uses a dedicated CharmOS type value rather
 than `MOJO_PLATFORM_HANDLE_TYPE_FILE_DESCRIPTOR`. This is part of the native
