@@ -1743,6 +1743,13 @@ def graphics_patches():
                 ('#elif BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_IOS)',
                  '#elif BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_IOS) || BUILDFLAG(IS_CHARMOS)'),
             ]),
+        "chrome/common/webui_url_constants.h": (
+            "912d6325c0d0d5c6e9f287962a5629b8ac4338bdbe5f168d92aab86f3534616e", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)\n'
+                 'inline constexpr char kChromeUIDefaultBrowserModalURL[] =',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\n'
+                 'inline constexpr char kChromeUIDefaultBrowserModalURL[] ='),
+            ]),
         "ui/webui/resources/mojo/BUILD.gn": (
             "0d4ee52be0c47d6aaca437f5def1b62adbf789c8c9eb6bfd97b181090386a36e", [
                 ('if (is_mac || is_win || is_linux || is_chromeos || is_android) {',

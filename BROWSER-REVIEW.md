@@ -51,6 +51,12 @@
   `127.0.0.1:5900` без GTK. VNC listener и загруженный desktop подтверждены;
   `Alt+B` запускает уже проверенный content_shell с multi-process/incognito.
   Полный Chrome этим запуском не подменяется и продолжает собираться отдельно.
+- После добавления time functions PDFium `cjs_util.o` и `cmsps2.o` компилируются
+  без прежних ошибок. `webui_url_constants.h` включает desktop `whats-new`
+  definitions на CharmOS, устраняя следующий platform gate без удаления WebUI.
+- Для длительного `chrome_port` используется `CHARMOS_BUILD_JOBS=8`: на 16 CPU
+  и при >20 ГиБ доступной RAM это ускоряет проход без изменения состава ELF.
+  Старые объекты сохраняются при каждом продолжении Ninja.
 
 ### Проверка рабочего UI, HTTPS и настройек (2026-11-15)
 
