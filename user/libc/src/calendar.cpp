@@ -97,6 +97,17 @@ time_t timegm(struct tm* value) {
   return result;
 }
 }
+extern "C" char* ctime_r(const time_t* value, char* buffer) {
+  if (!value || !buffer) { errno = EINVAL; return nullptr; }
+  struct tm broken_down;
+  if (!localtime_r(value, &broken_down)) return nullptr;
+  if (strftime(buffer, 26, "%a %b %e %H:%M:%S %Y\n", &broken_down) != 25)
+    return nullptr;
+  return buffer;
+}
+extern "C" char* ctime(const time_t* value) {
+  return ctime_r(value, libc::current_thread()->ctime_buffer);
+}
 extern "C" int gettimeofday(struct timeval* value, void* legacy_zone) {
   if (!value) return libc::fail_errno(EFAULT);
   if (legacy_zone) return libc::fail_errno(EINVAL);

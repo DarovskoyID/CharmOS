@@ -43,6 +43,10 @@
   скомпилирован, прежние `SkPngRust*` и `SkTypeface_fontations` больше не
   попадают в начало Ninja graph. Для host `libpng` visibility расширена на
   `charmos_repo`, поскольку обычный `is_charmos` там ложен.
+- Для PDFium добавлены native libc `ctime`, `ctime_r` и `wcsftime`: стандартный
+  26-байтовый ctime buffer per thread, wide pattern через `wcsrtombs`, вывод
+  через `mbstowcs`, включая Unicode-литералы. `runtime/runtime_threads` в QEMU:
+  PASS, проверены epoch, оба ctime API, numeric и Cyrillic wide formats.
 
 ### Проверка рабочего UI, HTTPS и настройек (2026-11-15)
 

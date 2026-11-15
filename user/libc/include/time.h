@@ -40,6 +40,8 @@ extern char* tzname[2];
 extern long timezone;
 extern int daylight;
 size_t strftime(char*, size_t, const char*, const struct tm*);
+char* ctime(const time_t*);
+char* ctime_r(const time_t*, char*);
 char* strptime(const char* input, const char* format, struct tm* value);
 #ifdef __cplusplus
 }

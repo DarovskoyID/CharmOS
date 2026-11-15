@@ -68,6 +68,7 @@ wint_t putwchar(wchar_t);
 wint_t ungetwc(wint_t, FILE*);
 int swprintf(wchar_t*, size_t, const wchar_t*, ...);
 int vswprintf(wchar_t*, size_t, const wchar_t*, va_list);
+size_t wcsftime(wchar_t*, size_t, const wchar_t*, const struct tm*);
 #ifdef __cplusplus
 }
 #endif

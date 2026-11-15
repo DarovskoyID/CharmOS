@@ -111,6 +111,7 @@ struct ThreadBlock {
   struct SpecificValue { void* value; uint32_t generation; } specific[128];
   mbstate_t mb_decode, mb_length, mb_string, mb_encode;
   struct tm utc_time;
+  char ctime_buffer[26];
   void* locale_selection; // nullptr means the fixed global locale.
   fenv_t initial_fenv;
   bool has_initial_fenv;

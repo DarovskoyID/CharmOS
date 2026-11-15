@@ -2,6 +2,8 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <wchar.h>
 #include <charm/sys.hpp>
 
 #define CHECK(c) do { if (!(c)) { printf("threads runtime: FAILED line %d\n", __LINE__); exit(1); } } while (0)
@@ -90,6 +92,19 @@ extern "C" int main() {
   }
   time_t beyond = 253402300800LL;
   CHECK(gmtime(&beyond) == nullptr && errno == EOVERFLOW);
+  time_t epoch = 0;
+  tm utc{};
+  CHECK(gmtime_r(&epoch, &utc) == &utc);
+  const char* formatted = ctime(&epoch);
+  CHECK(formatted && strcmp(formatted, "Thu Jan  1 00:00:00 1970\n") == 0);
+  char ctime_buffer[26];
+  CHECK(ctime_r(&epoch, ctime_buffer) == ctime_buffer);
+  CHECK(strcmp(ctime_buffer, formatted) == 0);
+  wchar_t wide[64];
+  CHECK(wcsftime(wide, 64, L"%Y-%m-%d %H:%M:%S", &utc) == 19);
+  CHECK(wcscmp(wide, L"1970-01-01 00:00:00") == 0);
+  CHECK(wcsftime(wide, 64, L"Год %Y", &utc) == 8);
+  CHECK(wcscmp(wide, L"Год 1970") == 0);
   int sorted[] = {1,3,5,7};
   auto compare = [](const void* a, const void* b) { return *static_cast<const int*>(a) - *static_cast<const int*>(b); };
   int search_key = 5;

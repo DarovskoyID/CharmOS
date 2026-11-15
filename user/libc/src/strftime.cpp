@@ -1,7 +1,9 @@
 #include <errno.h>
 #include <langinfo.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <time.h>
+#include <wchar.h>
 
 namespace {
 bool leap(int y) { return y%4==0 && (y%100!=0 || y%400==0); }
@@ -107,4 +109,36 @@ extern "C" size_t strftime(char* destination,size_t capacity,const char* pattern
   if(capacity) destination[out.count<capacity ? out.count : capacity-1]=0;
   if(!valid) { errno=EINVAL; return 0; }
   return out.overflow ? 0 : out.count;
+}
+
+extern "C" size_t wcsftime(wchar_t* destination,size_t capacity,
+                            const wchar_t* pattern,const tm* value) {
+  if(!pattern || !value || (capacity && !destination)) { errno=EINVAL; return 0; }
+  if(capacity>SIZE_MAX/4) { errno=EOVERFLOW; return 0; }
+  const wchar_t* source=pattern;
+  mbstate_t state{};
+  size_t needed=wcsrtombs(nullptr,&source,0,&state);
+  if(needed==static_cast<size_t>(-1)) return 0;
+  char* narrow_pattern=static_cast<char*>(malloc(needed+1));
+  if(!narrow_pattern) { errno=ENOMEM; return 0; }
+  source=pattern; state={};
+  if(wcsrtombs(narrow_pattern,&source,needed+1,&state)==static_cast<size_t>(-1)) {
+    free(narrow_pattern);
+    return 0;
+  }
+  size_t narrow_capacity=capacity ? capacity*4 : 1;
+  char* narrow=static_cast<char*>(malloc(narrow_capacity));
+  if(!narrow) {
+    free(narrow_pattern);
+    errno=ENOMEM;
+    return 0;
+  }
+  size_t count=strftime(narrow,narrow_capacity,narrow_pattern,value);
+  free(narrow_pattern);
+  if(!count) { free(narrow); return 0; }
+  size_t converted=mbstowcs(destination,narrow,capacity);
+  free(narrow);
+  if(converted==static_cast<size_t>(-1) || !capacity) return 0;
+  if(converted>=capacity) { destination[capacity-1]=0; return 0; }
+  return converted;
 }
