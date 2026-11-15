@@ -2,7 +2,49 @@
 
 ## Аудит рабочего браузера (2026-11-13)
 
-### Проверка рабочего UI, HTTPS и настроек (2026-11-15)
+### Full Chrome: платформенная сборка (2026-11-15)
+
+- Запущен продолжительный инкрементальный `chrome_port` в существующем
+  `out/charmos-native`; старые объекты сохраняются, полная ОС не пересобирается.
+  Первая `-k0` попытка дошла до 2633/17962 и выявила платформенные пробелы,
+  после чего была остановлена для исправлений. Это ещё не гостевой PASS.
+- Crashpad получил CharmOS `VMAddress/VMSize=uint64_t`, `METRICS_OS_NAME`,
+  UUID через `base::RandBytes`, minidump OS tag, native signal names и
+  POSIX-адаптации `st_mtime`, `/dev/null`, `_SC_OPEN_MAX`. `/proc`, `getdtablesize`
+  и Unix `setresuid` не эмулируются; `DropPrivileges` остаётся no-op, потому
+  что права процесса задаются capabilities при spawn.
+- `components/crash/core/app` использует `crashpad_charmos.cc` вместо unsupported
+  native backend: инициализация возвращает false, отчёты пусты, upload/database
+  отсутствуют, прямой `GetCrashpadClient()` имеет явный FATAL. Crashpad client,
+  handler, minidump и shared-memory backend не входят в CharmOS app target;
+  существующий `ChromeCrashReporterClient` и browser engine сохраняются.
+
+- Desktop WebUI теперь включает `version.mojom`, accessibility settings и
+  QR-signin interfaces на CharmOS. Security interstitial Date/Time использует
+  существующий `NOTIMPLEMENTED_LOG_ONCE` вместо compile-time `#error`.
+  Проверка этих исправлений выполняется продолжением того же Ninja graph.
+- Повторный Ninja подтвердил компиляцию всех ранее failed Crashpad objects,
+  включая signals, close_multiple и minidump_misc_info_writer. Для QR Mojo
+  дополнительно потребовался `enabled_features=["is_charmos"]`: одного
+  `EnableIf` в `.mojom` недостаточно. `extensions::Command` использует стандартные
+  desktop Linux keybinding names, без Linux userspace.
+- Full Chrome переопределил Skia defaults и попытался собрать Rust PNG/Exif/
+  Fontations также для Linux host tools. В `skia/BUILD.gn` CharmOS C++
+  source-selection теперь применяется и к host tools порта, а существующие
+  `graphic_shims_charmos.cc` добавлены в host target. Ошибочный промежуточный
+  override в `third_party/skia/BUILD.gn` откачен точной pinned-миграцией.
+  Rust не добавляется. Certificate manager получил такой же Mojo feature,
+  как QR-signin, чтобы сохранить provisioned client cert в generated bindings.
+- `gn gen` для `--chrome` использует `--root-target=//build/charmos:chrome_port`
+  вместо `base_port`, чтобы проверка и генерация относились к полному продукту.
+  Неподдерживаемые внешние `skia_use_*` args из `args.gn` удалены, а не скрыты
+  отключением `--fail-on-unused-args`.
+- Полный GN gen успешно создал 32373 targets. Host `graphic_shims_charmos.o`
+  скомпилирован, прежние `SkPngRust*` и `SkTypeface_fontations` больше не
+  попадают в начало Ninja graph. Для host `libpng` visibility расширена на
+  `charmos_repo`, поскольку обычный `is_charmos` там ложен.
+
+### Проверка рабочего UI, HTTPS и настройек (2026-11-15)
 
 - Frame-сценарий реальными mouse/keyboard действиями завершён: drag, minimize,
   restore и Close не приводят к перезапуску или FATAL. В JSON было

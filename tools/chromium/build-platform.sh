@@ -107,7 +107,11 @@ if not destination.exists() or destination.read_text() != content:
     destination.write_text(content)
 PY
 cd "$source"
-buildtools/linux64/gn gen "$output" --fail-on-unused-args --root-target=//build/charmos:base_port
+root_target=//build/charmos:base_port
+if [[ "$mode" == --chrome || "$mode" == --chrome-graph ]]; then
+  root_target=//build/charmos:chrome_port
+fi
+buildtools/linux64/gn gen "$output" --fail-on-unused-args --root-target="$root_target"
 if [[ "$mode" == --base || "$mode" == --base-graph ]]; then
   python3 "$root/tools/chromium/audit-cpp-graph.py" "$source" "$output"
 fi

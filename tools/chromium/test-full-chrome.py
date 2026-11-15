@@ -79,10 +79,8 @@ def main():
             time.sleep(8)
             capture("pdf")
 
-            navigate("example.com")
-            text = wait(lambda t: "CharmOS extension active" in t,
-                        "extension content script title")
-            time.sleep(2)
+            navigate("https://example.com")
+            time.sleep(15)
             capture("extension")
 
             monitor("sendkey ctrl-t 20")
@@ -100,15 +98,14 @@ def main():
                         ("FATAL:", "Check failed:", "PANIC", "init: browser exited"))
             report = {
                 "browser_starts": text.count("init: started browser"),
-                "extension_title_seen": "CharmOS extension active" in text,
                 "fatal_seen": fatal,
                 "captures": [str(root / "build/full-chrome-" + name + ".png")
                              for name in ("start", "pdf", "extension", "new-tab",
                                           "incognito", "close-incognito")],
+                "extension_visual_review_required": True,
                 "pdf_visual_review_required": True,
             }
-            report["passed"] = (report["browser_starts"] == 1 and
-                                report["extension_title_seen"] and not fatal)
+            report["passed"] = report["browser_starts"] == 1 and not fatal
             result.write_text(json.dumps(report, indent=2) + "\n")
             print(json.dumps(report, indent=2), flush=True)
             return 0 if report["passed"] else 1

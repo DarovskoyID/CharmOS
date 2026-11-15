@@ -210,6 +210,25 @@ def graphics_patches():
                  '    defines += [ "SK_GAMMA_EXPONENT=1.2", "SK_GAMMA_CONTRAST=0.2", "SK_BUILD_FOR_UNIX" ]'),
                 ('    sources = filter_exclude(sources, [ "*/mac/*", "*/win/*" ])',
                  '    sources -= filter_include(sources, [ "*/mac/*", "*/win/*" ])'),
+                ('import("features.gni")',
+                 'import("features.gni")\n\n'
+                 '# Host tools in this port use the same C++-only codec/font selection.\n'
+                 'if (charmos_repo != "") {\n'
+                 '  is_charmos = true\n'
+                 '}'),
+                ('  if (is_charmos) {\n'
+                 '    sources += skia_encode_libpng_srcs\n'
+                 '  } else {\n'
+                 '    sources += skia_encode_rust_png_srcs\n'
+                 '  }',
+                 '  if (is_charmos) {\n'
+                 '    sources += skia_encode_libpng_srcs\n'
+                 '    if (current_os == "linux") {\n'
+                 '      sources += [ "//build/charmos/graphic_shims_charmos.cc" ]\n'
+                 '    }\n'
+                 '  } else {\n'
+                 '    sources += skia_encode_rust_png_srcs\n'
+                 '  }'),
             ]),
         "skia/features.gni": (
             "b87d0ec8ae38c8649ff71b7b1616fef83506df4ca3348cc1349f8ef74b2edb0a", []),
@@ -218,6 +237,12 @@ def graphics_patches():
                 ('visibility = []', 'visibility = []\nif (is_charmos) {\n  visibility += [ "//skia:skia" ]\n}'),
                 ('  visibility += [ "//skia:skia" ]',
                  '  visibility += [ "//skia:skia", "//third_party/pdfium/third_party:png" ]'),
+                ('if (is_charmos) {\n'
+                 '  visibility += [ "//skia:skia", "//third_party/pdfium/third_party:png" ]\n'
+                 '}',
+                 'if (is_charmos || charmos_repo != "") {\n'
+                 '  visibility += [ "//skia:skia", "//third_party/pdfium/third_party:png" ]\n'
+                 '}'),
             ]),
         "skia/ext/font_utils.cc": (
             "2b535e7bfcd11e3610c0850ab73c617568e469bc1b9b761c1b9363c549406f9f", [
@@ -1565,6 +1590,240 @@ def graphics_patches():
                  '      sources += [ "upgrade_util_linux.cc" ]\n'
                  '    }\n\n'
                  '    if (is_linux || is_mac || is_charmos) {'),
+            ]),
+        "components/crash/core/app/BUILD.gn": (
+            "7de07fef84262e2fb0e2071f99f83ac0818ccbe9ffbbbe66fa01adbeb19d8200", [
+                ('    "shared_memory_user_stream_data_source.h",\n  ]',
+                 '    "shared_memory_user_stream_data_source.h",\n  ]\n'
+                 '  if (is_charmos) {\n'
+                 '    sources -= [\n'
+                 '      "crashpad.cc",\n'
+                 '      "shared_memory_user_stream_data_source.cc",\n'
+                 '      "shared_memory_user_stream_data_source.h",\n'
+                 '    ]\n'
+                 '    sources += [ "//build/charmos/crashpad_charmos.cc" ]\n'
+                 '  }'),
+                ('    "//content/public/common:content_descriptors",\n'
+                 '    "//third_party/crashpad/crashpad/client",\n'
+                 '    "//third_party/crashpad/crashpad/handler:common",\n'
+                 '    "//third_party/crashpad/crashpad/minidump",\n'
+                 '    "//third_party/crashpad/crashpad/util",\n'
+                 '  ]',
+                 '    "//content/public/common:content_descriptors",\n'
+                 '  ]\n'
+                 '  if (!is_charmos) {\n'
+                 '    deps += [\n'
+                 '      "//third_party/crashpad/crashpad/client",\n'
+                 '      "//third_party/crashpad/crashpad/handler:common",\n'
+                 '      "//third_party/crashpad/crashpad/minidump",\n'
+                 '      "//third_party/crashpad/crashpad/util",\n'
+                 '    ]\n'
+                 '  }'),
+            ]),
+        "third_party/crashpad/crashpad/util/misc/address_types.h": (
+            "ac6e9fa267850cfbed417cabd2273f4f3d38067a74e91f34fd23f29789dc8d27", [
+                ('#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)\n'
+                 '#include "util/linux/address_types.h"',
+                 '#elif BUILDFLAG(IS_CHARMOS)\n'
+                 '#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)\n'
+                 '#include "util/linux/address_types.h"'),
+                ('#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)\n\n'
+                 'using VMAddress = LinuxVMAddress;',
+                 '#elif BUILDFLAG(IS_CHARMOS)\n\n'
+                 'using VMAddress = uint64_t;\n'
+                 'using VMSize = uint64_t;\n\n'
+                 '#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)\n\n'
+                 'using VMAddress = LinuxVMAddress;'),
+            ]),
+        "third_party/crashpad/crashpad/util/misc/metrics.cc": (
+            "40b6b27a20d136bfb616187060d2d90d3f40aaa49d75286e5ac024c756b329cd", [
+                ('#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n'
+                 '#define METRICS_OS_NAME "Linux"',
+                 '#elif BUILDFLAG(IS_CHARMOS)\n'
+                 '#define METRICS_OS_NAME "CharmOS"\n'
+                 '#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n'
+                 '#define METRICS_OS_NAME "Linux"'),
+            ]),
+        "third_party/crashpad/crashpad/util/misc/uuid.cc": (
+            "6a4c8b3d2953c1dca1632a8e48c4526dbd815bd45891fb5ec1cafd66212a733a", [
+                ('#elif BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \\\n'
+                 '    BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA)\n'
+                 '  // Linux, Android, and Fuchsia do not provide a UUID generator in a',
+                 '#elif BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \\\n'
+                 '    BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHARMOS)\n'
+                 '  // Linux, Android, Fuchsia, and CharmOS do not provide a UUID generator in a'),
+            ]),
+        "third_party/crashpad/crashpad/util/file/filesystem_posix.cc": (
+            "05457e40fc3e497bbca7a7a570db179e052a0877ad210adcf16ce3a48889af68", [
+                ('#else\n  *mtime = st.st_mtim;\n#endif',
+                 '#elif BUILDFLAG(IS_CHARMOS)\n'
+                 '  mtime->tv_sec = st.st_mtime;\n'
+                 '  mtime->tv_nsec = 0;\n'
+                 '#else\n  *mtime = st.st_mtim;\n#endif'),
+            ]),
+        "third_party/crashpad/crashpad/util/posix/close_stdio.cc": (
+            "f156e642dc96c368e5608d1fa147c2955facc1da2b83359d9ba7be1efc19d284", [
+                ('#include <paths.h>',
+                 '#include "build/build_config.h"\n'
+                 '#if BUILDFLAG(IS_CHARMOS)\n'
+                 '#define _PATH_DEVNULL "/dev/null"\n'
+                 '#else\n#include <paths.h>\n#endif'),
+            ]),
+        "third_party/crashpad/crashpad/util/posix/signals.cc": (
+            "19133158f4fd956f38dcd9ba0f36c0d8f634c2ba6cbd0616cf4159d174520504", [
+                ('         (code > 0 &&\n'
+                 '          code != SI_ASYNCIO &&\n'
+                 '          code != SI_MESGQ &&\n'
+                 '          code != SI_QUEUE &&\n'
+                 '          code != SI_TIMER &&\n'
+                 '          code != SI_USER &&',
+                 '         (code > 0 &&\n'
+                 '#if !BUILDFLAG(IS_CHARMOS)\n'
+                 '          code != SI_ASYNCIO &&\n'
+                 '          code != SI_MESGQ &&\n'
+                 '          code != SI_QUEUE &&\n'
+                 '          code != SI_TIMER &&\n'
+                 '          code != SI_USER &&\n'
+                 '#endif'),
+            ]),
+        "third_party/crashpad/crashpad/util/posix/drop_privileges.cc": (
+            "24cbcaeb7e99231c8e0fd2333d036a60111916da1f74e84f432b9e0a15f250ce", [
+                ('#else\n#error Port this function to your system.\n#endif',
+                 '#elif BUILDFLAG(IS_CHARMOS)\n'
+                 '  // CharmOS assigns capabilities at spawn and has no Unix setuid model.\n'
+                 '  (void)gid;\n'
+                 '  (void)uid;\n'
+                 '#else\n#error Port this function to your system.\n#endif'),
+            ]),
+        "third_party/crashpad/crashpad/util/posix/symbolic_constants_posix.cc": (
+            "2138acfdcd2e668e951ec644775623406574b8af4efdc381d469388b3ce6e3c0", [
+                ('#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)\n'
+                 '#if defined(ARCH_CPU_MIPS_FAMILY)',
+                 '#elif BUILDFLAG(IS_CHARMOS)\n'
+                 '    "INT", "QUIT", "TERM", "CHLD", "SEGV", "ALRM", "USR1", "USR2",\n'
+                 '    "KILL", "HUP", "PIPE", "ABRT", "BUS", "FPE", "ILL", "TRAP",\n'
+                 '    "SYS", "VTALRM", "STOP", nullptr, nullptr, nullptr, nullptr,\n'
+                 '    nullptr, nullptr, nullptr, "PROF", nullptr, nullptr, nullptr, nullptr,\n'
+                 '#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)\n'
+                 '#if defined(ARCH_CPU_MIPS_FAMILY)'),
+            ]),
+        "third_party/crashpad/crashpad/util/posix/close_multiple.cc": (
+            "8dcb542215419046ebad436ea6bf34921ee06e69fd644c4e06ed5f78fa902b5b", [
+                ('  DirectoryReader reader;\n'
+                 '  if (!reader.Open(base::FilePath(kFDDir))) {',
+                 '#if BUILDFLAG(IS_CHARMOS)\n'
+                 '  return false;\n'
+                 '#else\n'
+                 '  DirectoryReader reader;\n'
+                 '  if (!reader.Open(base::FilePath(kFDDir))) {'),
+                ('  return true;\n}\n\n}  // namespace',
+                 '  return true;\n#endif\n}\n\n}  // namespace'),
+                ('#if !BUILDFLAG(IS_ANDROID)\n'
+                 '  // getdtablesize() was removed effective Android 5.0.0 (API 21).',
+                 '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n'
+                 '  // getdtablesize() was removed effective Android 5.0.0 (API 21).'),
+                ('#if !(BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \\\n'
+                 '      BUILDFLAG(IS_ANDROID)) ||                        \\\n'
+                 '    defined(OPEN_MAX)',
+                 '#if !(BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \\\n'
+                 '      BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHARMOS)) || \\\n'
+                 '    defined(OPEN_MAX)'),
+            ]),
+        "third_party/crashpad/crashpad/minidump/minidump_misc_info_writer.cc": (
+            "3c4909ddad98a3664e9c21071cb1c46802df73296dbf48569ebaf7d5818dba13", [
+                ('#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n'
+                 '  static constexpr char kOS[] = "linux";',
+                 '#elif BUILDFLAG(IS_CHARMOS)\n'
+                 '  static constexpr char kOS[] = "charmos";\n'
+                 '#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n'
+                 '  static constexpr char kOS[] = "linux";'),
+            ]),
+        "components/security_interstitials/content/utils.cc": (
+            "f29ba1fd1508a7257b87a7e7c42746cb11506c367b534e64f1c238935369c7af", [
+                ('#elif BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_IOS)',
+                 '#elif BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_IOS) || BUILDFLAG(IS_CHARMOS)'),
+            ]),
+        "ui/webui/resources/mojo/BUILD.gn": (
+            "0d4ee52be0c47d6aaca437f5def1b62adbf789c8c9eb6bfd97b181090386a36e", [
+                ('if (is_mac || is_win || is_linux || is_chromeos || is_android) {',
+                 'if (is_mac || is_win || is_linux || is_chromeos || is_android || is_charmos) {'),
+            ]),
+        "chrome/browser/resources/settings/BUILD.gn": (
+            "ac3f8782b76f39375df4221a17227228f467d1cb02e6e2465ce0c2e2b486f905", [
+                ('  if (is_linux) {\n'
+                 '    ts_files += [\n'
+                 '      "a11y_page/captions_page.html.ts",',
+                 '  if (is_linux || is_charmos) {\n'
+                 '    ts_files += [\n'
+                 '      "a11y_page/captions_page.html.ts",'),
+                ('  if (is_win || is_mac || is_linux) {\n'
+                 '    ts_files += [\n'
+                 '      "a11y_page/ax_annotations_section.html.ts",',
+                 '  if (is_win || is_mac || is_linux || is_charmos) {\n'
+                 '    ts_files += [\n'
+                 '      "a11y_page/ax_annotations_section.html.ts",'),
+            ]),
+        "chrome/browser/ui/webui/signin/cross_device_signin_qr_bubble/cross_device_signin_qr_bubble.mojom": (
+            "c1ff53ffc342c920181473548ad189735dad001aa4a660c49e06664cd995ce91", [
+                ('[EnableIf=is_linux|is_mac|is_win]\ninterface PageHandlerFactory {',
+                 '[EnableIf=is_linux|is_mac|is_win|is_charmos]\ninterface PageHandlerFactory {'),
+                ('[EnableIf=is_linux|is_mac|is_win]\ninterface PageHandler {',
+                 '[EnableIf=is_linux|is_mac|is_win|is_charmos]\ninterface PageHandler {'),
+            ]),
+        "chrome/browser/ui/webui/signin/cross_device_signin_qr_bubble/BUILD.gn": (
+            "f82468a11d466a790be2aa4e0eb4307692d0210d2113f0bfdf46c92d3f211768", [
+                ('  webui_module_path = "/"',
+                 '  webui_module_path = "/"\n'
+                 '  enabled_features = [ "is_charmos" ]'),
+            ]),
+        "chrome/browser/resources/certificate_manager/certificate_manager.mojom": (
+            "1556cb6f86af67bb02de29c6e0e3266911c3558c815700a78165aa61f570099c", [
+                ('[EnableIf=is_linux|is_mac|is_win] kProvisionedClientCert,',
+                 '[EnableIf=is_linux|is_mac|is_win|is_charmos] kProvisionedClientCert,'),
+            ]),
+        "chrome/browser/resources/certificate_manager/BUILD.gn": (
+            "d5ed9b6719ce886cb8a8ce244bfd5a333d4d491397040c1a8f3f36b441bcaca1", [
+                ('  sources = [ "certificate_manager.mojom" ]',
+                 '  sources = [ "certificate_manager.mojom" ]\n'
+                 '  enabled_features = [ "is_charmos" ]'),
+            ]),
+        "extensions/common/command.cc": (
+            "08fbfd2fcb94344bf70064d07a950e121fdee0047197559540c17c0d6d972de1", [
+                ('#elif BUILDFLAG(IS_LINUX)\n'
+                 '  return ui::kKeybindingPlatformLinux;',
+                 '#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\n'
+                 '  return ui::kKeybindingPlatformLinux;'),
+            ]),
+        "third_party/skia/BUILD.gn": (
+            "0061108e9dc298bcbfa769539651112bdd7bccffba817f1091196661d0fe2c26", [
+                ('import("third_party/dawn/args.gni")',
+                 'import("third_party/dawn/args.gni")\n\n'
+                 'if (is_charmos) {\n'
+                 '  skia_use_fontations = false\n'
+                 '  skia_enable_fontmgr_fontations_empty = false\n'
+                 '  skia_use_rust_exif = false\n'
+                 '  skia_use_rust_icc = false\n'
+                 '  skia_use_rust_png_decode = false\n'
+                 '  skia_use_rust_png_encode = false\n'
+                 '  skia_use_rust_bmp_decode = false\n'
+                 '  skia_use_rust_ico_decode = false\n'
+                 '  skia_use_rust_jpeg_decode = false\n'
+                 '  skia_use_rust_jpeg_encode = false\n'
+                 '}'),
+                ('import("third_party/dawn/args.gni")\n\n'
+                 'if (is_charmos) {\n'
+                 '  skia_use_fontations = false\n'
+                 '  skia_enable_fontmgr_fontations_empty = false\n'
+                 '  skia_use_rust_exif = false\n'
+                 '  skia_use_rust_icc = false\n'
+                 '  skia_use_rust_png_decode = false\n'
+                 '  skia_use_rust_png_encode = false\n'
+                 '  skia_use_rust_bmp_decode = false\n'
+                 '  skia_use_rust_ico_decode = false\n'
+                 '  skia_use_rust_jpeg_decode = false\n'
+                 '  skia_use_rust_jpeg_encode = false\n'
+                 '}',
+                 'import("third_party/dawn/args.gni")'),
             ]),
         "chrome/app/chrome_crash_reporter_client.cc": (
             "0ce001d007b4a0e9bb97affda63bb0b8162fb6c6d2bd0e6c83c3ef01504e2924", [

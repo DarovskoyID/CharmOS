@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Interactive content shell with the native CharmOS window manager.
+# Interactive native Chromium with the CharmOS window manager.
 set -eu
 build="$1"
 root="$(cd "$(dirname "$0")/../.." && pwd -P)"
@@ -36,10 +36,14 @@ cat >"$work/index.html" <<'EOF'
   </script>
 </body></html>
 EOF
+process_mode='--single-process'
+if [[ "${CHARMOS_BROWSER_MULTIPROCESS:-0}" == 1 ]]; then
+  process_mode='--no-zygote --in-process-gpu --enable-features=NetworkServiceInProcess2'
+fi
 if [[ "${CHARMOS_FULL_CHROME:-0}" == 1 ]]; then
-  browser_command='/bin/chrome --charmos-browser-window --single-process --no-sandbox --disable-gpu --disable-in-process-stack-traces --js-flags=--jitless --no-first-run --no-default-browser-check --user-data-dir=/data/chrome --load-extension=/data/tests/extension'
+  browser_command="/bin/chrome --charmos-browser-window $process_mode --no-sandbox --disable-gpu --disable-in-process-stack-traces --js-flags=--jitless --no-first-run --no-default-browser-check --user-data-dir=/data/chrome --load-extension=/data/tests/extension"
 else
-  browser_command='/bin/content_shell --charmos-browser-window --single-process --no-sandbox --disable-gpu --disable-in-process-stack-traces --js-flags=--jitless --user-data-dir=/data/content_shell file:///data/index.html'
+  browser_command="/bin/content_shell --charmos-browser-window $process_mode --no-sandbox --disable-gpu --disable-in-process-stack-traces --js-flags=--jitless --user-data-dir=/data/content_shell file:///data/index.html"
 fi
 cat >"$work/init.conf" <<EOF
 service logd /bin/logd
