@@ -86,6 +86,18 @@ def main():
             monitor("sendkey ctrl-t 20")
             time.sleep(2)
             capture("new-tab")
+            navigate("chrome://history")
+            time.sleep(4)
+            capture("history")
+            navigate("chrome://settings")
+            time.sleep(4)
+            capture("settings")
+            monitor("sendkey alt-left 20")
+            time.sleep(3)
+            capture("back")
+            monitor("sendkey alt-right 20")
+            time.sleep(3)
+            capture("forward")
             monitor("sendkey ctrl-shift-n 20")
             time.sleep(3)
             capture("incognito")
@@ -96,14 +108,18 @@ def main():
             text = log.read_text(errors="replace")
             fatal = any(marker in text for marker in
                         ("FATAL:", "Check failed:", "PANIC", "init: browser exited"))
+            captures = ("start", "pdf", "extension", "new-tab", "history",
+                        "settings", "back", "forward", "incognito",
+                        "close-incognito")
             report = {
                 "browser_starts": text.count("init: started browser"),
                 "fatal_seen": fatal,
                 "captures": [str(root / "build/full-chrome-" + name + ".png")
-                             for name in ("start", "pdf", "extension", "new-tab",
-                                          "incognito", "close-incognito")],
+                             for name in captures],
                 "extension_visual_review_required": True,
                 "pdf_visual_review_required": True,
+                "history_settings_visual_review_required": True,
+                "back_forward_visual_review_required": True,
             }
             report["passed"] = report["browser_starts"] == 1 and not fatal
             result.write_text(json.dumps(report, indent=2) + "\n")
