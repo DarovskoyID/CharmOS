@@ -8,6 +8,7 @@
 #               ставит VM на паузу вместо выхода)
 #   --config    доп. устройства из tools/qemu/<имя>.args
 #   --cmdline   строка для ESP:/charmos/cmdline.txt (без опции файла нет)
+#   --vnc       графический вывод через VNC на 127.0.0.1:5900 (без GTK)
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -23,13 +24,14 @@ if [[ ! -L "$build/esp" ]]; then
 fi
 esp="$esp_native"
 
-gdb=0; trace=0; headless=0; testmode=0; config=""; cmdline=""; has_cmdline=0; accelerator=auto
+gdb=0; trace=0; headless=0; testmode=0; config=""; cmdline=""; has_cmdline=0; accelerator=auto; display=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --gdb) gdb=1 ;;
     --trace) trace=1 ;;
     --headless) headless=1 ;;
     --test) testmode=1; headless=1 ;;
+    --vnc) display="vnc=127.0.0.1:0" ;;
     --accel) accelerator="$2"; shift; case "$accelerator" in auto|tcg|kvm) ;; *) echo 'run.sh: --accel must be auto, tcg or kvm' >&2; exit 2;; esac ;;
     --config) config="$2"; shift ;;
     --cmdline) cmdline="$2"; has_cmdline=1; shift ;;
@@ -89,6 +91,7 @@ if [[ $trace -eq 1 ]]; then args+=(-d int,guest_errors,cpu_reset); else args+=(-
 [[ $testmode -eq 0 ]] && args+=(-no-shutdown)
 [[ $gdb -eq 1 ]] && args+=(-s -S)
 [[ $headless -eq 1 ]] && args+=(-display none)
+[[ -n "$display" ]] && args+=(-display "$display")
 if [[ -n "$config" ]]; then
   # Подготовка сценария (образы дисков и т. п.): tools/qemu/<имя>.sh <каталог сборки>.
   if [[ -f "$root/tools/qemu/$config.sh" ]] && ! bash "$root/tools/qemu/$config.sh" "$build"; then

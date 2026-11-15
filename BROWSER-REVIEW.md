@@ -47,6 +47,10 @@
   26-байтовый ctime buffer per thread, wide pattern через `wcsrtombs`, вывод
   через `mbstowcs`, включая Unicode-литералы. `runtime/runtime_threads` в QEMU:
   PASS, проверены epoch, оба ctime API, numeric и Cyrillic wide formats.
+- Для ручной проверки `tools/run.sh --vnc` запускает графический QEMU через
+  `127.0.0.1:5900` без GTK. VNC listener и загруженный desktop подтверждены;
+  `Alt+B` запускает уже проверенный content_shell с multi-process/incognito.
+  Полный Chrome этим запуском не подменяется и продолжает собираться отдельно.
 
 ### Проверка рабочего UI, HTTPS и настройек (2026-11-15)
 
