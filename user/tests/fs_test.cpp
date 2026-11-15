@@ -41,6 +41,11 @@ extern "C" int64_t charm_main(Handle start) {
   EXPECT(same(msg, n, "root") && nh == 1);
   Handle root = hs[0];
 
+  fsabi::VolumeInfo volume{};
+  EXPECT(fs_volume_stat(&volume) == Status::Ok);
+  EXPECT(volume.block_size >= 512 && volume.total_blocks >= volume.free_blocks);
+  EXPECT(volume.total_inodes >= volume.free_inodes && volume.total_blocks != 0);
+
   // Файл, положенный mkdisk.
   auto hello = fs_open(root, "etc/hello.txt", 0);
   EXPECT(hello.ok());

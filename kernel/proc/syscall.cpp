@@ -303,6 +303,9 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
     case Number::FileResize:
       set_result(f, kernel::fs::sys_file_resize(static_cast<uint32_t>(f.rdi), f.rsi));
       break;
+    case Number::FsVolumeStat:
+      set_result(f, kernel::fs::sys_fs_volume_stat(f.rdi));
+      break;
     case Number::SocketOpen: {
       uint64_t v = 0;
       set_result(f, kernel::net::sys_socket_open(static_cast<uint32_t>(f.rdi), f.rsi, &v), v);

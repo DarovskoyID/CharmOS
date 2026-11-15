@@ -33,6 +33,9 @@ class Ext2 final : public FileSystem {
   Status read_dir(Node dir, uint64_t cookie, DirEntry* out, uint64_t* next) override;
   Status sync() override;
 
+  uint32_t block_size() const { return block_size_; }
+  uint32_t blocks_count() const { return blocks_count_; }
+  uint32_t inodes_count() const { return inodes_count_; }
   uint32_t free_blocks() const;
   uint32_t free_inodes() const;
 
@@ -48,7 +51,8 @@ class Ext2 final : public FileSystem {
   Status release(bool inode, uint32_t number);
   // Физический блок логического блока index (0 — дыра); при grow — выделяет
   // (обнулённые), обновляя i_blocks.
-  Result<uint32_t> bmap(Inode& in, uint64_t index, bool grow);
+  struct ReadMapCache;
+  Result<uint32_t> bmap(Inode& in, uint64_t index, bool grow, ReadMapCache* cache = nullptr);
   Status truncate_tree(uint32_t* ptr, uint32_t level, uint64_t first_index, uint64_t keep,
                        Inode& in);
   uint64_t file_size(const Inode& in) const;

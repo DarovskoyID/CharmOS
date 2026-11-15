@@ -33,6 +33,18 @@ static_assert(sizeof(Stat) == 32);
 static_assert(offsetof(Stat, type) == 8);
 static_assert(offsetof(Stat, mtime_ns) == 16);
 
+// §4.3: сведения о корневой ФС, fs_volume_stat (ABI v1.25).
+struct VolumeInfo {
+  uint64_t block_size;
+  uint64_t total_blocks;
+  uint64_t free_blocks;
+  uint64_t total_inodes;
+  uint64_t free_inodes;
+  uint64_t flags;
+};
+static_assert(sizeof(VolumeInfo) == 48);
+inline constexpr uint64_t kVolumeReadOnly = 1;
+
 // §4.2: заголовок записи dir_read, за ним имя; запись выровнена на 8.
 struct DirEntryHeader {
   uint16_t record_len;

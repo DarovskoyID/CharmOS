@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/statvfs.h>
 #include <wchar.h>
 #include <charm/sys.hpp>
 
@@ -105,6 +106,10 @@ extern "C" int main() {
   CHECK(wcscmp(wide, L"1970-01-01 00:00:00") == 0);
   CHECK(wcsftime(wide, 64, L"Год %Y", &utc) == 8);
   CHECK(wcscmp(wide, L"Год 1970") == 0);
+  struct statvfs volume{};
+  CHECK(statvfs("/", &volume) == 0);
+  CHECK(volume.f_bsize >= 512 && volume.f_blocks >= volume.f_bfree);
+  CHECK(volume.f_files >= volume.f_ffree && volume.f_namemax == 255);
   int sorted[] = {1,3,5,7};
   auto compare = [](const void* a, const void* b) { return *static_cast<const int*>(a) - *static_cast<const int*>(b); };
   int search_key = 5;

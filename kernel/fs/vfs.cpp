@@ -495,6 +495,22 @@ Status sys_fs_stat(uint32_t h, uint64_t user_out) {
   return proc::copy_to_user(user_out, &st, sizeof st) ? Status::Ok : Status::BadAddress;
 }
 
+Status sys_fs_volume_stat(uint64_t user_out) {
+  if (g_fs == nullptr || g_fs != &g_mounts[0].ext2) return Status::NotSupported;
+  abi::fs::VolumeInfo info{};
+  {
+    sync::MutexGuard guard(g_vfs);
+    const auto& fs = g_mounts[0].ext2;
+    info.block_size = fs.block_size();
+    info.total_blocks = fs.blocks_count();
+    info.free_blocks = fs.free_blocks();
+    info.total_inodes = fs.inodes_count();
+    info.free_inodes = fs.free_inodes();
+    info.flags = fs.read_only() ? abi::fs::kVolumeReadOnly : 0;
+  }
+  return proc::copy_to_user(user_out, &info, sizeof info) ? Status::Ok : Status::BadAddress;
+}
+
 Status sys_dir_read(uint32_t h, uint64_t user_buf, uint64_t cap, uint64_t cookie, uint64_t* out) {
   lib::fs::FileSystem* fs;
   Node dir;

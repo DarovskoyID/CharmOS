@@ -42,6 +42,7 @@ Status sys_file_read(uint32_t file, uint64_t buf, uint64_t len, uint64_t offset,
 Status sys_file_write(uint32_t file, uint64_t buf, uint64_t len, uint64_t offset, uint64_t* out);
 Status sys_file_sync(uint32_t file);
 Status sys_fs_stat(uint32_t h, uint64_t out);
+Status sys_fs_volume_stat(uint64_t out);
 Status sys_dir_read(uint32_t dir, uint64_t buf, uint64_t cap, uint64_t cookie, uint64_t* out);
 Status sys_fs_unlink(uint32_t dir, uint64_t path, uint64_t len);
 Status sys_fs_unlink_typed(uint32_t dir, uint64_t path, uint64_t len,uint64_t directory);

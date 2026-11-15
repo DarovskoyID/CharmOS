@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/utsname.h>
@@ -1125,6 +1126,33 @@ int gethostname(char* name, size_t size) {
   if (size < n) return fail_errno(ENAMETOOLONG);
   memcpy(name, identity.nodename, n);
   return 0;
+}
+
+static int volume_info(struct statvfs* out) {
+  if (!out) return fail_errno(EFAULT);
+  abi::fs::VolumeInfo info{};
+  Status status = charm::fs_volume_stat(&info);
+  if (status != Status::Ok) return fail(status);
+  out->f_bsize = info.block_size;
+  out->f_frsize = info.block_size;
+  out->f_blocks = info.total_blocks;
+  out->f_bfree = info.free_blocks;
+  out->f_bavail = info.free_blocks;
+  out->f_files = info.total_inodes;
+  out->f_ffree = info.free_inodes;
+  out->f_favail = info.free_inodes;
+  out->f_fsid = 0;
+  out->f_flag = info.flags;
+  out->f_namemax = 255;
+  return 0;
+}
+int statvfs(const char* path, struct statvfs* out) {
+  if (!path) return fail_errno(EFAULT);
+  return volume_info(out);
+}
+int fstatvfs(int fd, struct statvfs* out) {
+  if (!fd_get(fd)) return fail_errno(EBADF);
+  return volume_info(out);
 }
 
 }  // extern "C"

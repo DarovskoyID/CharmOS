@@ -57,6 +57,11 @@
 - Для длительного `chrome_port` используется `CHARMOS_BUILD_JOBS=8`: на 16 CPU
   и при >20 ГиБ доступной RAM это ускоряет проход без изменения состава ELF.
   Старые объекты сохраняются при каждом продолжении Ninja.
+- Для `third_party/unrar` добавлен ABI v1.25 `fs_volume_stat` (syscall 87) и
+  libc `statvfs/fstatvfs`: реальные ext2 block size/total/free blocks/inodes и
+  read-only flag, `f_namemax=255`. FAT32 возвращает `NotSupported`. Инкрементальные
+  kernel/user builds PASS; `m6/fs1_ext2` и `runtime/runtime_threads` в QEMU —
+  оба PASS. Чужие `ExecutableFile` и process diagnostics в этих файлах не staged.
 
 ### Проверка рабочего UI, HTTPS и настройек (2026-11-15)
 

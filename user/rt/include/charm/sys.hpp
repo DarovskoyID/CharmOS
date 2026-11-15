@@ -183,6 +183,9 @@ inline Status file_sync(Handle f) { return syscall1(Number::FileSync, f).status;
 inline Status fs_stat(Handle h, abi::fs::Stat* out) {
   return syscall2(Number::FsStat, h, reinterpret_cast<uint64_t>(out)).status;
 }
+inline Status fs_volume_stat(abi::fs::VolumeInfo* out) {
+  return syscall1(Number::FsVolumeStat, reinterpret_cast<uint64_t>(out)).status;
+}
 inline SysResult dir_read(Handle dir, void* buf, uint64_t cap, uint64_t cookie) {
   return syscall5(Number::DirRead, dir, reinterpret_cast<uint64_t>(buf), cap, cookie, 0);
 }
