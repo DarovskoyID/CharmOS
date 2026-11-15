@@ -2023,6 +2023,43 @@ def graphics_patches():
         ('#if BUILDFLAG(IS_CHROMEOS)\n      CreateChromeOnlySystemTrustStore(std::move(chrome_root)),',
          '#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n      CreateChromeOnlySystemTrustStore(std::move(chrome_root)),'),
     ])
+    patches["net/BUILD.gn"][1].extend([
+        ('  defines = [ "NET_IMPLEMENTATION" ]\n\n'
+         '  if (enable_built_in_dns) {',
+         '  defines = [ "NET_IMPLEMENTATION" ]\n'
+         '  if (charmos_repo != "") {\n'
+         '    defines += [ "CHARMOS_CPP_ONLY" ]\n'
+         '  }\n\n'
+         '  if (enable_built_in_dns) {'),
+        ('  if (!is_charmos) {\n'
+         '    deps += [ "//third_party/rust/sfv/v0_15/wrapper" ]\n'
+         '  }',
+         '  if (charmos_repo == "") {\n'
+         '    deps += [ "//third_party/rust/sfv/v0_15/wrapper" ]\n'
+         '  }'),
+        ('use_external_gssapi = use_kerberos && !is_android && !is_win',
+         'use_external_gssapi = use_kerberos && !is_android && !is_win && charmos_repo == ""'),
+    ])
+    patches["net/features.gni"][1].append((
+        '  use_kerberos = !is_ios && !is_fuchsia && !is_castos && !is_cast_android && !is_charmos',
+        '  use_kerberos = !is_ios && !is_fuchsia && !is_castos && !is_cast_android && charmos_repo == ""'))
+    patches["net/http/structured_headers.cc"][1].extend([
+        ('#if !BUILDFLAG(IS_CHARMOS)\n#include "base/strings/string_view_rust.h"',
+         '#if !BUILDFLAG(IS_CHARMOS) && !defined(CHARMOS_CPP_ONLY)\n'
+         '#include "base/strings/string_view_rust.h"'),
+        ('std::optional<ParameterizedItem> ParseItem(std::string_view str) {\n#if !BUILDFLAG(IS_CHARMOS)',
+         'std::optional<ParameterizedItem> ParseItem(std::string_view str) {\n'
+         '#if !BUILDFLAG(IS_CHARMOS) && !defined(CHARMOS_CPP_ONLY)'),
+        ('std::optional<List> ParseList(std::string_view str) {\n#if !BUILDFLAG(IS_CHARMOS)',
+         'std::optional<List> ParseList(std::string_view str) {\n'
+         '#if !BUILDFLAG(IS_CHARMOS) && !defined(CHARMOS_CPP_ONLY)'),
+        ('std::optional<Dictionary> ParseDictionary(std::string_view str) {\n#if !BUILDFLAG(IS_CHARMOS)',
+         'std::optional<Dictionary> ParseDictionary(std::string_view str) {\n'
+         '#if !BUILDFLAG(IS_CHARMOS) && !defined(CHARMOS_CPP_ONLY)'),
+    ])
+    patches["net/cert/cert_verify_proc.cc"][1].append((
+        '#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n      CreateChromeOnlySystemTrustStore(std::move(chrome_root)),',
+        '#if BUILDFLAG(CHROME_ROOT_STORE_ONLY) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n      CreateChromeOnlySystemTrustStore(std::move(chrome_root)),'))
     patches["ipc/param_traits_utils.cc"][1].extend([
         ('  // VMO capabilities travel over native channels, not legacy Pickle\n'
          '  // attachments. Write no handle; Read reconstructs an empty region.',

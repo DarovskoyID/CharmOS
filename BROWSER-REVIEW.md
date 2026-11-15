@@ -62,6 +62,11 @@
   read-only flag, `f_namemax=255`. FAT32 возвращает `NotSupported`. Инкрементальные
   kernel/user builds PASS; `m6/fs1_ext2` и `runtime/runtime_threads` в QEMU —
   оба PASS. Чужие `ExecutableFile` и process diagnostics в этих файлах не staged.
+- Net C++ profile теперь действует и для Linux host tools: `CHARMOS_CPP_ONLY`
+  отключает Rust SFV, QUICHE structured headers остаются рабочими. Kerberos/
+  external GSSAPI выключен как отсутствующая зависимость. `CHROME_ROOT_STORE_ONLY`
+  выбирает `CreateChromeOnlySystemTrustStore`. `structured_headers.o` и
+  `cert_verify_proc.o` компилируются без прежних ошибок.
 
 ### Проверка рабочего UI, HTTPS и настройек (2026-11-15)
 
