@@ -27,6 +27,8 @@ def graphics_patches():
             ]),
         "chrome/browser/web_applications/web_app.cc": (
             "b0d4716747f77faee6451dd2c1803986bb19729a4484c05d408262035c2b5625", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS)\n#include "components/webapps/isolated_web_apps/scheme.h"',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n#include "components/webapps/isolated_web_apps/scheme.h"'),
                 ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS)\n        && manifest_id_.value().SchemeIs(webapps::kIsolatedAppScheme))',
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n        && manifest_id_.value().SchemeIs(webapps::kIsolatedAppScheme))'),
             ]),
@@ -253,10 +255,14 @@ def graphics_patches():
                  '#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n  storage_delegate = std::make_unique<BrowserDMTokenStorageLinux>();'),
                 ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC)\n#include "chrome/browser/enterprise/client_certificates/browser_context_delegate.h"',
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHARMOS)\n#include "chrome/browser/enterprise/client_certificates/browser_context_delegate.h"'),
+                ('#include "chrome/browser/enterprise/client_certificates/cert_utils.h"',
+                 '#if !BUILDFLAG(IS_CHARMOS)\n#include "chrome/browser/enterprise/client_certificates/cert_utils.h"\n#endif'),
                 ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC)\n  auto* browser_dm_token_storage = BrowserDMTokenStorage::Get();',
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHARMOS)\n  auto* browser_dm_token_storage = BrowserDMTokenStorage::Get();'),
                 ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC)\n  if (!certificate_store_) {',
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHARMOS)\n  if (!certificate_store_) {'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHARMOS)\n  if (!certificate_store_) {',
+                 '#if (BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC)) && !BUILDFLAG(IS_CHARMOS)\n  if (!certificate_store_) {'),
             ]),
         "chrome/browser/policy/BUILD.gn": (
             "39ed72ec9278df44d1a1d4a6fa6a02a1470b9f7dd282fb314c1c2ef55dd3007d", [
@@ -292,6 +298,8 @@ def graphics_patches():
             "bbd5d994637e3e484717ec5a2d72e84343b01a3573ef85a296137a4593d220e8", [
                 ('source_set("qr_code_generator") {\n  sources = [\n    "qr_code_generator.cc",\n    "qr_code_generator.h",\n  ]\n  deps = [ ":cpp_api_from_rust_buildflags" ]\n  if (enable_cpp_api_from_rust) {',
                  'source_set("qr_code_generator") {\n  if (is_charmos) {\n    sources = [ "//build/charmos/qr_code_charmos.cc", "qr_code_generator.h" ]\n  } else {\n    sources = [\n      "qr_code_generator.cc",\n      "qr_code_generator.h",\n    ]\n  }\n  deps = [ ":cpp_api_from_rust_buildflags" ]\n  if (is_charmos) {\n    deps += [ "//third_party/pdfium:pdfium" ]\n  } else if (enable_cpp_api_from_rust) {'),
+                ('source_set("qr_code_generator") {\n  if (is_charmos) {\n    sources = [ "//build/charmos/qr_code_charmos.cc", "qr_code_generator.h" ]',
+                 'source_set("qr_code_generator") {\n  if (is_charmos) {\n    include_dirs = [ "//third_party/pdfium" ]\n    sources = [ "//build/charmos/qr_code_charmos.cc", "qr_code_generator.h" ]'),
                 ('if (!enable_cpp_api_from_rust) {\n  rust_static_library("qr_code_generator_ffi_glue") {',
                  'if (!is_charmos && !enable_cpp_api_from_rust) {\n  rust_static_library("qr_code_generator_ffi_glue") {'),
             ]),
@@ -322,6 +330,8 @@ def graphics_patches():
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\n  virtual std::unique_ptr<whats_new::WhatsNewRegistry> CreateWhatsNewRegistry();'),
                 ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)\n  std::unique_ptr<whats_new::WhatsNewRegistry> whats_new_registry_;',
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\n  std::unique_ptr<whats_new::WhatsNewRegistry> whats_new_registry_;'),
+                ('#if !BUILDFLAG(IS_ANDROID)\n  std::unique_ptr<on_device_translation::OnDeviceTranslationInstaller>\n      on_device_translation_installer_;',
+                 '#if !BUILDFLAG(IS_ANDROID) && BUILDFLAG(ENABLE_ON_DEVICE_TRANSLATION)\n  std::unique_ptr<on_device_translation::OnDeviceTranslationInstaller>\n      on_device_translation_installer_;'),
             ]),
         "chrome/browser/global_features.cc": (
             "d5222da29c50a8fbd2c283d8c4b648ee3c1904e9dd9f7627103f125350b79574", [
@@ -557,6 +567,16 @@ def graphics_patches():
                 ('#elif BUILDFLAG(IS_LINUX)\n\n#define CURRENT_PLATFORM "linux"',
                  '#elif BUILDFLAG(IS_CHARMOS)\n\n#define CURRENT_PLATFORM "charmos"\n\n#elif BUILDFLAG(IS_LINUX)\n\n#define CURRENT_PLATFORM "linux"'),
             ]),
+        "components/regional_capabilities/regional_capabilities_service.h": (
+            "05f9abadfad453ea9773ccb95310e847059e4a30f6015a2c9403b8f8c8b7c20a", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)\n  // Returns whether the country obtained from the client is associated with',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\n  // Returns whether the country obtained from the client is associated with'),
+            ]),
+        "components/regional_capabilities/regional_capabilities_service.cc": (
+            "22fd3ddc6c9fc089716b1df64a4c53aca078a475c469411e0160b8637e142f19", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)\n// static\nbool RegionalCapabilitiesService::IsInAnySearchEngineChoiceScreenRegion(\n    Client& client) {',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\n// static\nbool RegionalCapabilitiesService::IsInAnySearchEngineChoiceScreenRegion(\n    Client& client) {'),
+            ]),
         "chrome/browser/regional_capabilities/regional_capabilities_service_factory.h": (
             "7c83ea3f4a56e9d10cbe9853c0c915d75642558915721e9dcc8e6402f92fe2ec", [
                 ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)',
@@ -599,6 +619,10 @@ def graphics_patches():
             "9447f7433b344f974d701683b63d4116bfffdae410b7ebd8f06801ed4aa3138c", [
                 ('  if (!base::FeatureList::IsEnabled(\n          net::features::kEnablePrivateVerificationTokens)) {',
                  '#if BUILDFLAG(IS_CHARMOS)\n  return nullptr;\n#endif\n  if (!base::FeatureList::IsEnabled(\n          net::features::kEnablePrivateVerificationTokens)) {'),
+                ('#if BUILDFLAG(IS_CHARMOS)\n  return nullptr;\n#endif\n  if (!base::FeatureList::IsEnabled(\n          net::features::kEnablePrivateVerificationTokens)) {',
+                 '#if BUILDFLAG(IS_CHARMOS)\n  return nullptr;\n#else\n  if (!base::FeatureList::IsEnabled(\n          net::features::kEnablePrivateVerificationTokens)) {'),
+                ('  return service;\n}\n\nbool PrivateVerificationTokensServiceFactory::\n    ServiceIsCreatedWithBrowserContext() const {',
+                 '  return service;\n#endif\n}\n\nbool PrivateVerificationTokensServiceFactory::\n    ServiceIsCreatedWithBrowserContext() const {'),
             ]),
         "chrome/utility/importer/importer_creator.cc": (
             "0004b3ab2a428d66b894d8fa56f92bd61da5b95cfee2acbea3abf06b5ffeda94", [

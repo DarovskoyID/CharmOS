@@ -850,6 +850,12 @@ def blink_patches():
                  '    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)',
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n'
                  '    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHARMOS)'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n'
+                 '    BUILDFLAG(IS_CHROMEOS)\nFEATURE_CONSTANTS_DECLARE_FEATURE(kIPHDesktopPWAsLinkCapturingLaunch);',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n'
+                 '    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\nFEATURE_CONSTANTS_DECLARE_FEATURE(kIPHDesktopPWAsLinkCapturingLaunch);'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)\nFEATURE_CONSTANTS_DECLARE_FEATURE(kIPHSignInBenefitsFeature);',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\nFEATURE_CONSTANTS_DECLARE_FEATURE(kIPHSignInBenefitsFeature);'),
             ]),
         "components/feature_engagement/public/feature_constants.cc": (
             "aef339cebd8ecf19a7f75c2559413cfcf2b7a28f809344eea9fea41743059cfc", [
@@ -863,6 +869,12 @@ def blink_patches():
                  '    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)',
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n'
                  '    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHARMOS)'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n'
+                 '    BUILDFLAG(IS_CHROMEOS)\n// This can be enabled by default, as the DesktopPWAsLinkCapturing\n',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n'
+                 '    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n// This can be enabled by default, as the DesktopPWAsLinkCapturing\n'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)\nBASE_FEATURE(kIPHSignInBenefitsFeature,',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\nBASE_FEATURE(kIPHSignInBenefitsFeature,'),
             ]),
         "components/content_settings/core/browser/website_settings_registry.cc": (
             "7a475b1d2e2e13562f373d9ab5ff9b9c67c6b577fbe2058b04520d393c83adbe", [

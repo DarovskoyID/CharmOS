@@ -709,3 +709,17 @@ ATHM token service и Firefox/NSS importer исключены только на 
 Обычная история, PDFium, вкладки, extensions, ProcessSingleton и profile settings
 остаются в полном `chrome_port`. Инкрементальная компиляция продолжается без
 ошибок; линковка и гостевой запуск ещё не подтверждены.
+
+
+Checkpoint (2026-11-16): 533 pinned contexts. Исправлены ошибки текущей
+инкрементальной компиляции полного Chrome: C++ QR generator получает include path
+к PDFium; Stable Portability history использует актуальный typed JSONReader API и
+безопасную границу uint64; desktop overload RegionalCapabilitiesService доступен
+на CharmOS; WebApp включает объявление isolated-app scheme. Неполный
+OnDeviceTranslationInstaller и protobuf-dependent certificate provisioning
+исключены при выключенных backends, а PrivateVerificationTokens factory не
+содержит unreachable code. Добавлены недостающие desktop feature declarations.
+Изменённые patch replacements сохраняют предыдущие prepared-состояния как
+промежуточные, поэтому защита от unknown vendor edits остаётся действующей.
+`prepare-platform.py --check-only` подтвердил 533 контекста; Python AST и
+`bash -n` зелёные. Компоновка и пользовательский QEMU PASS ещё не получены.

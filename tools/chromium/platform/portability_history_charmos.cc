@@ -25,7 +25,7 @@ std::optional<uint64_t> ReadCount(const base::DictValue& dict,
   if (!value) {
     return required ? std::nullopt : std::optional<uint64_t>(fallback);
   }
-  if (*value < 0 || *value > std::numeric_limits<uint64_t>::max() ||
+  if (*value < 0 || *value >= 18446744073709551616.0 ||
       std::trunc(*value) != *value) {
     return std::nullopt;
   }
@@ -57,7 +57,7 @@ void parse_stable_portability_history(
     break;
   }
 
-  std::optional<base::Value> root = base::JSONReader::Read(input);
+  std::optional<base::Value> root = base::JSONReader::Read(input, base::JSON_PARSE_CHROMIUM_EXTENSIONS);
   const base::DictValue* metadata = root && root->is_dict()
       ? root->GetDict().FindDict("metadata") : nullptr;
   const base::ListValue* visits = root && root->is_dict()
