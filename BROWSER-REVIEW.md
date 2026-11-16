@@ -732,3 +732,12 @@ Checkpoint (2026-11-16): обновлённый GN профиль успешно
 скрытия `ProfileLaunchObserver`/smart-restart members. 533 patch contexts снова
 проверены. Текущая Ninja-задача ещё выполняется; финальная линковка и QEMU не
 подтверждены.
+
+
+Checkpoint (2026-11-16): исправлены ещё две browser-ошибки. CharmOS использует
+`net::ClientCertStoreEmpty` напрямую, с нужным include и без недоступного
+enterprise provisioning wrapper. `sandbox.mojom.Sandbox.kScreenAI` объявлен
+без EnableIf: иначе генератор опускал enum и `ScreenAIServiceFactory` терял
+обязательный `kServiceSandbox`; ScreenAI service backend остаётся выключенным.
+Патчи применены к подготовленным исходникам, 533 контекста проверены. Текущая
+Ninja-задача продолжает независимые объекты; линковка/QEMU ещё не подтверждены.

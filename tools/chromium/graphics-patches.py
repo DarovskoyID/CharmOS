@@ -348,6 +348,8 @@ def graphics_patches():
             "668be9fe5687cd55652073e09f6c875ebc3f837fd12d393e602114471da6ec79", [
                 ('  [EnableIf=is_chromeos|is_linux|is_mac|is_win] kScreenAI,',
                  '  [EnableIf=is_chromeos|is_linux|is_mac|is_win|is_charmos] kScreenAI,'),
+                ('  [EnableIf=is_chromeos|is_linux|is_mac|is_win|is_charmos] kScreenAI,',
+                 '  kScreenAI,'),
             ]),
         "chrome/browser/intranet_redirect_detector.h": (
             "16033c3206a1684434e4e534b85305e92c7b9c8358b0b6a775dbe0be620df586", [
@@ -479,8 +481,12 @@ def graphics_patches():
             ]),
         "chrome/browser/net/profile_network_context_service.cc": (
             "55d29972186221adc500576187a5ac9f4b4084aa5384bda05a6f9359ed2350bc", [
+                ('#if BUILDFLAG(IS_ANDROID)\n#include "net/ssl/client_cert_store_empty.h"',
+                 '#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHARMOS)\n#include "net/ssl/client_cert_store_empty.h"'),
                 ('#elif BUILDFLAG(IS_ANDROID)\n  // On Android client we don\'t use a platform client cert store, but we still',
                  '#elif BUILDFLAG(IS_CHARMOS)\n  return GetWrappedCertStore(profile_,\n                             std::make_unique<net::ClientCertStoreEmpty>());\n#elif BUILDFLAG(IS_ANDROID)\n  // On Android client we don\'t use a platform client cert store, but we still'),
+                ('#elif BUILDFLAG(IS_CHARMOS)\n  return GetWrappedCertStore(profile_,\n                             std::make_unique<net::ClientCertStoreEmpty>());',
+                 '#elif BUILDFLAG(IS_CHARMOS)\n  return std::make_unique<net::ClientCertStoreEmpty>();'),
             ]),
         "components/metrics/debug/metrics_internals_utils.cc": (
             "347750659172149f4c2cbc10bd1ef1fc48d9fe5c5ccc74f8017c355ae26b6da5", [
