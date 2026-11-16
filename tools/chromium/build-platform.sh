@@ -48,7 +48,7 @@ args = {
     "use_cups": False, "enable_screen_ai_service": False, "enterprise_data_controls": True,
     "enterprise_watermark": True, "enterprise_cache_encryption": True,
     "enterprise_cloud_content_analysis": True, "enterprise_proxy": True,
-    "enable_vulkan": False, "enable_vr": False,
+    "enable_vulkan": False, "enable_vr": False, "enable_oop_printing": False,
     "use_ozone": True, "use_aura": True, "toolkit_views": True, "ozone_auto_platforms": False,
     "ozone_platform": "charmos", "ozone_extra_path": "//build/charmos/ozone_extra.gni",
     "ozone_platform_headless": False, "clang_use_chrome_plugins": False,

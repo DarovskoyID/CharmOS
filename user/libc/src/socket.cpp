@@ -244,7 +244,8 @@ int setsockopt(int fd, int level, int name, const void*, socklen_t) {
   // as fatal (notably TCP_NODELAY and SO_KEEPALIVE).
   if (level == SOL_SOCKET &&
       (name == SO_REUSEADDR || name == SO_KEEPALIVE || name == SO_BROADCAST ||
-       name == SO_SNDBUF || name == SO_RCVBUF || name == SO_LINGER)) {
+       name == SO_SNDBUF || name == SO_RCVBUF || name == SO_LINGER ||
+       name == SO_SNDTIMEO)) {
     return 0;
   }
   if (level == IPPROTO_TCP && name == TCP_NODELAY) return 0;

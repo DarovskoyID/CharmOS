@@ -39,6 +39,7 @@ typedef struct {
 } siginfo_t;
 #define SA_SIGINFO 4
 #define SA_ONSTACK 0x08000000
+#define SA_RESETHAND 0x80000000
 #define SA_RESTART 0x10000000
 #define SIG_DFL ((sighandler_t)0)
 #define SIG_IGN ((sighandler_t)1)

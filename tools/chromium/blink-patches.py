@@ -846,6 +846,10 @@ def blink_patches():
                  'BUILDFLAG(IS_FUCHSIA) || \\\n'
                  '    BUILDFLAG(IS_CHARMOS)\n'
                  'FEATURE_CONSTANTS_DECLARE_FEATURE(kIPHAutofillAtMemoryFeature);'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n'
+                 '    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n'
+                 '    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHARMOS)'),
             ]),
         "components/feature_engagement/public/feature_constants.cc": (
             "aef339cebd8ecf19a7f75c2559413cfcf2b7a28f809344eea9fea41743059cfc", [
@@ -855,6 +859,10 @@ def blink_patches():
                  '    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || '
                  'BUILDFLAG(IS_FUCHSIA) || \\\n'
                  '    BUILDFLAG(IS_CHARMOS)\n'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n'
+                 '    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n'
+                 '    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHARMOS)'),
             ]),
         "components/content_settings/core/browser/website_settings_registry.cc": (
             "7a475b1d2e2e13562f373d9ab5ff9b9c67c6b577fbe2058b04520d393c83adbe", [

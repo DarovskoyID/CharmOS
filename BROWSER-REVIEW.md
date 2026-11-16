@@ -683,3 +683,15 @@ Chrome native-messaging paths, PDF Searchify resource, Enterprise Proxy и
 `CHARMOS_FULL_CHROME=1` и `CHARMOS_BROWSER_MULTIPROCESS=1`, чтобы случайно не
 проверять content_shell. Пакетная проверка контекстов и Python/Bash syntax
 выполнена; повторная компиляция и пользовательский QEMU PASS ещё не получены.
+
+Продолжение полного Chrome (2026-11-16): 522 pinned patch contexts. QR generator
+реализован через существующий PDFium C++ ZXing encoder с byte-input и явной
+минимальной версией; Rust protobuf stream framer заменён эквивалентным C++
+parser. Добавлены desktop WebUI/signin/download guards, OpaqueBrowserFrameView,
+app-management generation и missing strings. ProcessSingleton использует тот же
+Chromium lock/cookie protocol по loopback TCP на порту, детерминированному от
+profile path, поскольку Unix domain sockets в CharmOS отсутствуют. Исправлены
+тестовые Safari/Rust GN dependencies и duplicate patch ownership. Опциональный
+screen-AI Searchify не вызывается без backend, PDFium остаётся включён.
+Проверены patch contexts и Python/Bash syntax; инкрементальный `chrome_port`
+запущен, окончательная компоновка и пользовательский QEMU PASS ещё не получены.
