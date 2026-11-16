@@ -695,3 +695,10 @@ profile path, поскольку Unix domain sockets в CharmOS отсутств
 screen-AI Searchify не вызывается без backend, PDFium остаётся включён.
 Проверены patch contexts и Python/Bash syntax; инкрементальный `chrome_port`
 запущен, окончательная компоновка и пользовательский QEMU PASS ещё не получены.
+
+Checkpoint (2026-11-16): 526 pinned contexts. Добавлены native TTS/WebUI
+declarations, regional capabilities, NTP variations, isolated Web App scheme,
+ClientCertStoreEmpty и platform-specific version/metrics branches. Исправлены
+ProcessSingleton socket includes/options и Crashpad/WASM guards. Duplicate GN
+entries разрешены: реальные patch ownership и dependency chains проверены.
+Полный Chrome ещё компонуется; функциональность в госте не заявляется.

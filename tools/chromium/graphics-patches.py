@@ -538,6 +538,12 @@ def graphics_patches():
             "5acf5a81454ca1ad8da7474d4aeee057c2ad7f765a443957ffe4a0bb5e70326f", [
                 ('#if !BUILDFLAG(IS_ANDROID)\n  pid_t pid;\n  if (crash_reporter::GetHandlerSocket(nullptr, &pid)) {',
                  '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n  pid_t pid;\n  if (crash_reporter::GetHandlerSocket(nullptr, &pid)) {'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS)\n#include "chrome/browser/enterprise/network_header_injection/http_header_injection_proxying_url_loader_factory.h"',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n#include "chrome/browser/enterprise/network_header_injection/http_header_injection_proxying_url_loader_factory.h"'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS)\n  return origin.scheme() == webapps::kIsolatedAppScheme;',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n  return origin.scheme() == webapps::kIsolatedAppScheme;'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS)\nbool IsIsolatedWebAppUrl(const GURL& url) {',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\nbool IsIsolatedWebAppUrl(const GURL& url) {'),
             ]),
         "chrome/app/chrome_crash_reporter_client.h": (
             "dc3a4c176fdfb7d1f0b9f75804572b81b330a175c11298743667c6f612e9682b", [
@@ -545,6 +551,32 @@ def graphics_patches():
                  '#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n  bool GetCrashMetricsLocation(base::FilePath* metrics_dir) override;'),
                 ('#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n  bool ShouldMonitorCrashHandlerExpensively() override;',
                  '#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n  bool ShouldMonitorCrashHandlerExpensively() override;'),
+            ]),
+        "chrome/browser/upgrade_detector/version_history_client.cc": (
+            "7d015fbfc3695504eaa544dcccf617931b3d23f8b327aa5fa1bc39127ae6aaa3", [
+                ('#elif BUILDFLAG(IS_LINUX)\n\n#define CURRENT_PLATFORM "linux"',
+                 '#elif BUILDFLAG(IS_CHARMOS)\n\n#define CURRENT_PLATFORM "charmos"\n\n#elif BUILDFLAG(IS_LINUX)\n\n#define CURRENT_PLATFORM "linux"'),
+            ]),
+        "chrome/browser/regional_capabilities/regional_capabilities_service_factory.h": (
+            "7c83ea3f4a56e9d10cbe9853c0c915d75642558915721e9dcc8e6402f92fe2ec", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)'),
+            ]),
+        "chrome/browser/regional_capabilities/regional_capabilities_service_factory.cc": (
+            "6af2758f2361c0586e884b72fa34fe2811e220a51291c9a731e915c92f0c89f5", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)\n// static\nbool RegionalCapabilitiesServiceFactory::',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\n// static\nbool RegionalCapabilitiesServiceFactory::'),
+            ]),
+        "chrome/browser/about_flags.cc": (
+            "5ab6e07147d42025ba021057c12d026d03ab5130f611fa118a0e52302272f930", [
+                ('#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_WIN) || BUILDFLAG(IS_ANDROID)\n#include "chrome/browser/glic/suggestions/contextual_cueing_features.h"',
+                 '#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_WIN) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHARMOS)\n#include "chrome/browser/glic/suggestions/contextual_cueing_features.h"'),
+                ('#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_WIN)\n\n// A limited number of combinations of the rich autocompletion params.',
+                 '#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\n\n// A limited number of combinations of the rich autocompletion params.'),
+                ('#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_WIN) || BUILDFLAG(IS_ANDROID)\n\nconst FeatureEntry::FeatureParam kNtpNextAllowDisablement[] =',
+                 '#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_WIN) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHARMOS)\n\nconst FeatureEntry::FeatureParam kNtpNextAllowDisablement[] ='),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)\nconst FeatureEntry::FeatureParam kContextualCueingEnabledNoEngagementCap[] =',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHARMOS)\nconst FeatureEntry::FeatureParam kContextualCueingEnabledNoEngagementCap[] ='),
             ]),
         "components/cbor/BUILD.gn": (
             "4cc274711c3b0a614a5e7385cb065385c31797ab03e337c599ddf9c6b8d66b49", [
