@@ -13,6 +13,17 @@ extern "C" int symlink(const char* target,const char* path) {
   errno=target && path ? ENOTSUP : EFAULT;
   return -1;
 }
+extern "C" int link(const char* existing,const char* path) {
+  if(!existing || !path) { errno=EFAULT; return -1; }
+  struct stat information{};
+  if(stat(existing,&information)) return -1;
+  errno=ENOTSUP;
+  return -1;
+}
+extern "C" mode_t umask(mode_t mask) {
+  (void)mask;
+  return 022;
+}
 extern "C" ssize_t readlink(const char* path,char* buffer,size_t capacity) {
   if(!buffer && capacity) { errno=EFAULT; return -1; }
   struct stat information{};

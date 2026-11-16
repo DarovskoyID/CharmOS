@@ -5,9 +5,11 @@
 #define S_IFDIR 0040000
 #define S_IFREG 0100000
 #define S_IFIFO 0010000
+#define S_IFCHR 0020000
 #define S_IFLNK 0120000
 #define S_ISLNK(m) (((m) & S_IFMT) == S_IFLNK)
 #define S_ISFIFO(m) (((m) & S_IFMT) == S_IFIFO)
+#define S_ISCHR(m) (((m) & S_IFMT) == S_IFCHR)
 #define S_IRUSR 0400
 #define S_IWUSR 0200
 #define S_IXUSR 0100
@@ -48,6 +50,7 @@ int mkdir(const char* path, mode_t mode);
 int chmod(const char* path,mode_t mode);
 int fchmod(int fd, mode_t mode);
 int fchown(int fd, uid_t owner, gid_t group);
+mode_t umask(mode_t mask);
 #include <sys/time.h>
 int utimes(const char* path, const struct timeval times[2]);
 int futimes(int fd, const struct timeval times[2]);

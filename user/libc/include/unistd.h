@@ -44,6 +44,7 @@ int usleep(useconds_t usec);
 int access(const char* path, int mode);
 long pathconf(const char* path,int name);
 int symlink(const char* target,const char* path);
+int link(const char* existing,const char* path);
 ssize_t readlink(const char* path,char* buffer,size_t capacity);
 int chown(const char* path,uid_t owner,gid_t group);
 int lchown(const char* path,uid_t owner,gid_t group);

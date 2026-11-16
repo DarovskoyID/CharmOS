@@ -8,6 +8,202 @@ def desktop_assert(digest, android=True):
 
 def graphics_patches():
     patches = {
+        "components/crash/core/common/BUILD.gn": (
+            "4eb2642d04a86865d75910404d52f0a01d1bc047ea50b5e30246d098009b68d3", [
+                ('     (is_linux && !is_castos)) && !use_crash_key_stubs',
+                 '     (is_linux && !is_castos) || is_charmos) && !use_crash_key_stubs'),
+            ]),
+        "chrome/browser/media/router/discovery/discovery_network_list_posix.cc": (
+            "2e4f55c87d9979125f967d2804217137e8d5747290cba5bba4b279655b8c9852", [
+                ('#if !BUILDFLAG(IS_ANDROID)\n#include "chrome/browser/media/router/discovery/discovery_network_list_wifi.h"',
+                 '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n#include "chrome/browser/media/router/discovery/discovery_network_list_wifi.h"'),
+                ('#if !BUILDFLAG(IS_ANDROID)\n    if (MaybeGetWifiSSID(name, &ssid)) {',
+                 '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n    if (MaybeGetWifiSSID(name, &ssid)) {'),
+            ]),
+        "chrome/browser/web_applications/web_app_install_info.h": (
+            "eb8286abf7f64a58442372475615ca63d71263a8e98afedefe1889aa12994cc6", [
+                ('static_assert(BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) ||\n              BUILDFLAG(IS_CHROMEOS));',
+                 'static_assert(BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) ||\n              BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS));'),
+            ]),
+        "chrome/browser/web_applications/web_app.cc": (
+            "b0d4716747f77faee6451dd2c1803986bb19729a4484c05d408262035c2b5625", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS)\n        && manifest_id_.value().SchemeIs(webapps::kIsolatedAppScheme))',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n        && manifest_id_.value().SchemeIs(webapps::kIsolatedAppScheme))'),
+            ]),
+        "chrome/browser/shortcuts/icon_badging.cc": (
+            "e0a755d68ebd80e21517ef712f9f7b179126eb0dada54db98769fb2e01c56295", [
+                ('#elif BUILDFLAG(IS_LINUX)\nconstexpr ShortcutSize kSizesNeededForShortcutCreation[] = {ShortcutSize::k32,',
+                 '#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\nconstexpr ShortcutSize kSizesNeededForShortcutCreation[] = {ShortcutSize::k32,'),
+            ]),
+        "components/skills/internal/BUILD.gn": (
+            "e5d4d58c7ccd107f95f293c8db519e32bb510509356a6c2f9dd3c05fdb9fd539", [
+                ('    ":downloader",\n    ":skill_parser_rust",\n',
+                 '    ":downloader",\n'),
+                ('  if (is_win || is_mac || is_linux) {\n    sources += [\n      "enterprise_published_skills_policy_handler.cc",',
+                 '  if (is_charmos) {\n    sources += [ "//build/charmos/skill_parser_charmos.cc" ]\n  } else {\n    deps += [ ":skill_parser_rust" ]\n  }\n\n  if (is_win || is_mac || is_linux || is_charmos) {\n    sources += [\n      "enterprise_published_skills_policy_handler.cc",'),
+            ]),
+        "components/skills/internal/enterprise_skills_provider.cc": (
+            "17428f4d841e17b1670dd7e07965433a45d20b559cf9e0a3862360577b2d8644", [
+                ('#include "components/skills/internal/skill_parser.rs.h"',
+                 '#include "build/build_config.h"\n#if BUILDFLAG(IS_CHARMOS)\n#include "build/charmos/skill_parser_charmos.h"\n#else\n#include "components/skills/internal/skill_parser.rs.h"\n#endif'),
+            ]),
+        "ui/message_center/dummy_message_center.cc": (
+            "9030a2bc3f5c0fbc00faebb7d9463bd54f2427b734c0100b7c3deea1f4e3f324", [
+                ('#if !(BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA))\n#error This file should only be used in Android and Fuchsia.',
+                 '#if !(BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHARMOS))\n#error This file should only be used without a native notification center.'),
+            ]),
+        "ui/base/accelerators/global_accelerator_listener/global_accelerator_listener_ozone.cc": (
+            "fc8ebc734301b8732299c8bceba9e81785691f6d68820cc410a3e5a5ed463279", [
+                ('  return nullptr;\n#endif\n}\n\n// static\nstd::unique_ptr<GlobalAcceleratorListener>',
+                 '  return nullptr;\n#endif\n  return nullptr;\n}\n\n// static\nstd::unique_ptr<GlobalAcceleratorListener>'),
+            ]),
+        "components/password_manager/core/browser/password_manager_client.h": (
+            "3c6b55a4ea8b75508081ae6dca9225a62de00e73b3354280cb93de4ba82a31dc", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_CHROMEOS)\n  // Shows the bubble with the details of the `form`.',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n  // Shows the bubble with the details of the `form`.'),
+            ]),
+        "chrome/common/chrome_paths.h": (
+            "f81507d65cd2e1065c28339fac101556a21c852fd0d128a7969beab94b3e5f60", [
+                ('    (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_MAC) || \\\n     BUILDFLAG(IS_ANDROID))',
+                 '    (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_MAC) || \\\n     BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHARMOS))'),
+            ]),
+        "chrome/common/chrome_paths.cc": (
+            "fc7e97434d4c9e592fe859b69ba9a83945d836e0a1c3f2b0e52701850952c0df", [
+                ('    (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_MAC) || \\\n     BUILDFLAG(IS_ANDROID))',
+                 '    (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_MAC) || \\\n     BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHARMOS))'),
+            ]),
+        "chrome/browser/media/webrtc/webrtc_log_uploader.cc": (
+            "937575038b839d3cda9c60410639f08391c079172387557fa83bbdc8b17df787", [
+                ('#elif BUILDFLAG(IS_ANDROID)\n  const char product[] = "Chrome_Android";',
+                 '#elif BUILDFLAG(IS_CHARMOS)\n  const char product[] = "Chrome_CharmOS";\n#elif BUILDFLAG(IS_ANDROID)\n  const char product[] = "Chrome_Android";'),
+            ]),
+        "chrome/app/generated_resources.grd": (
+            "4413c6043f4b2577aab2809f7b5afb12a9664f730d03d345fd76a0886f0e12b2", [
+                ('    <!-- PDF Searchify elements. -->\n    <message name="IDS_PDF_SEARCHIFY_IPH_TITLE"',
+                 '    <!-- PDF Searchify elements. -->\n    <message name="IDS_PDF_SEARCHIFY_IN_PROGRESS" desc="Status shown while PDF text is being prepared for search.">\n      Making your PDF searchable…\n    </message>\n    <message name="IDS_PDF_SEARCHIFY_IPH_TITLE"'),
+            ]),
+        "components/ntp_tiles/pref_names.h": (
+            "13cb788dd2be520c1d2ff713d10624b28a4f4f9b91763468ff5cd56562b09873", [
+                ('#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || \\\n    BUILDFLAG(IS_CHROMEOS)\ninline constexpr char kEnterpriseShortcutsPolicyList[]',
+                 '#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\ninline constexpr char kEnterpriseShortcutsPolicyList[]'),
+            ]),
+        "components/feature_engagement/public/feature_list.h": (
+            "7d3119628b0cbde2675f0c0e141e289931e5eba0f9b2037d90efe119a76a2b3c", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHARMOS)'),
+                ('#elif BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)',
+                 '#elif BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHARMOS)'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA)\nDEFINE_VARIATION_PARAM(kIPHAutofillAccountNameEmailSuggestionFeature,',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHARMOS)\nDEFINE_VARIATION_PARAM(kIPHAutofillAccountNameEmailSuggestionFeature,'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA)\n// keep-sorted start case=no\n        VARIATION_ENTRY(kIPHAutofillAccountNameEmailSuggestionFeature),',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHARMOS)\n// keep-sorted start case=no\n        VARIATION_ENTRY(kIPHAutofillAccountNameEmailSuggestionFeature),'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS)\nDEFINE_VARIATION_PARAM(kIPHDesktopPWAsLinkCapturingLaunch,',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\nDEFINE_VARIATION_PARAM(kIPHDesktopPWAsLinkCapturingLaunch,'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n        VARIATION_ENTRY(kIPHDesktopPWAsLinkCapturingLaunch),',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n        VARIATION_ENTRY(kIPHDesktopPWAsLinkCapturingLaunch),'),
+            ]),
+        "components/feature_engagement/public/feature_list.cc": (
+            "2ac3cb53d94c8e52d4fc4fbd326237ffd64ffed3f41d88b964f77fb121b7d713", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHARMOS)'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA)',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHARMOS)'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS)\n    // keep-sorted start case=no\n    &kIPHDesktopPWAsLinkCapturingLaunch,',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n    // keep-sorted start case=no\n    &kIPHDesktopPWAsLinkCapturingLaunch,'),
+            ]),
+        "components/user_data_importer/utility/BUILD.gn": (
+            "8f6f231c10a7e5ea0dc1d59377f698a46810b065377d13f0f66dc359dfd8cfec", [
+                ('source_set("safari_data_importer") {',
+                 'if (!is_charmos) {\nsource_set("safari_data_importer") {'),
+                ('    "//third_party/rust/zip/v8:lib",\n  ]\n}\n\ncopy("valid_test_archive_files")',
+                 '    "//third_party/rust/zip/v8:lib",\n  ]\n}\n}  # !is_charmos\n\ncopy("valid_test_archive_files")'),
+            ]),
+        "components/user_data_importer/content/BUILD.gn": (
+            "478c2496c3c4a3da71dbc86cf57c294b0b4ccd4a3de632f949590e975bcb5bd5", [
+                ('    "//components/user_data_importer/utility:bookmarks",\n    "//components/user_data_importer/utility:zip_ffi_glue",',
+                 '    "//components/user_data_importer/utility:bookmarks",'),
+                ('    "//url",\n  ]\n}\n\nsource_set("test_support")',
+                 '    "//url",\n  ]\n  if (is_charmos) {\n    sources += [ "//build/charmos/portability_history_charmos.cc" ]\n  } else {\n    deps += [ "//components/user_data_importer/utility:zip_ffi_glue" ]\n  }\n}\n\nsource_set("test_support")'),
+            ]),
+        "components/user_data_importer/content/stable_portability_data_importer.cc": (
+            "199229a2656f30592f10abd1548405e360b2c95d37f448886bde56e2ed3654f5", [
+                ('#include "components/user_data_importer/utility/parsing_ffi/lib.rs.h"',
+                 '#if BUILDFLAG(IS_CHARMOS)\n#include "build/charmos/portability_history_charmos.h"\n#else\n#include "components/user_data_importer/utility/parsing_ffi/lib.rs.h"\n#endif'),
+                ('std::string_view RustStringToStringView(const rust::String& rust_string) {',
+                 '#if BUILDFLAG(IS_CHARMOS)\nusing NativeHistoryString = std::string;\n#else\nusing NativeHistoryString = rust::String;\n#endif\n\nstd::string_view RustStringToStringView(const NativeHistoryString& rust_string) {'),
+            ]),
+        "components/user_data_importer/mojom/BUILD.gn": (
+            "341701f5779c269b274b01eb0f21dfef10b8918d31c847ef72f3800093f5ac85", [
+                ('        "//components/user_data_importer/utility:safari_data_importer",',
+                 '        "//components/user_data_importer/utility:bookmarks",'),
+            ]),
+        "chrome/browser/first_run/first_run_internal_posix.cc": (
+            "08d188184099df34a9385ef094e31c3d42684055ae4cff7dd3b7dceab02f5ddb", [
+                ('  if (switches::IsPreFirstRunDesktopRefreshEnabled()) {\n    return false;\n  }',
+                 '#if !BUILDFLAG(IS_CHARMOS)\n  if (switches::IsPreFirstRunDesktopRefreshEnabled()) {\n    return false;\n  }\n#endif'),
+                ('  ShowFirstRunDialog();',
+                 '#if !BUILDFLAG(IS_CHARMOS)\n  ShowFirstRunDialog();\n#endif'),
+            ]),
+        "chrome/common/chrome_switches.h": (
+            "e73e2db1257bdafe37216df4315d330976d03545e95ca3c52333763879537bfa", [
+                ('#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_WIN)\n// Causes the browser to launch directly in guest mode.',
+                 '#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\n// Causes the browser to launch directly in guest mode.'),
+            ]),
+        "chrome/browser/ui/web_applications/web_app_dialogs.h": (
+            "f29e13c6ad3c4b26bf78b42a6715507c7247b45942962dec02a15894e18742e0", [
+                ('static_assert(BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) ||\n              BUILDFLAG(IS_CHROMEOS));',
+                 'static_assert(BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) ||\n              BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS));'),
+            ]),
+        "chrome/browser/supervised_user/supervised_user_google_auth_navigation_throttle.cc": (
+            "a108c5f660d1763f73a3f47dc468980a4a685e53de68257c49343f164e1b790f", [
+                ('#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)',
+                 '#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)'),
+                ('namespace {\n#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)',
+                 'namespace {\n#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)'),
+                ('#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)\n  // When an unauthenticated supervised user',
+                 '#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\n  // When an unauthenticated supervised user'),
+            ]),
+        "chrome/browser/supervised_user/supervised_user_navigation_observer.cc": (
+            "d483eefcd3c1abb00d719a01c46d78ee14895227b6d02d05af01ae4a40ec23b1", [
+                ('#elif BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)\n#include "chrome/browser/supervised_user/linux_mac_windows/supervised_user_web_content_handler_impl.h"',
+                 '#elif BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\n#include "chrome/browser/supervised_user/linux_mac_windows/supervised_user_web_content_handler_impl.h"'),
+                ('#elif BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)\n  return std::make_unique<SupervisedUserWebContentHandlerImpl>(',
+                 '#elif BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\n  return std::make_unique<SupervisedUserWebContentHandlerImpl>('),
+            ]),
+        "chrome/browser/notifications/notification_display_service_impl.cc": (
+            "19b7ed39fbda9d6e6a200c57491b4081fbaf02f79a3b831efaa2906a0abf1a3e", [
+                ('#if !BUILDFLAG(IS_ANDROID)\n    AddNotificationHandler(NotificationHandler::Type::SHARING,',
+                 '#if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHARMOS)\n    AddNotificationHandler(NotificationHandler::Type::SHARING,'),
+            ]),
+        "chrome/browser/ui/sharing_hub/sharing_hub_bubble_controller.h": (
+            "c92b0d3b781484e02197f22f330a224719aea50c812353f9bc1ddc43242523c2", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)'),
+            ]),
+        "components/feature_engagement/public/event_constants.h": (
+            "d63406803d668aac6bbcdb29677dc6363735dc544bc013a6e9cc812661dcef65", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHARMOS)'),
+            ]),
+        "components/feature_engagement/public/event_constants.cc": (
+            "723aa39d7ca9c08a754c9b702c856520d1cc60822f94f2cd83f9b3d016a24dd2", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHARMOS)'),
+            ]),
+        "chrome/browser/ui/web_applications/web_app_ui_manager_impl.h": (
+            "a7fdc319e3faba8294006722b738bf2cd08890f0fb436470f92f5d9300555e95", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS)\n  void ShowIPHPromoForAppsLaunchedViaLinkCapturing(',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n  void ShowIPHPromoForAppsLaunchedViaLinkCapturing('),
+            ]),
+        "chrome/browser/enterprise/connectors/device_trust/device_trust_service_factory.cc": (
+            "079cb610d303c587fc53a46deb4afa21570b9dfdb2b0812ae036acd39c680d13", [
+                ('#if BUILDFLAG(IS_CHROMEOS)\n  std::unique_ptr<AttestationService> attestation_service;',
+                 '#if BUILDFLAG(IS_CHARMOS)\n  return nullptr;\n#elif BUILDFLAG(IS_CHROMEOS)\n  std::unique_ptr<AttestationService> attestation_service;'),
+                ('#endif  // BUILDFLAG(IS_CHROMEOS)\n\n  auto signals_service = CreateSignalsService(profile);',
+                 '#endif  // BUILDFLAG(IS_CHROMEOS)\n\n#if !BUILDFLAG(IS_CHARMOS)\n  auto signals_service = CreateSignalsService(profile);'),
+                ('                                              dt_connector_service);\n}',
+                 '                                              dt_connector_service);\n#endif\n}'),
+            ]),
         "components/cbor/BUILD.gn": (
             "4cc274711c3b0a614a5e7385cb065385c31797ab03e337c599ddf9c6b8d66b49", [
                 ('  flags = [ "USE_CBOR_RUST=!$is_cronet_build" ]',
@@ -1616,6 +1812,27 @@ def graphics_patches():
                  '      "//third_party/crashpad/crashpad/client",\n'
                  '      "//third_party/crashpad/crashpad/handler:common",\n'
                  '      "//third_party/crashpad/crashpad/minidump",\n'
+                 '      "//third_party/crashpad/crashpad/util",\n'
+                 '    ]\n'
+                 '  }'),
+                ('  if (!is_charmos) {\n'
+                 '    deps += [\n'
+                 '      "//third_party/crashpad/crashpad/client",\n'
+                 '      "//third_party/crashpad/crashpad/handler:common",\n'
+                 '      "//third_party/crashpad/crashpad/minidump",\n'
+                 '      "//third_party/crashpad/crashpad/util",\n'
+                 '    ]\n'
+                 '  }',
+                 '  if (!is_charmos) {\n'
+                 '    deps += [\n'
+                 '      "//third_party/crashpad/crashpad/client",\n'
+                 '      "//third_party/crashpad/crashpad/handler:common",\n'
+                 '      "//third_party/crashpad/crashpad/minidump",\n'
+                 '      "//third_party/crashpad/crashpad/util",\n'
+                 '    ]\n'
+                 '  } else {\n'
+                 '    deps += [\n'
+                 '      "//third_party/crashpad/crashpad/client",\n'
                  '      "//third_party/crashpad/crashpad/util",\n'
                  '    ]\n'
                  '  }'),

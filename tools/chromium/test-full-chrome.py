@@ -5,6 +5,7 @@ Requires an already-built full-Chrome browser disk. Does not compile anything.
 """
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import socket
@@ -29,7 +30,9 @@ def main():
             ["bash", "tools/run.sh", "--config", "browser", "--headless",
              "--accel", "kvm", "--cmdline", "init=bin/init root=disk0p2"],
             cwd=root, stdout=output, stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL)
+            stdin=subprocess.DEVNULL,
+            env={**os.environ, "CHARMOS_FULL_CHROME": "1",
+                 "CHARMOS_BROWSER_MULTIPROCESS": "1"})
 
         def wait(check, label):
             deadline = time.monotonic() + args.timeout

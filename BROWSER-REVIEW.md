@@ -672,3 +672,14 @@ C++-only конфигурации Skia/net, Chrome Root Store, необходи�
 
 На момент этой записи полный Chrome ещё компилируется; расширения, PDFium и
 полный браузерный UI в госте не заявляются рабочими до завершения этой проверки.
+
+Промежуточный пакет полного Chrome: 475 hash-checked patch contexts. Добавлены
+C++ реализации enterprise skill frontmatter и Stable Portability history (без
+Rust), desktop declarations для Web Apps/passwords/feature engagement,
+Chrome native-messaging paths, PDF Searchify resource, Enterprise Proxy и
+корректный отказ Device Trust без attestation backend. `getifaddrs` теперь
+выдаёт IPv4 и link-layer запись с настоящим MAC из `NetworkInfo`; `unrar`
+получил `umask`, `S_IFCHR` и `link()` с явным `ENOTSUP`. Harness сам включает
+`CHARMOS_FULL_CHROME=1` и `CHARMOS_BROWSER_MULTIPROCESS=1`, чтобы случайно не
+проверять content_shell. Пакетная проверка контекстов и Python/Bash syntax
+выполнена; повторная компиляция и пользовательский QEMU PASS ещё не получены.

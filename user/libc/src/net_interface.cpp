@@ -2,6 +2,8 @@
 #include <errno.h>
 #include <ifaddrs.h>
 #include <net/if.h>
+#include <net/if_arp.h>
+#include <netpacket/packet.h>
 #include <resolv.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,9 +12,10 @@
 namespace {
 constexpr char kName[] = "net0";
 struct Interface {
-  ifaddrs entry;
+  ifaddrs entry, link_entry;
   sockaddr_in address, mask, broadcast;
-  char name[sizeof(kName)];
+  sockaddr_ll link_address;
+  char name[sizeof(kName)], link_name[sizeof(kName)];
 };
 }
 extern "C" {
@@ -39,6 +42,7 @@ int getifaddrs(ifaddrs** output) {
   auto* node = static_cast<Interface*>(calloc(1, sizeof(Interface)));
   if (!node) return libc::fail_errno(ENOMEM);
   strcpy(node->name, kName);
+  strcpy(node->link_name, kName);
   node->entry.ifa_name = node->name;
   node->entry.ifa_flags = IFF_BROADCAST;
   if (info.flags & 1) node->entry.ifa_flags |= IFF_UP | IFF_RUNNING;
@@ -51,11 +55,20 @@ int getifaddrs(ifaddrs** output) {
     node->entry.ifa_netmask = reinterpret_cast<sockaddr*>(&node->mask);
     node->entry.ifa_broadaddr = reinterpret_cast<sockaddr*>(&node->broadcast);
   }
+  node->entry.ifa_next = &node->link_entry;
+  node->link_entry.ifa_name = node->link_name;
+  node->link_entry.ifa_flags = node->entry.ifa_flags;
+  node->link_entry.ifa_addr = reinterpret_cast<sockaddr*>(&node->link_address);
+  node->link_address.sll_family = AF_PACKET;
+  node->link_address.sll_ifindex = 1;
+  node->link_address.sll_hatype = ARPHRD_ETHER;
+  node->link_address.sll_halen = sizeof(info.mac);
+  memcpy(node->link_address.sll_addr, info.mac, sizeof(info.mac));
   *output = &node->entry;
   return 0;
 }
 void freeifaddrs(ifaddrs* entry) {
-  while (entry) { auto* next = entry->ifa_next; free(entry); entry = next; }
+  free(entry);
 }
 __res_state _res{};
 int res_ninit(__res_state* state) {
