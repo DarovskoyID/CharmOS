@@ -578,6 +578,35 @@ def graphics_patches():
                 ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)\nconst FeatureEntry::FeatureParam kContextualCueingEnabledNoEngagementCap[] =',
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHARMOS)\nconst FeatureEntry::FeatureParam kContextualCueingEnabledNoEngagementCap[] ='),
             ]),
+        "chrome/services/reading_mode_metrics/BUILD.gn": (
+            "afa8e79d970d29ddfed132d760580f447694f556a2ee3bf769066ddd14657bc1", [
+                ('source_set("lib") {\n  sources = [\n    "reading_mode_metrics_service.cc",\n    "reading_mode_metrics_service.h",\n  ]',
+                 'source_set("lib") {\n  if (is_charmos) {\n    sources = [ "reading_mode_metrics_service.h" ]\n  } else {\n    sources = [\n      "reading_mode_metrics_service.cc",\n      "reading_mode_metrics_service.h",\n    ]\n  }'),
+            ]),
+        "chrome/utility/services.cc": (
+            "2529dba4238186e287ed0a8ca06251cfa91d5c932338ffa7be9e3202f62a0e94", [
+                ('#include "chrome/services/reading_mode_metrics/reading_mode_metrics_service.h"',
+                 '#if !BUILDFLAG(IS_CHARMOS)\n#include "chrome/services/reading_mode_metrics/reading_mode_metrics_service.h"\n#endif'),
+                ('  services.Add(RunReadingModeMetricsService);',
+                 '#if !BUILDFLAG(IS_CHARMOS)\n  services.Add(RunReadingModeMetricsService);\n#endif'),
+            ]),
+        "chrome/browser/private_verification_tokens/BUILD.gn": (
+            "7b8631a816de60fc1654d9f6882ab2d6ac11bcf59d99fef5741cd5074ca8043a", [
+                ('  sources = [\n    "private_verification_tokens_service.cc",\n    "private_verification_tokens_service.h",\n    "private_verification_tokens_service_factory.cc",\n    "private_verification_tokens_service_factory.h",\n    "private_verification_tokens_url_loader_throttle.cc",\n    "private_verification_tokens_url_loader_throttle.h",\n  ]',
+                 '  if (is_charmos) {\n    sources = [\n      "private_verification_tokens_service.h",\n      "private_verification_tokens_service_factory.cc",\n      "private_verification_tokens_service_factory.h",\n    ]\n  } else {\n    sources = [\n      "private_verification_tokens_service.cc",\n      "private_verification_tokens_service.h",\n      "private_verification_tokens_service_factory.cc",\n      "private_verification_tokens_service_factory.h",\n      "private_verification_tokens_url_loader_throttle.cc",\n      "private_verification_tokens_url_loader_throttle.h",\n    ]\n  }'),
+            ]),
+        "chrome/browser/private_verification_tokens/private_verification_tokens_service_factory.cc": (
+            "9447f7433b344f974d701683b63d4116bfffdae410b7ebd8f06801ed4aa3138c", [
+                ('  if (!base::FeatureList::IsEnabled(\n          net::features::kEnablePrivateVerificationTokens)) {',
+                 '#if BUILDFLAG(IS_CHARMOS)\n  return nullptr;\n#endif\n  if (!base::FeatureList::IsEnabled(\n          net::features::kEnablePrivateVerificationTokens)) {'),
+            ]),
+        "chrome/utility/importer/importer_creator.cc": (
+            "0004b3ab2a428d66b894d8fa56f92bd61da5b95cfee2acbea3abf06b5ffeda94", [
+                ('#include "chrome/utility/importer/firefox_importer.h"',
+                 '#if !BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_CHARMOS)\n#include "chrome/utility/importer/firefox_importer.h"\n#endif'),
+                ('#if !BUILDFLAG(IS_CHROMEOS)\n    case user_data_importer::TYPE_FIREFOX:',
+                 '#if !BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_CHARMOS)\n    case user_data_importer::TYPE_FIREFOX:'),
+            ]),
         "components/cbor/BUILD.gn": (
             "4cc274711c3b0a614a5e7385cb065385c31797ab03e337c599ddf9c6b8d66b49", [
                 ('  flags = [ "USE_CBOR_RUST=!$is_cronet_build" ]',
@@ -1533,6 +1562,12 @@ def graphics_patches():
                  '    ]\n    if (enable_screen_ai_service) {\n      deps += [ "//services/screen_ai" ]\n    }\n  }\n\n  if (enable_extensions) {'),
                 ('      "//components/user_data_importer/utility:safari_data_importer",',
                  '      "//components/user_data_importer/utility:bookmarks",'),
+                ('    if (!is_chromeos) {\n      sources += [\n        "importer/firefox_importer.cc",',
+                 '    if (!is_chromeos && !is_charmos) {\n      sources += [\n        "importer/firefox_importer.cc",'),
+                ('    if (!is_mac && !is_chromeos) {',
+                 '    if (!is_mac && !is_chromeos && !is_charmos) {'),
+                ('    if (!is_chromeos) {\n      sources += [ "importer/firefox_importer_unittest.cc" ]',
+                 '    if (!is_chromeos && !is_charmos) {\n      sources += [ "importer/firefox_importer_unittest.cc" ]'),
             ]),
         "chrome/browser/ui/pdf/BUILD.gn": (
             "ffd4481e2554446e73f153c771d2e43c3f0026f4c066ff4222e3762fab7b9256", [

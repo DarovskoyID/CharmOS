@@ -702,3 +702,10 @@ ClientCertStoreEmpty и platform-specific version/metrics branches. Исправ
 ProcessSingleton socket includes/options и Crashpad/WASM guards. Duplicate GN
 entries разрешены: реальные patch ownership и dependency chains проверены.
 Полный Chrome ещё компонуется; функциональность в госте не заявляется.
+
+Checkpoint (2026-11-16): 531 pinned contexts. Rust-only Reading Mode evaluator,
+ATHM token service и Firefox/NSS importer исключены только на CharmOS: для них
+нет соответствующего backend, поэтому они не блокируют основной браузер.
+Обычная история, PDFium, вкладки, extensions, ProcessSingleton и profile settings
+остаются в полном `chrome_port`. Инкрементальная компиляция продолжается без
+ошибок; линковка и гостевой запуск ещё не подтверждены.
