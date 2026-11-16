@@ -332,6 +332,8 @@ def graphics_patches():
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\n  std::unique_ptr<whats_new::WhatsNewRegistry> whats_new_registry_;'),
                 ('#if !BUILDFLAG(IS_ANDROID)\n  std::unique_ptr<on_device_translation::OnDeviceTranslationInstaller>\n      on_device_translation_installer_;',
                  '#if !BUILDFLAG(IS_ANDROID) && BUILDFLAG(ENABLE_ON_DEVICE_TRANSLATION)\n  std::unique_ptr<on_device_translation::OnDeviceTranslationInstaller>\n      on_device_translation_installer_;'),
+                ('#if !BUILDFLAG(IS_ANDROID) && BUILDFLAG(ENABLE_ON_DEVICE_TRANSLATION)\n  std::unique_ptr<on_device_translation::OnDeviceTranslationInstaller>\n      on_device_translation_installer_;',
+                 '#if !BUILDFLAG(IS_ANDROID)\n#if !BUILDFLAG(IS_CHARMOS)\n  std::unique_ptr<on_device_translation::OnDeviceTranslationInstaller>\n      on_device_translation_installer_;\n#endif'),
             ]),
         "chrome/browser/global_features.cc": (
             "d5222da29c50a8fbd2c283d8c4b648ee3c1904e9dd9f7627103f125350b79574", [

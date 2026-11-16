@@ -723,3 +723,12 @@ OnDeviceTranslationInstaller и protobuf-dependent certificate provisioning
 промежуточные, поэтому защита от unknown vendor edits остаётся действующей.
 `prepare-platform.py --check-only` подтвердил 533 контекста; Python AST и
 `bash -n` зелёные. Компоновка и пользовательский QEMU PASS ещё не получены.
+
+
+Checkpoint (2026-11-16): обновлённый GN профиль успешно сгенерирован; полный
+`chrome_port` дошёл до browser-компонентов. Найденный incomplete-type guard
+уточнён: `OnDeviceTranslationInstaller` исключается только на CharmOS внутри
+существующего `!ANDROID` блока, без ссылки на неэкспортированный buildflag и без
+скрытия `ProfileLaunchObserver`/smart-restart members. 533 patch contexts снова
+проверены. Текущая Ninja-задача ещё выполняется; финальная линковка и QEMU не
+подтверждены.
