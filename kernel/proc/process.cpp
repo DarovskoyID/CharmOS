@@ -7,9 +7,11 @@
 
 #include "../core/panic.hpp"
 #include "../fs/vfs.hpp"
+#include "../fs/cache.hpp"
 #include "../core/placement_new.hpp"
 #include "../mm/heap.hpp"
 #include "../mm/layout.hpp"
+#include "../platform/platform.hpp"
 #include "signal.hpp"
 #include "uaccess.hpp"
 
@@ -62,7 +64,8 @@ uint8_t* new_fpu_image() {
   return image;
 }
 
-bool load_segments(Process* p, const lib::elf::Image& img, const uint8_t* file) {
+bool load_segments(Process* p, const lib::elf::Image& img, const uint8_t* file,
+                   fs::ExecutableFile* source, ProcError* failure) {
   for (uint16_t i = 0; i < img.phnum; ++i) {
     const lib::elf::Elf64Phdr& ph = img.phdrs[i];
     if (ph.p_type != lib::elf::kPtLoad || ph.p_memsz == 0) continue;
@@ -71,15 +74,44 @@ bool load_segments(Process* p, const lib::elf::Image& img, const uint8_t* file) 
     if ((ph.p_flags & lib::elf::kPfX) == 0) flags |= kMapNoExec;
     uint64_t v0 = ph.p_vaddr & ~(kPageSize - 1);
     uint64_t v1 = (ph.p_vaddr + ph.p_memsz + kPageSize - 1) & ~(kPageSize - 1);
-    for (uint64_t v = v0; v < v1; v += kPageSize) {
-      uint64_t phys = 0;
-      if (p->space.map_new(v, flags, &phys).is_err()) return false;
-      // Байты файла, попадающие на эту страницу; остальное уже обнулено.
+    for (uint64_t v = v0; v < v1;) {
+      uint64_t pages = (v1 - v) / kPageSize;
+      if (pages > 1024) pages = 1024;
       uint64_t seg_file_end = ph.p_vaddr + ph.p_filesz;
       uint64_t from = v < ph.p_vaddr ? ph.p_vaddr : v;
-      uint64_t to = v + kPageSize < seg_file_end ? v + kPageSize : seg_file_end;
-      auto* dst = mm::phys_to_virt<uint8_t>(phys);
-      for (uint64_t a = from; a < to; ++a) dst[a - v] = file[ph.p_offset + (a - ph.p_vaddr)];
+      uint64_t to = v + pages * kPageSize < seg_file_end ? v + pages * kPageSize : seg_file_end;
+      // File-backed bytes are overwritten by the read below; only the partial
+      // head page and the BSS tail need explicit zeroing. Avoids touching the
+      // whole 206 MiB image twice.
+      const bool from_file = source != nullptr && to > from;
+      auto mapped = p->space.map_new_run(v, pages, flags, !from_file);
+      if (mapped.is_err()) return false;
+      uint64_t bytes = mapped.value().pages * kPageSize;
+      auto* dst = mm::phys_to_virt<uint8_t>(mapped.value().phys);
+      if (from_file) {
+        const uint64_t run_end = v + bytes;
+        const uint64_t file_from = from < run_end ? from : run_end;
+        uint64_t file_to = to < run_end ? to : run_end;
+        if (file_to < file_from) file_to = file_from;
+        if (file_from > v) __builtin_memset(dst, 0, static_cast<size_t>(file_from - v));
+        if (file_to < run_end)
+          __builtin_memset(dst + (file_to - v), 0, static_cast<size_t>(run_end - file_to));
+        if (file_to > file_from) {
+          uint64_t offset = ph.p_offset + (file_from - ph.p_vaddr);
+          if (source->read(offset, dst + (file_from - v), static_cast<size_t>(file_to - file_from)) != Status::Ok) {
+            *failure = ProcError::IoError;
+            return false;
+          }
+        }
+      } else if (file != nullptr) {
+        uint64_t seg_from = v < ph.p_vaddr ? ph.p_vaddr : v;
+        uint64_t seg_to = v + bytes < seg_file_end ? v + bytes : seg_file_end;
+        if (seg_to > seg_from) {
+          uint64_t offset = ph.p_offset + (seg_from - ph.p_vaddr);
+          __builtin_memcpy(dst + (seg_from - v), file + offset, static_cast<size_t>(seg_to - seg_from));
+        }
+      }
+      v += bytes;
     }
   }
   return true;
@@ -137,6 +169,8 @@ void begin_exit_locked(Process* p, int64_t code, bool killed) {
   if (p->exiting) return;
   p->exit_code = code;
   p->killed = killed;
+  if (code == kExitKilled)
+    kprint("proc: {} (pid {}) begin exit -1000, killed={}\n", p->name, p->pid, killed);
   __atomic_store_n(&p->exiting, true, __ATOMIC_RELEASE);
   for (sched::Thread* t = p->threads; t != nullptr; t = t->proc_next) sched::interrupt(t);
 }
@@ -191,17 +225,10 @@ void begin_exit_locked(Process* p, int64_t code, bool killed) {
 
 }  // namespace
 
-Result<Process*, ProcError> spawn_process(StringView name, const void* elf, size_t size, int cpu,
-                                          ipc::Cap* bootstrap, ipc::Job* job, Process* parent,
-                                          uint32_t priority) {
+static Result<Process*, ProcError> spawn_validated(StringView name, const lib::elf::Image& img,
+    const void* elf, fs::ExecutableFile* source, int cpu, ipc::Cap* bootstrap,
+    ipc::Job* job, Process* parent, uint32_t priority) {
   using R = Result<Process*, ProcError>;
-  lib::elf::Image img;
-  auto err = lib::elf::parse_image(elf, size, kUserImageMin, kUserStackTop - kUserStackSize, &img);
-  if (err != lib::elf::Error::None) {
-    kprint("proc: {}: bad ELF: {}\n", name, lib::elf::error_name(err));
-    return R::err(ProcError::BadImage);
-  }
-
   auto mem = mm::kmalloc(sizeof(Process));
   if (mem.is_err()) return R::err(ProcError::OutOfMemory);
   auto* p = static_cast<Process*>(mem.value());
@@ -237,7 +264,8 @@ Result<Process*, ProcError> spawn_process(StringView name, const void* elf, size
     return R::err(ProcError::OutOfMemory);
   }
 
-  bool ok = load_segments(p, img, static_cast<const uint8_t*>(elf));
+  ProcError failure = ProcError::OutOfMemory;
+  bool ok = load_segments(p, img, static_cast<const uint8_t*>(elf), source, &failure);
   for (uint64_t v = kUserStackTop - kUserStackSize; ok && v < kUserStackTop; v += kPageSize) {
     ok = p->space.map_new(v, kMapWrite | kMapNoExec, nullptr).is_ok();
   }
@@ -264,9 +292,51 @@ Result<Process*, ProcError> spawn_process(StringView name, const void* elf, size
     ipc::job_leave(p->job);
     mm::kfree(fpu);
     mm::kfree(p);
-    return R::err(ProcError::OutOfMemory);
+    return R::err(failure);
   }
   return R::ok(p);
+}
+
+Result<Process*, ProcError> spawn_process(StringView name, const void* elf, size_t size, int cpu,
+                                          ipc::Cap* bootstrap, ipc::Job* job, Process* parent,
+                                          uint32_t priority) {
+  using R = Result<Process*, ProcError>;
+  lib::elf::Image img;
+  auto err = lib::elf::parse_image(elf, size, kUserImageMin, kUserStackTop - kUserStackSize, &img);
+  if (err != lib::elf::Error::None) {
+    kprint("proc: {}: bad ELF: {}\n", name, lib::elf::error_name(err));
+    return R::err(ProcError::BadImage);
+  }
+
+  return spawn_validated(name, img, elf, nullptr, cpu, bootstrap, job, parent, priority);
+}
+
+static Result<Process*, ProcError> spawn_file(StringView name, fs::ExecutableFile& source,
+    ipc::Cap* bootstrap, ipc::Job* job, Process* parent, uint32_t priority) {
+  using R = Result<Process*, ProcError>;
+  lib::elf::Elf64Ehdr header{};
+  if (source.size() < sizeof header) return R::err(ProcError::BadImage);
+  if (source.read(0, &header, sizeof header) != Status::Ok) return R::err(ProcError::IoError);
+  if (header.e_phnum == 0 || header.e_phnum == lib::elf::kPnXnum ||
+      header.e_phentsize != sizeof(lib::elf::Elf64Phdr)) return R::err(ProcError::BadImage);
+  size_t bytes = static_cast<size_t>(header.e_phnum) * sizeof(lib::elf::Elf64Phdr);
+  if (header.e_phoff > source.size() || bytes > source.size() - header.e_phoff)
+    return R::err(ProcError::BadImage);
+  auto memory = mm::kmalloc(bytes);
+  if (memory.is_err()) return R::err(ProcError::OutOfMemory);
+  auto* table = static_cast<lib::elf::Elf64Phdr*>(memory.value());
+  if (source.read(header.e_phoff, table, bytes) != Status::Ok) {
+    mm::kfree(table);
+    return R::err(ProcError::IoError);
+  }
+  lib::elf::Image img;
+  auto error = lib::elf::parse_program_headers(header, table, bytes, source.size(),
+      kUserImageMin, kUserStackTop - kUserStackSize, &img);
+  auto result = error == lib::elf::Error::None ?
+      spawn_validated(name, img, nullptr, &source, sched::kAnyCpu, bootstrap, job, parent, priority) :
+      R::err(ProcError::BadImage);
+  mm::kfree(table);
+  return result;
 }
 
 int64_t wait_process(Process* p, void (*before_free)(void*), void* ctx) {
@@ -288,6 +358,7 @@ Process* current_process() { return static_cast<Process*>(sched::current()->proc
 void exit_current(int64_t code) {
   Process* p = current_process();
   if (p == nullptr) panic("proc: exit from a kernel thread");
+  if (code != 0) kprint("proc: {} (pid {}) exit({})\n", p->name, p->pid, code);
   {
     sync::SpinGuard guard(p->threads_lock);
     begin_exit_locked(p, code, false);
@@ -419,6 +490,8 @@ bool valid_strings(const char* b, uint32_t bytes, uint32_t count) {
 
 Status map_proc_error(ProcError e) {
   switch (e) {
+    case ProcError::IoError:
+      return Status::IoError;
     case ProcError::BadImage:
       return Status::InvalidArgs;
     case ProcError::NoSpace:
@@ -483,24 +556,29 @@ Status sys_process_spawn(uint64_t uargs, uint64_t* out) {
       ipc::job_get(job);
     }
   }
-  void* elf = nullptr;
-  uint64_t elf_size = 0;
-  if (s == Status::Ok) s = fs::read_file(a.executable, kMaxExecutable, &elf, &elf_size);
+  fs::ExecutableFile source;
+  uint64_t started = platform::now_ns();
+  auto cache_before = fs::cache_stats();
+  if (s == Status::Ok) s = source.open(a.executable, kMaxExecutable);
   ipc::Cap *mine = nullptr, *theirs = nullptr;
   if (s == Status::Ok) s = ipc::create_channel(&mine, &theirs);
   Process* child = nullptr;
   if (s == Status::Ok) {
     uint32_t prio = a.priority != 0 ? a.priority : sched::current()->priority;
-    auto r = spawn_process(StringView(name, a.name_len != 0 ? a.name_len : 4), elf, static_cast<size_t>(elf_size),
-                           sched::kAnyCpu, theirs, job, current_process(), prio);
-    if (r.is_err()) {
-      s = map_proc_error(r.error());
+    auto result = spawn_file(StringView(name, a.name_len != 0 ? a.name_len : 4),
+                             source, theirs, job, current_process(), prio);
+    if (result.is_err()) {
+      s = map_proc_error(result.error());
       ipc::release_detached(theirs);
-    } else {
-      child = r.value();
-    }
+    } else child = result.value();
   }
-  if (elf != nullptr) mm::kfree(elf);
+  if (source.size() > (64ull << 20)) {
+    auto cache_after = fs::cache_stats();
+    kprint("proc: ELF streamed {} us, reading {} us, bytes {}, IO {} us, requests {}\n",
+           (platform::now_ns() - started) / 1000, source.read_ns() / 1000, source.size(),
+           (cache_after.read_io_ns - cache_before.read_io_ns) / 1000,
+           cache_after.read_requests - cache_before.read_requests);
+  }
   if (job != nullptr) ipc::job_put(job);  // у ребёнка своя ссылка
   // Ребёнок уже запущен и ждёт сообщения; хендлы перемещаются атомарно.
   if (s == Status::Ok) {
@@ -527,6 +605,9 @@ Status sys_process_kill(uint32_t h) {
   Status s = ipc::get_process(h, abi::syscall::rights::kWrite, &p);
   if (s != Status::Ok) return s;
   {
+    Process* self = current_process();
+    kprint("proc: kill {} requested by {}\n", p->name,
+           self != nullptr ? self->name : "kernel");
     sync::SpinGuard guard(p->threads_lock);
     begin_exit_locked(p, kExitKilled, false);  // §3.2: код -1000, не сигнал
   }

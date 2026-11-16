@@ -605,6 +605,12 @@ ctest --test-dir build/host --output-on-failure
 tools/test.sh m8 60 libc
 ```
 
+Суперсборка по умолчанию использует `RelWithDebInfo` для ядра и user runtime:
+оптимизированный код с отладочными символами. Для пошаговой отладки можно
+выбрать `cmake -S . -B build -DCHARMOS_NATIVE_BUILD_TYPE=Debug`. Host-тесты
+сохраняют отдельный Debug-профиль. Пустой тип сборки раньше оставлял native
+код без оптимизации и существенно замедлял холодный запуск большого ELF.
+
 Из Windows команды направляются в WSL:
 
 ```powershell

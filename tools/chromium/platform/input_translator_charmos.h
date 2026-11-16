@@ -13,6 +13,7 @@ class InputTranslatorCharmOS {
   InputTranslatorCharmOS() = default;
   void set_russian(bool russian) { russian_ = russian; }
   bool russian() const { return russian_; }
+  int mouse_flags() const { return mouse_flags_; }
   std::vector<std::unique_ptr<Event>> Translate(const abi::syscall::InputEvent& input);
   void ResetPressedState();
 

@@ -30,10 +30,28 @@ class Serial {
   }
 
   static void write(const char* s, size_t n) {
+    // NS16C2752 tables 6/12: IIR[7:6]=11 means FIFO enabled, and
+    // LSR.THRE then means the entire Tx FIFO is empty. Use only the
+    // 16550-compatible minimum depth; retain single-byte mode otherwise.
+    const size_t capacity = (inb(kCom1 + 2) & 0xc0) == 0xc0 ? 16 : 1;
+    char bytes[16];
+    size_t used = 0;
+    auto flush = [&] {
+      while ((inb(kCom1 + 5) & 0x20) == 0) {}
+      const char* data = bytes;
+      size_t count = used;
+      asm volatile("rep outsb" : "+S"(data), "+c"(count) : "d"(kCom1) : "memory");
+      used = 0;
+    };
+    auto emit = [&](char c) {
+      bytes[used++] = c;
+      if (used == capacity) flush();
+    };
     for (size_t i = 0; i < n; ++i) {
-      if (s[i] == '\n') put('\r');
-      put(s[i]);
+      if (s[i] == '\n') emit('\r');
+      emit(s[i]);
     }
+    if (used) flush();
   }
 
   // Приём (docs/specs/ns16c2752.pdf, совместимая с 16550 раскладка):
@@ -48,10 +66,9 @@ class Serial {
   }
 
   static void write(const char* s) {
-    while (*s != '\0') {
-      if (*s == '\n') put('\r');
-      put(*s++);
-    }
+    size_t n = 0;
+    while (s[n] != '\0') ++n;
+    write(s, n);
   }
 };
 

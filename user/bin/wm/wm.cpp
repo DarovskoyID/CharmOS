@@ -493,8 +493,8 @@ bool browser_match() {
           strstr("интернет", g_query) != nullptr);
 }
 
-// The browser itself is a service: init owns the 200 MiB content_shell
-// process, restarts it after a crash, and never blocks the event loop here.
+// The browser itself is a service: init owns the browser process, restarts it
+// after a crash, and never blocks the event loop here.
 // The card only asks init to start it (see launch_browser).
 
 // A window is the browser if it was recorded at creation time (its title
@@ -1046,7 +1046,7 @@ void request_close(int wi) {
   send_event(g_win[wi].client, wm::kCloseRequest, g_win[wi].id, 0);
 }
 
-void destroy_window(int wi) {
+void destroy_window(int wi,bool application_close=false) {
   Window& w = g_win[wi];
   bool focused = g_focus == wi;
   if(g_capture==wi) release_capture();
@@ -1061,6 +1061,15 @@ void destroy_window(int wi) {
   if (g_focus == wi) g_focus = -1;
   if (g_drag == wi) g_drag = -1;
   if (g_browser_window == wi) {
+    if(application_close && g_browser_user_requested) {
+      g_browser_user_requested = false;
+      g_browser_open_ns = 0;
+      g_browser_focus_pending = false;
+      g_browser_focus_deadline = g_browser_request_ns = 0;
+      __atomic_store_n(&g_browser_launch_state, 0, __ATOMIC_RELEASE);
+      init_command("stop browser");
+      printf("wm: browser close requested\n");
+    }
     g_browser_window = -1;
     g_browser_content_request_ns = 0;
     g_browser_preload_reported = false;
@@ -1396,7 +1405,7 @@ void client_message(int ci) {
       damage({c.x + d.x, c.y + d.y, d.w, d.h});
     } else if (type == wm::kDestroy && len == sizeof(wm::Destroy)) {
       int wi = find_window(ci, reinterpret_cast<wm::Destroy*>(msg)->window);
-      if (wi >= 0) destroy_window(wi);
+      if (wi >= 0) destroy_window(wi,true);
       else { g_cl[ci].failed=true; return; }
     } else if(managed && type==wm::kSetTitle && len==sizeof(wm::SetTitle)) {
       const auto& request=*reinterpret_cast<wm::SetTitle*>(msg);
@@ -1842,7 +1851,10 @@ extern "C" int main(int, char**) {
   g_files_available = stat("/bin/files", &files_stat) == 0 && S_ISREG(files_stat.st_mode);
   g_calc_available = stat("/bin/calc", &files_stat) == 0 && S_ISREG(files_stat.st_mode);
   g_edit_available = stat("/bin/edit", &files_stat) == 0 && S_ISREG(files_stat.st_mode);
-  g_browser_available = stat("/bin/content_shell", &files_stat) == 0 && S_ISREG(files_stat.st_mode);
+  g_browser_available = stat("/bin/chrome", &files_stat) == 0 && S_ISREG(files_stat.st_mode);
+  if (!g_browser_available) {
+    g_browser_available = stat("/bin/content_shell", &files_stat) == 0 && S_ISREG(files_stat.st_mode);
+  }
   load_preferences();
   wallpaper_build();
   printf("wm: TrueType fonts ready (Space Grotesk, JetBrains Mono)\n");

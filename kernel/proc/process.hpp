@@ -25,7 +25,7 @@ inline constexpr uint64_t kUserImageMin = 0x10000;        // ниже — не �
 inline constexpr uint64_t kUserStackTop = 0x00007ffffff00000ull;
 inline constexpr uint64_t kUserStackSize = 64 * 1024;     // под ним — защитная дыра
 
-enum class ProcError : uint8_t { OutOfMemory, BadImage, NoSpace };
+enum class ProcError : uint8_t { OutOfMemory, BadImage, NoSpace, IoError };
 
 struct Process {
   uint64_t pid;

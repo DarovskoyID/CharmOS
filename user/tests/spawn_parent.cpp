@@ -148,6 +148,16 @@ extern "C" int64_t charm_main(Handle boot) {
   EXPECT(object_bind(port_h, static_cast<Handle>(wide.value), 10) == Status::Ok);
   EXPECT(wait_packet(port_h, 10, abi::syscall::kPacketProcessExited, &code) && code == 42);
   print("spawn: v1 and v2 (16 handles) verified\n");
+  auto probe_file = fs_open(root, "bin/loader_probe", 0);
+  EXPECT(probe_file.ok());
+  static const char probe_args[] = "loader_probe";
+  auto probe = spawn(static_cast<Handle>(probe_file.value), probe_args, sizeof probe_args,
+                     1, nullptr, nullptr, 0, 0);
+  EXPECT(probe.ok());
+  EXPECT(handle_close(static_cast<Handle>(probe_file.value)) == Status::Ok);
+  EXPECT(object_bind(port_h, static_cast<Handle>(probe.value), 11) == Status::Ok);
+  EXPECT(wait_packet(port_h, 11, abi::syscall::kPacketProcessExited, &code) && code == 73);
+  print("spawn: eager streamed ELF data and multi-batch BSS verified\n");
   print("spawn: ok\n");
   return 0;
 }

@@ -5,8 +5,10 @@ devmgr: 0:3.0 0x1af4:0x1042 -> virtio_blk
 block: disk0 is virtio_blk: 131072 blocks of 512 bytes
 ktest: disk0 131072 blocks of 512
 ktest: disk0 write, flush, read back ok
-proc: virtio_blk (pid 1) killed by kernel request
+ktest: disk0 full batch write, flush, read back ok
+proc: virtio_blk (pid
 devmgr: virtio_blk on 0:3.0 exited with -1000 (run 1)
 block: disk0 is virtio_blk
+ktest: disk0 scattered DMA batch and restart ok
 ktest: virtio_blk runs=2 killed=1
 ktest: PASS blk

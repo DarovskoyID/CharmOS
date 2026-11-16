@@ -1,6 +1,7 @@
 #include "build/charmos/native_window_presenter_charmos.h"
 
 #include "base/check.h"
+#include "build/charmos/startup_profile_charmos.h"
 #include "base/functional/bind.h"
 #include "third_party/skia/include/core/SkPixmap.h"
 
@@ -70,6 +71,10 @@ void NativeWindowPresenterCharmOS::TrySubmit() {
       {damage_.x(),damage_.y(),damage_.width(),damage_.height()},&submitted);
   if(status==charm::Status::WouldBlock) return;
   if(status!=charm::Status::Ok) { Complete(gfx::Size()); return; }
+  if (!first_frame_reported_) {
+    first_frame_reported_ = true;
+    CharmStartupStage("native-first-present");
+  }
   submitted_size_=gfx::Size(image_->width(),image_->height());
   image_.reset(); in_flight_=true; expected_release_=1-submitted;
 }
@@ -92,6 +97,7 @@ void NativeWindowPresenterCharmOS::OnEvent(charm::Status status,const abi::wm::W
     return;
   }
   if(event.type==abi::wm::kFrameDone && in_flight_) {
+    CharmStartupDump();
     if(event.value!=expected_release_) {
       auto observer=observer_;
       Close();

@@ -26,6 +26,7 @@ struct Disk {
   uint32_t block_size;
   uint64_t block_count;
   uint32_t flags;
+  uint32_t max_blocks;
   bool used;
   // Под io: состояние текущего запуска драйвера.
   sync::Mutex io{"block.io"};
@@ -75,47 +76,78 @@ Disk* find(uint32_t pci_index) {
 
 // Один запрос целиком: в кольцо, ожидание ответа. io захвачен. Возвращает
 // false, если драйвер ушёл до ответа (запрос надо повторить).
-bool run_once(Disk& d, Request req, const uint64_t* pages, Status* result) {
-  uint64_t iova_base = pci::iommu::kKernelIovaBase;
-  for (uint32_t j = 0; j < req.segment_count; ++j) {
-    if (d.domain != nullptr) {
-      if (!pci::iommu::map_at(d.domain, iova_base + j * kPageSize, pages[j],
-                              req.op == abi::block::kOpRead)) {
-        if (j > 0) pci::iommu::unmap(d.domain, iova_base, j);
-        *result = Status::NoMemory;
-        return true;
-      }
-      req.segments[j].iova = iova_base + j * kPageSize;
-    } else {
-      req.segments[j].iova = pages[j];
-    }
-  }
-  req.id = ++d.next_id;
-
+bool run_once(Disk& d, Request req, const uint64_t* pages, uint32_t count, Status* result) {
+  constexpr uint32_t kSegments = abi::block::kMaxSegments;
+  constexpr uint32_t kLegacyBatchPages = 256;
+  constexpr uint32_t kBatchMax = (kLegacyBatchPages + kSegments - 1) / kSegments;
+  static_assert(kBatchMax <= abi::block::kRingEntries);
+  // v1.4 explicitly opts in. Arbitrary physical frames are contiguous only
+  // in the IOMMU mapping; without it retain the v1.3 page-sized fallback.
+  bool large = count != 0 && d.domain != nullptr &&
+      (d.flags & abi::block::kHelloLargeSegments) != 0;
+  uint32_t max_pages = large ? d.max_blocks / static_cast<uint32_t>(kPageSize / d.block_size) : kSegments;
+  uint32_t requests = count ? (count + max_pages - 1) / max_pages : 1;
+  if (requests > kBatchMax) { *result = Status::InvalidArgs; return true; }
   RingHeader* h = header(d);
   uint32_t tail = h->sq_tail;
-  *sq_entry(d, tail) = req;
-  store(&h->sq_tail, tail + 1);
+  if (tail - load(&h->sq_head) > abi::block::kRingEntries - requests) {
+    *result = Status::IoError;
+    return true;
+  }
+  uint64_t iova_base = pci::iommu::kKernelIovaBase;
+  if (d.domain != nullptr && count &&
+      !pci::iommu::map_pages_at(d.domain, iova_base, pages, count,
+                                req.op == abi::block::kOpRead)) {
+    *result = Status::NoMemory;
+    return true;
+  }
+  uint64_t first_id = d.next_id + 1;
+  uint32_t offset = 0;
+  for (uint32_t i = 0; i < requests; ++i) {
+    Request part = {};
+    part.id = ++d.next_id;
+    part.op = req.op;
+    uint32_t part_pages = count - offset < max_pages ? count - offset : max_pages;
+    part.segment_count = large ? 1 : part_pages;
+    part.lba = req.lba + offset * (kPageSize / d.block_size);
+    part.blocks = part_pages * static_cast<uint32_t>(kPageSize / d.block_size);
+    for (uint32_t j = 0; j < part.segment_count; ++j) {
+      part.segments[j].iova = d.domain ? iova_base + (offset + j) * kPageSize : pages[offset + j];
+      part.segments[j].bytes = static_cast<uint32_t>(large ? part_pages * kPageSize : kPageSize);
+    }
+    *sq_entry(d, tail + i) = part;
+    offset += part_pages;
+  }
+  store(&h->sq_tail, tail + requests);
+  // Publish-before-check is a storeв†’load handshake, not just message data
+  // publication. Release/acquire alone permits both peers to miss each other
+  // (driver sees an empty SQ while we see driver_wants_kick == 0).
+  __atomic_thread_fence(__ATOMIC_SEQ_CST);
   if (load(&h->driver_wants_kick) != 0) {
     store(&h->driver_wants_kick, 0u);
     char none = 0;
     (void)ipc::kernel_send(d.notify, &none, 0, nullptr, 0);
   }
 
-  bool done = false;
-  while (!done && d.alive) {
+  bool received[kBatchMax] = {};
+  uint32_t remaining = requests;
+  *result = Status::Ok;
+  while (remaining && d.alive) {
     uint32_t head = h->cq_head;
     while (head != load(&h->cq_tail)) {
       Completion c = *cq_entry(d, head);
       ++head;
       store(&h->cq_head, head);
-      if (c.id == req.id) {
-        *result = static_cast<Status>(c.status);
-        done = true;
+      uint64_t index = c.id - first_id;
+      if (index < requests && !received[index]) {
+        received[index] = true;
+        --remaining;
+        if (*result == Status::Ok) *result = static_cast<Status>(c.status);
       }
     }
-    if (done) break;
-    store(&h->kernel_wants_kick, 1u);
+    if (!remaining) break;
+    // Arm-before-recheck must drain the store buffer before observing CQ.
+    __atomic_store_n(&h->kernel_wants_kick, 1u, __ATOMIC_SEQ_CST);
     if (head != load(&h->cq_tail)) continue;
     char buf[8];
     uint32_t len;
@@ -123,16 +155,17 @@ bool run_once(Disk& d, Request req, const uint64_t* pages, Status* result) {
     if (s == Status::PeerClosed) sched::sleep_ns(10'000'000);  // драйвер уходит: ждём serve
   }
   store(&h->kernel_wants_kick, 0u);
-  if (d.domain != nullptr && req.segment_count != 0) {
-    pci::iommu::unmap(d.domain, iova_base, req.segment_count);
+  if (d.domain != nullptr && count != 0) {
+    pci::iommu::unmap(d.domain, iova_base, count);
   }
-  return done;
+  return remaining == 0;
 }
 
-Status submit(uint32_t disk, Request req, const uint64_t* pages) {
+Status submit(uint32_t disk, Request req, const uint64_t* pages, uint32_t count = 0) {
   if (disk >= disk_count()) return Status::InvalidArgs;
   Disk& d = g_disks[disk];
   d.io.lock();
+  uint32_t offset = 0;
   for (;;) {
     if (d.failed) {
       d.io.unlock();
@@ -145,9 +178,21 @@ Status submit(uint32_t disk, Request req, const uint64_t* pages) {
       continue;
     }
     Status result = Status::IoError;
-    if (run_once(d, req, pages, &result)) {
-      d.io.unlock();
-      return result;
+    uint32_t batch = count - offset;
+    uint64_t capacity = 256;
+    if (d.domain != nullptr && (d.flags & abi::block::kHelloLargeSegments) != 0) {
+      capacity = uint64_t{d.max_blocks} / (kPageSize / d.block_size) * 43;
+      if (capacity > kMaxPages) capacity = kMaxPages;
+    }
+    if (batch > capacity) batch = static_cast<uint32_t>(capacity);
+    Request part = req;
+    part.lba += offset * (kPageSize / d.block_size);
+    if (run_once(d, part, pages ? pages + offset : nullptr, batch, &result)) {
+      if (result != Status::Ok || batch == count - offset) {
+        d.io.unlock();
+        return result;
+      }
+      offset += batch;
     }
     kprint("block: disk{}: driver gone, request {} will be repeated\n", disk, d.next_id);
   }
@@ -183,11 +228,9 @@ Status transfer(uint32_t disk, bool write, uint64_t lba, const uint64_t* pages, 
   if (write && (d.flags & abi::block::kHelloReadOnly) != 0) return Status::AccessDenied;
   Request req = {};
   req.op = write ? abi::block::kOpWrite : abi::block::kOpRead;
-  req.segment_count = count;
   req.lba = lba;
   req.blocks = static_cast<uint32_t>(count * per_page);
-  for (uint32_t i = 0; i < count; ++i) req.segments[i].bytes = static_cast<uint32_t>(kPageSize);
-  return submit(disk, req, pages);
+  return submit(disk, req, pages, count);
 }
 
 Status flush(uint32_t disk) {
@@ -204,7 +247,7 @@ void serve(uint32_t pci_index, ipc::Cap* kernel_end, const char* name) {
   if (ipc::kernel_recv(kernel_end, &hello, sizeof hello, &len, ~uint64_t{0}) != Status::Ok) return;
   bool ok = len == sizeof hello && __builtin_memcmp(hello.magic, abi::block::kHelloMagic, 4) == 0 &&
             (hello.block_size == 512 || hello.block_size == 4096) && hello.block_count != 0 &&
-            hello.max_blocks >= kPageSize / hello.block_size * kMaxPages;
+            hello.max_blocks >= kPageSize / hello.block_size * abi::block::kMaxSegments;
   Disk* d = find(pci_index);
   if (ok && d != nullptr && d->block_size != 0 &&
       (d->block_size != hello.block_size || d->block_count != hello.block_count)) {
@@ -253,6 +296,7 @@ void serve(uint32_t pci_index, ipc::Cap* kernel_end, const char* name) {
       d->block_size = hello.block_size;
       d->block_count = hello.block_count;
       d->flags = hello.flags;
+      d->max_blocks = hello.max_blocks;
       d->used = true;
       __atomic_store_n(&g_count, g_count + 1, __ATOMIC_RELEASE);
     }
@@ -261,9 +305,14 @@ void serve(uint32_t pci_index, ipc::Cap* kernel_end, const char* name) {
     d->block_size = hello.block_size;
     d->block_count = hello.block_count;
     d->flags = hello.flags;
+    d->max_blocks = hello.max_blocks;
   }
   if (d != nullptr) {
     d->io.lock();
+    // Capabilities are renegotiated on every driver instance, not inherited
+    // from an earlier process that happened to support a newer ABI feature.
+    d->flags = hello.flags;
+    d->max_blocks = hello.max_blocks;
     for (uint64_t i = 0; i < abi::block::kRingPages; ++i) d->ring[i] = frames[i];
     d->ring_cap = ring;
     d->notify = notify;

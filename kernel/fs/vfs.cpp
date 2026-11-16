@@ -474,6 +474,46 @@ Status read_file(uint32_t h, uint64_t max, void** data, uint64_t* size) {
   return Status::Ok;
 }
 
+ExecutableFile::~ExecutableFile() {
+  if (lease_) ipc::release_fs_file(lease_);
+}
+
+Status ExecutableFile::open(uint32_t handle, uint64_t max) {
+  if (lease_) return Status::InvalidArgs;
+  uint64_t id = 0;
+  Status result = ipc::retain_fs_file(handle, &id, &lease_);
+  if (result != Status::Ok) return result;
+  fs_ = fs_of(id, &node_);
+  if (!fs_) result = Status::NotSupported;
+  else {
+    sync::MutexGuard guard(g_vfs);
+    auto st = fs_->stat(Node{node_, NodeType::File});
+    if (st.is_err()) result = map(st.error());
+    else if (st.value().size == 0 || st.value().size > max) result = Status::InvalidArgs;
+    else size_ = st.value().size;
+  }
+  if (result != Status::Ok) {
+    ipc::release_fs_file(lease_);
+    lease_ = nullptr;
+    fs_ = nullptr;
+  }
+  return result;
+}
+
+Status ExecutableFile::read(uint64_t offset, void* buffer, size_t size) {
+  if (!lease_ || offset > size_ || size > size_ - offset) return Status::InvalidArgs;
+  uint64_t started = platform::now_ns();
+  Status result = Status::Ok;
+  {
+    sync::MutexGuard guard(g_vfs);
+    auto rd = fs_->read(Node{node_, NodeType::File}, offset, buffer, size);
+    if (rd.is_err()) result = map(rd.error());
+    else if (rd.value() != size) result = Status::IoError;  // File shrank during loading.
+  }
+  read_ns_ += platform::now_ns() - started;
+  return result;
+}
+
 Status sys_fs_stat(uint32_t h, uint64_t user_out) {
   uint64_t id;
   bool dir;

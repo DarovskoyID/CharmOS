@@ -225,3 +225,21 @@ TEST(frames_alloc_below_limit) {
   CHECK(f.fb.alloc_below(8 * kFrameSize).error() == FrameError::OutOfMemory);
   CHECK(f.fb.alloc().is_ok());  // выше предела память есть
 }
+
+TEST(frames_bulk_hint_wraps_and_preserves_preferred_region) {
+  uint64_t words[FrameBitmap::words_for(512)];
+  FrameBitmap fb;
+  fb.init(words, 512);
+  fb.mark_free(0, 512 * kFrameSize);
+  fb.set_preferred_start(128 * kFrameSize);
+  auto first = fb.alloc_near_hint(256);
+  CHECK(first.is_ok() && first.value() == 128 * kFrameSize);
+  auto second = fb.alloc_near_hint(128);
+  CHECK(second.is_ok() && second.value() == 384 * kFrameSize);
+  auto wrapped = fb.alloc_near_hint(128);
+  CHECK(wrapped.is_ok() && wrapped.value() == 0);
+  CHECK(fb.alloc_near_hint(1).error() == FrameError::OutOfMemory);
+  CHECK(fb.free(first.value(), 256).is_ok());
+  CHECK(fb.alloc_near_hint(256).value() == first.value());
+  CHECK(fb.alloc_near_hint(0).error() == FrameError::InvalidArgument);
+}

@@ -352,6 +352,7 @@ extern "C" int64_t charm_main(Handle kernel) {
       slots[e.cid].busy = false;
       done_any = true;
     }
+    if (done_any) fence();  // Pair CQ publication with kernel arm/recheck.
     if (done_any && __atomic_load_n(&h->kernel_wants_kick, __ATOMIC_ACQUIRE) != 0) {
       __atomic_store_n(&h->kernel_wants_kick, 0u, __ATOMIC_RELAXED);
       char none = 0;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <limits>
+#include "base/logging.h"
 #include "base/time/time.h"
 #include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/events/keycodes/dom/dom_key.h"
@@ -99,6 +100,9 @@ void InputTranslatorCharmOS::TranslateMouse(const abi::syscall::InputEvent& inpu
     return;
   }
   EventType type=mouse_flags_ ? EventType::kMouseDragged : EventType::kMouseMoved;
+  if(input.type==abi::syscall::kInputMotion && mouse_flags_)
+    LOG(ERROR) << "charmos-ui: motion flags=" << mouse_flags_
+               << " type=" << static_cast<int>(type);
   int changed=0;
   if(input.type==abi::syscall::kInputButton) {
     changed=MouseFlag(input.code);
@@ -106,7 +110,9 @@ void InputTranslatorCharmOS::TranslateMouse(const abi::syscall::InputEvent& inpu
     type=input.value ? EventType::kMousePressed : EventType::kMouseReleased;
     if(input.value) mouse_flags_|=changed; else mouse_flags_&=~changed;
   }
+  // Views checks the triggering button on release too, after our pressed-state
+  // bit has been cleared for subsequent moves. Keep the changed bit in this event.
   events.push_back(std::make_unique<MouseEvent>(type,location,location,Timestamp(input),
-                                              flags_|mouse_flags_,changed));
+                                              flags_|mouse_flags_|changed,changed));
 }
 }  // namespace ui

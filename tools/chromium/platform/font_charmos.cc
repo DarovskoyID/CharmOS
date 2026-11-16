@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "skia/ext/font_utils.h"
+#include "build/charmos/font_fallback_charmos.h"
 #include "third_party/skia/include/core/SkFontMgr.h"
 #include "third_party/skia/include/core/SkTypeface.h"
 #include "ui/gfx/font.h"
@@ -34,10 +35,9 @@ bool GetFallbackFont(const Font& font,
       SkFontStyle::kNormal_Width,
       font.GetStyle() & Font::ITALIC ? SkFontStyle::kItalic_Slant
                                      : SkFontStyle::kUpright_Slant);
-  const char* languages[] = {locale.c_str()};
-  sk_sp<SkTypeface> typeface = manager->matchFamilyStyleCharacter(
-      font.GetFontName().c_str(), style, languages, locale.empty() ? 0 : 1,
-      static_cast<SkUnichar>(text[0]));
+  (void)locale;  // The directory backend has no locale-specific family policy.
+  auto typeface = charmos::FontForCharacter(
+      manager.get(), font.GetFontName().c_str(), style, charmos::FirstScalar(text));
   if (!typeface) return false;
   SkString family;
   typeface->getFamilyName(&family);

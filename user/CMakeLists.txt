@@ -11,7 +11,7 @@ function(charmos_user_program name)
     LINK_DEPENDS ${CMAKE_SOURCE_DIR}/user/rt/user.ld)
 endfunction()
 
-foreach(prog hello sys fault kread fpu iso spin cap_a cap_b cap_c chan ping pong port fs_test fs_check tcp_echo udp_test threads thread_kill thread_last spawn_parent spawn_child signals)
+foreach(prog hello sys fault kread fpu iso spin cap_a cap_b cap_c chan ping pong port fs_test fs_check tcp_echo udp_test threads thread_kill thread_last spawn_parent spawn_child loader_probe signals)
   charmos_user_program(${prog} tests/${prog}.cpp)
 endforeach()
 
@@ -30,6 +30,7 @@ add_library(c STATIC
   libc/src/compat.cpp libc/src/complex_math.cpp
   libc/src/arch/x86_64/setjmp.S libc/src/semaphore.cpp)
 target_include_directories(c PUBLIC libc/include rt/include)
+set_source_files_properties(libc/src/string.cpp PROPERTIES COMPILE_OPTIONS "-O2;-fno-builtin")
 target_link_libraries(c PUBLIC abi)
 target_compile_options(c PRIVATE -fno-builtin)
 target_compile_options(c INTERFACE $<$<COMPILE_LANGUAGE:C,CXX>:-femulated-tls>)

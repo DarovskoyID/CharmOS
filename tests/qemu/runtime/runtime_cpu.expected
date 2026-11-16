@@ -1,6 +1,7 @@
 runtime: UTC and clock validation ok
 runtime: inaccessible and zeroed replacement memory ok
 runtime: lazy VMO reservation and alias commit ok
+runtime: sparse reservation ownership and removed holes ok
 runtime: partial munmap contract ok
 runtime: W^X executable memory ok
 runtime: entropy bounds and parallel clients ok

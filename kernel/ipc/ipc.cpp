@@ -75,6 +75,7 @@ struct Vmo {
   uint64_t size;
   uint64_t pages;
   uint64_t* frames;
+  uint64_t** frame_chunks;  // Lazy VMOs: allocate 512-entry chunks on commit.
   bool mmio;  // BAR устройства: некэшируемо, фреймы не принадлежат VMO (kMmioHole — не отображать)
   bool wc;    // при mmio: write-combining (фреймбуфер, display.md §2.2)
   struct Device* dma_dev;  // DMA-буфер: устройство (держит ссылку), в чьём домене он виден
@@ -219,6 +220,8 @@ struct Mapping {
   Cap* via;
   Mapping* next_in_proc;
   Mapping* next_in_cap;
+  bool sparse;  // PROT_NONE reservation owned by this record, not empty PTEs.
+  uint8_t* removed;  // Lazily allocated tombstones for partial unmap.
 };
 
 namespace {
@@ -244,6 +247,34 @@ T* alloc_zeroed(size_t size) {
 }
 
 proc::Process* me() { return proc::current_process(); }
+constexpr uint64_t kFramesPerChunk = 512;
+
+uint64_t vmo_frame(const Vmo* v, uint64_t index) {
+  if (!v->frame_chunks) return v->frames[index];
+  auto* chunk = v->frame_chunks[index / kFramesPerChunk];
+  return chunk ? chunk[index % kFramesPerChunk] : 0;
+}
+
+bool removed_page(const Mapping* m, uint64_t index) {
+  return m->removed && (m->removed[index / 8] & (1u << (index % 8))) != 0;
+}
+
+void unmap_pages(Mapping* m, uint64_t first, uint64_t count) {
+  for (uint64_t i = first; i < first + count;) {
+    // Large allocator holes mostly cover entirely uncommitted chunks.
+    // Skip their directory entry once instead of visiting 512 absent pages.
+    if (m->sparse && m->vmo->frame_chunks && !m->vmo->frame_chunks[i / kFramesPerChunk]) {
+      uint64_t next = (i / kFramesPerChunk + 1) * kFramesPerChunk;
+      i = next < first + count ? next : first + count;
+      continue;
+    }
+    // A sparse reservation has no PTE until a real frame has been committed.
+    // A committed frame may belong only to another alias: unmap is harmless.
+    if (!m->sparse || vmo_frame(m->vmo, i) != 0)
+      m->proc->space.unmap(m->addr + i * kPageSize);
+    ++i;
+  }
+}
 
 // Caller holds g_lock. Commits missing frames in [first, first+count) as one
 // all-or-nothing step: allocate and zero into a temporary array, then publish
@@ -253,9 +284,20 @@ proc::Process* me() { return proc::current_process(); }
 Status commit_vmo_pages(Vmo* v, uint64_t first, uint64_t count) {
   if (v->mmio || count == 0) return Status::Ok;
   if (first > v->pages || count > v->pages - first) return Status::InvalidArgs;
+  if (v->frame_chunks) {
+    for (uint64_t i = first / kFramesPerChunk; i <= (first + count - 1) / kFramesPerChunk; ++i) {
+      if (!v->frame_chunks[i]) {
+        auto* chunk = alloc_zeroed<uint64_t>(kFramesPerChunk * sizeof(uint64_t));
+        if (!chunk) return Status::NoMemory;
+        // Empty metadata remains owned by the VMO if a later allocation fails;
+        // no physical frame or user-visible permission is published early.
+        v->frame_chunks[i] = chunk;
+      }
+    }
+  }
   uint64_t missing = 0;
   for (uint64_t i = 0; i < count; ++i) {
-    if (v->frames[first + i] == 0) ++missing;
+    if (vmo_frame(v, first + i) == 0) ++missing;
   }
   if (missing == 0) return Status::Ok;
   auto mem = mm::kmalloc(missing * sizeof(uint64_t));
@@ -275,7 +317,10 @@ Status commit_vmo_pages(Vmo* v, uint64_t first, uint64_t count) {
   }
   uint64_t next = 0;
   for (uint64_t i = 0; i < count; ++i) {
-    if (v->frames[first + i] == 0) v->frames[first + i] = fresh[next++];
+    uint64_t index = first + i;
+    auto* entry = v->frame_chunks ?
+        &v->frame_chunks[index / kFramesPerChunk][index % kFramesPerChunk] : &v->frames[index];
+    if (*entry == 0) *entry = fresh[next++];
   }
   mm::kfree(fresh);
   return Status::Ok;
@@ -460,10 +505,20 @@ void release_object(Object* obj) {
     if (v->dma_dev != nullptr && v->dma_dev->domain != nullptr && v->iova != 0) {
       pci::iommu::unmap(v->dma_dev->domain, v->iova, v->pages);
     }
-    for (uint64_t i = 0; i < v->pages && !v->mmio; ++i) {
+    if (v->frame_chunks) {
+      for (uint64_t group = 0; group < (v->pages + kFramesPerChunk - 1) / kFramesPerChunk; ++group) {
+        auto* chunk = v->frame_chunks[group];
+        if (!chunk) continue;
+        for (uint64_t i = 0; i < kFramesPerChunk && group * kFramesPerChunk + i < v->pages; ++i)
+          if (chunk[i]) mm::free_frames(chunk[i]);
+        mm::kfree(chunk);
+      }
+      mm::kfree(v->frame_chunks);
+    }
+    for (uint64_t i = 0; !v->frame_chunks && i < v->pages && !v->mmio; ++i) {
       if (v->frames[i] != 0) mm::free_frames(v->frames[i]);  // 0 = uncommitted (lazy)
     }
-    mm::kfree(v->frames);
+    if (v->frames) mm::kfree(v->frames);
     Device* dev = v->dma_dev;
     Job* charged = v->charged;
     uint64_t pages = v->pages;
@@ -646,7 +701,7 @@ void detach_mapping(Mapping* m, Pending* p) {
       break;
     }
   }
-  for (uint64_t off = 0; off < m->size; off += kPageSize) m->proc->space.unmap(m->addr + off);
+  unmap_pages(m, 0, m->size / kPageSize);
   p->cpus |= __atomic_load_n(&m->proc->cpus, __ATOMIC_ACQUIRE);
   m->next_in_proc = p->list;
   p->list = m;
@@ -669,6 +724,7 @@ void finish_pending(Pending& p) {
   while (Mapping* m = p.list) {
     p.list = m->next_in_proc;
     release_object(&m->vmo->base);
+    if (m->removed) mm::kfree(m->removed);
     mm::kfree(m);
   }
 }
@@ -1153,10 +1209,13 @@ Status create_vmo(uint64_t size, bool eager, uint64_t* out) {
   Job* job = me()->job;
   if (job_charge_memory(job, pages) != Status::Ok) return Status::NoMemory;  // лимит Job (§7)
   auto* v = alloc_zeroed<Vmo>(sizeof(Vmo));
-  auto* frames = alloc_zeroed<uint64_t>(pages * sizeof(uint64_t));
-  if (v == nullptr || frames == nullptr) {
+  auto* frames = eager ? alloc_zeroed<uint64_t>(pages * sizeof(uint64_t)) : nullptr;
+  auto* chunks = eager ? nullptr : alloc_zeroed<uint64_t*>(
+      ((pages + kFramesPerChunk - 1) / kFramesPerChunk) * sizeof(uint64_t*));
+  if (v == nullptr || (eager ? frames == nullptr : chunks == nullptr)) {
     if (v != nullptr) mm::kfree(v);
     if (frames != nullptr) mm::kfree(frames);
+    if (chunks != nullptr) mm::kfree(chunks);
     job_uncharge_memory(job, pages);
     return Status::NoMemory;
   }
@@ -1178,6 +1237,7 @@ Status create_vmo(uint64_t size, bool eager, uint64_t* out) {
   v->size = size;
   v->pages = pages;
   v->frames = frames;
+  v->frame_chunks = chunks;
 
   sync::SpinGuard guard(g_lock);
   v->charged = job;
@@ -1227,8 +1287,9 @@ Status sys_vmo_map(uint32_t h, uint64_t req, uint64_t* out) {
   }
   auto* v = reinterpret_cast<Vmo*>(c->obj);
   if (v->mmio && (req & rights::kExec) != 0) return Status::NotSupported;
-  // Lazy VMO: an accessible mapping needs real, zeroed pages. Inaccessible
-  // mappings only install ownership markers and may stay uncommitted.
+  // Inaccessible reservations need ownership records, not millions of empty
+  // page-table leaves under the global IPC lock. Access restoration installs
+  // leaves after preflighting tables and committing actual zeroed frames.
   if (req != 0) {
     Status committed = commit_vmo_pages(v, 0, v->pages);
     if (committed != Status::Ok) return committed;
@@ -1236,14 +1297,15 @@ Status sys_vmo_map(uint32_t h, uint64_t req, uint64_t* out) {
   if (v->size > kMapLimit - p->ipc.map_next) return Status::NoMemory;
   auto* m = alloc_zeroed<Mapping>(sizeof(Mapping));
   if (m == nullptr) return Status::NoMemory;
+  m->sparse = req == 0 && !v->mmio;
   uint64_t addr = p->ipc.map_next;
   uint64_t flags = (req == 0 ? arch::x86_64::kMapInaccessible : 0) |
                    ((req & rights::kWrite) != 0 ? arch::x86_64::kMapWrite : 0) |
                    ((req & rights::kExec) != 0 ? 0 : arch::x86_64::kMapNoExec);
   if (v->mmio) flags |= v->wc ? arch::x86_64::kMapWriteCombine : arch::x86_64::kMapCacheDisable;
-  for (uint64_t i = 0; i < v->pages; ++i) {
-    if (v->frames[i] == kMmioHole) continue;
-    if (p->space.map_phys(addr + i * kPageSize, v->frames[i], flags).is_err()) {
+  for (uint64_t i = 0; !m->sparse && i < v->pages; ++i) {
+    if (vmo_frame(v, i) == kMmioHole) continue;
+    if (p->space.map_phys(addr + i * kPageSize, vmo_frame(v, i), flags).is_err()) {
       for (uint64_t k = 0; k < i; ++k) p->space.unmap(addr + k * kPageSize);
       mm::kfree(m);
       return Status::NoMemory;  // страницы ещё не были видны — сброс TLB не нужен
@@ -1316,7 +1378,25 @@ Status sys_vmo_unmap_range(uint64_t addr, uint64_t size) {
            !(addr >= m->addr && addr - m->addr < m->size &&
              size <= m->size - (addr - m->addr))) m = m->next_in_proc;
     if (m == nullptr) return Status::InvalidArgs;
-    for (uint64_t off = 0; off < size; off += kPageSize) p->space.unmap(addr + off);
+    uint64_t first = (addr - m->addr) / kPageSize;
+    uint64_t count = size / kPageSize;
+    if (!m->removed) {
+      m->removed = alloc_zeroed<uint8_t>((m->vmo->pages + 7) / 8);
+      if (!m->removed) return Status::NoMemory;
+    }
+    uint64_t end = first + count;
+    while (first < end && first % 8) {
+      m->removed[first / 8] |= static_cast<uint8_t>(1u << (first % 8));
+      ++first;
+    }
+    uint64_t full = (end - first) / 8;
+    __builtin_memset(m->removed + first / 8, 0xff, full);
+    first += full * 8;
+    while (first < end) {
+      m->removed[first / 8] |= static_cast<uint8_t>(1u << (first % 8));
+      ++first;
+    }
+    unmap_pages(m, (addr - m->addr) / kPageSize, count);
     cpus = __atomic_load_n(&p->cpus, __ATOMIC_ACQUIRE);
   }
   for (uint32_t cpu = 0; cpu < smp::kMaxCpus; ++cpu) {
@@ -1354,6 +1434,15 @@ Status sys_vmo_protect(uint64_t addr, uint64_t size, uint64_t req) {
     if ((req & ~uint64_t{m->via->rights}) != 0) return Status::AccessDenied;
     uint64_t first = (addr - m->addr) / kPageSize;
     uint64_t count = size / kPageSize;
+    // Validate the entire range before changing any existing permissions.
+    for (uint64_t i = first; i < first + count; ++i)
+      if (removed_page(m, i)) return Status::InvalidArgs;
+    if (m->sparse) {
+      if (req != 0) {
+        for (uint64_t off = 0; off < size; off += kPageSize)
+          if (!p->space.prepare_map(addr + off)) return Status::NoMemory;
+      }
+    }
     if (req != 0) {
       Status committed = commit_vmo_pages(m->vmo, first, count);
       if (committed != Status::Ok) return committed;
@@ -1361,9 +1450,16 @@ Status sys_vmo_protect(uint64_t addr, uint64_t size, uint64_t req) {
     for (uint64_t off = 0; off < size; off += kPageSize) {
       uint64_t va = addr + off;
       uint64_t index = first + off / kPageSize;
+      if (m->sparse && req == 0 && vmo_frame(m->vmo, index) == 0) continue;
       // Refresh the physical address from the VMO: another alias may have
       // committed a page after this address space installed a zero marker.
-      if (!p->space.protect_phys(va, m->vmo->frames[index], flags)) {
+      if (!p->space.protect_phys(va, vmo_frame(m->vmo, index), flags)) {
+        if (m->sparse) {
+          if (req == 0) continue;  // Already inaccessible, with no leaf.
+          if (p->space.map_phys(va, vmo_frame(m->vmo, index), flags).is_ok()) continue;
+          result = Status::NoMemory;
+          break;
+        }
         result = Status::InvalidArgs;
         break;
       }
@@ -1484,7 +1580,7 @@ Status sys_object_bind(uint32_t port_h, uint32_t h, uint64_t key, uint32_t mask)
     auto* port = reinterpret_cast<Port*>(pc->obj);
     if (port->count + port->armed >= abi::syscall::kPortMaxPackets) return Status::Busy;
     if (g_input_ring != nullptr) {
-      auto* rh = mm::phys_to_virt<abi::syscall::InputRingHeader>(g_input_ring->frames[0]);
+      auto* rh = mm::phys_to_virt<abi::syscall::InputRingHeader>(vmo_frame(g_input_ring, 0));
       if (__atomic_load_n(&rh->tail, __ATOMIC_ACQUIRE) != __atomic_load_n(&rh->head, __ATOMIC_ACQUIRE)) {
         port_push(port, key, abi::syscall::kPacketInputReadable);  // события уже есть
         return Status::Ok;
@@ -2310,6 +2406,25 @@ Status get_fs_node(uint32_t h, uint32_t need, uint64_t* node, bool* dir, uint32_
   return Status::Ok;
 }
 
+Status retain_fs_file(uint32_t h, uint64_t* node, void** lease) {
+  sync::SpinGuard guard(g_lock);
+  Cap* c = lookup(me(), h);
+  if (!c) return Status::BadHandle;
+  if (c->obj->type != Type::FsNode) return Status::WrongType;
+  if ((c->rights & rights::kRead) == 0) return Status::AccessDenied;
+  auto* file = reinterpret_cast<FsNode*>(c->obj);
+  if (file->dir) return Status::WrongType;
+  ++file->base.refs;
+  *node = file->node;
+  *lease = &file->base;
+  return Status::Ok;
+}
+
+void release_fs_file(void* lease) {
+  sync::SpinGuard guard(g_lock);
+  release_object(static_cast<Object*>(lease));
+}
+
 Status vmo_frames(Cap* vmo, uint64_t* out, uint64_t max, uint64_t* pages) {
   sync::SpinGuard guard(g_lock);
   if (vmo->obj->type != Type::Vmo) return Status::WrongType;
@@ -2321,7 +2436,7 @@ Status vmo_frames(Cap* vmo, uint64_t* out, uint64_t max, uint64_t* pages) {
   Status committed = commit_vmo_pages(v, 0, v->pages);
   if (committed != Status::Ok) return committed;
   *pages = v->pages;
-  for (uint64_t i = 0; i < v->pages && i < max; ++i) out[i] = v->frames[i];
+  for (uint64_t i = 0; i < v->pages && i < max; ++i) out[i] = vmo_frame(v, i);
   return Status::Ok;
 }
 
@@ -2550,7 +2665,9 @@ Status sys_input_attach(uint32_t h, uint32_t vmo_h) {
   if (v->mmio || v->size > abi::syscall::kInputRingMax || (v->size & (v->size - 1)) != 0) {
     return Status::InvalidArgs;
   }
-  auto* hdr = mm::phys_to_virt<abi::syscall::InputRingHeader>(v->frames[0]);
+  Status committed = commit_vmo_pages(v, 0, v->pages);
+  if (committed != Status::Ok) return committed;
+  auto* hdr = mm::phys_to_virt<abi::syscall::InputRingHeader>(vmo_frame(v, 0));
   uint64_t room = (v->size - sizeof(abi::syscall::InputRingHeader)) / sizeof(abi::syscall::InputEvent);
   if (__builtin_memcmp(hdr->magic, "INPR", 4) != 0 || hdr->version != 1 || hdr->capacity == 0 ||
       (hdr->capacity & (hdr->capacity - 1)) != 0 || hdr->capacity > room) {
@@ -2567,7 +2684,7 @@ void input_push(const abi::syscall::InputEvent& e) {
   sync::SpinGuard guard(g_lock);
   Vmo* v = g_input_ring;
   if (v == nullptr) return;
-  auto* hdr = mm::phys_to_virt<abi::syscall::InputRingHeader>(v->frames[0]);
+  auto* hdr = mm::phys_to_virt<abi::syscall::InputRingHeader>(vmo_frame(v, 0));
   uint32_t cap = hdr->capacity;  // проверено при attach; читатель может портить только head/tail
   uint32_t head = __atomic_load_n(&hdr->head, __ATOMIC_ACQUIRE);
   uint32_t tail = hdr->tail;
@@ -2579,7 +2696,7 @@ void input_push(const abi::syscall::InputEvent& e) {
     auto* src = reinterpret_cast<const uint8_t*>(&e);
     for (uint64_t i = 0; i < sizeof(e); ++i) {
       uint64_t at = off + i;
-      mm::phys_to_virt<uint8_t>(v->frames[at / kPageSize])[at % kPageSize] = src[i];
+      mm::phys_to_virt<uint8_t>(vmo_frame(v, at / kPageSize))[at % kPageSize] = src[i];
     }
     __atomic_store_n(&hdr->tail, tail + 1, __ATOMIC_RELEASE);
   }

@@ -14,12 +14,20 @@ original capability's ceiling for any subsequently restored permissions.
 Closing a handle does not remove this ceiling. MMIO protection changes remain
 unsupported.
 
-On x86-64, inaccessible leaves have Present clear and an OS-owned marker in
+For an already installed x86-64 leaf, inaccessible leaves have Present clear and an OS-owned marker in
 software-available bit 9. Physical backing stays owned by the VMO. A marked
 leaf cannot be overwritten by a new mapping; protection can restore it in
 place, and unmap clears it. Protection changes invalidate TLBs on all CPUs.
 User access faults; kernel user-copy operations fail through the existing
 uaccess fixup path. No fake readable PROT_NONE alias is exposed.
+
+Implementation update (2026-11-11): an initially inaccessible reservation may
+have no page-table leaves at all. Its Mapping record owns the virtual range;
+separate tombstones retain partial-unmap holes. Restoring access preflights
+intermediate tables, validates the complete range and original capability,
+commits zeroed frames, then installs or updates leaves. Removed pages cannot
+be recreated by protection changes. This preserves the existing ABI without
+building millions of non-present PTEs under the global IPC lock.
 
 libc anonymous/private mmap(PROT_NONE) and mprotect(PROT_NONE) use these
 requests. Since ABI v1.21 these reservations are lazy (`VmoReserve`): only

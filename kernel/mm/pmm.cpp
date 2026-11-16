@@ -84,6 +84,11 @@ void free_frames(uint64_t phys, uint64_t count) {
   if (r.is_err()) panic("pmm: bad free of {x} x{} (error {})", phys, count, r.error());
 }
 
+lib::core::Result<uint64_t, FrameError> alloc_frames_near_hint(uint64_t count) {
+  sync::SpinGuard guard(g_lock);
+  return g_frames.alloc_near_hint(count);
+}
+
 uint64_t free_frame_count() { sync::SpinGuard guard(g_lock); return g_frames.free_frames(); }
 uint64_t total_frame_count() { return g_total; }
 

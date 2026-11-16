@@ -16,6 +16,7 @@ class MemIo final : public Io {
  public:
   explicit MemIo(size_t bytes) : data(bytes, 0) {}
   Status read(uint64_t off, void* buf, size_t len) override {
+    ++reads;
     if (off + len > data.size()) return fail(FsError::IoError);
     std::memcpy(buf, data.data() + off, len);
     return ok();
@@ -28,6 +29,7 @@ class MemIo final : public Io {
   Status flush() override { return ok(); }
   uint64_t size() const override { return data.size(); }
   std::vector<uint8_t> data;
+  uint64_t reads = 0;
 };
 
 // Окно в другой Io (раздел).
@@ -340,5 +342,36 @@ TEST(ext2_rename_write_failures_keep_source_data_reachable) {
       CHECK(fs.read(file.value(),0,back.data(),back.size()).value()==back.size() && back==content);
     }
     CHECK(failed_cases>=2);
+  }
+}
+
+TEST(ext2_large_read_caches_indirect_tables_without_stale_holes) {
+  for (uint32_t block_size : {1024u, 2048u, 4096u}) {
+    MemIo storage(32u << 20);
+    CHECK(Ext2::format(storage, block_size, "read-cache").is_ok());
+    Ext2 fs;
+    CHECK(fs.mount(&storage).is_ok());
+    auto file = fs.create(fs.root(), sv("large"), NodeType::File);
+    CHECK(file.is_ok());
+    std::vector<uint8_t> payload(900u * 1024 + 123);
+    for (size_t i = 0; i < payload.size(); ++i) payload[i] = static_cast<uint8_t>(i % 251);
+    CHECK(fs.write(file.value(), 0, payload.data(), payload.size()).is_ok());
+    std::vector<uint8_t> result(2u << 20, 0xa5);
+    CHECK(fs.resize(file.value(), result.size()).is_ok());
+    CHECK(fs.write(file.value(), result.size() - 4096, payload.data(), 4096).is_ok());
+    storage.reads = 0;
+    auto read = fs.read(file.value(), 0, result.data(), result.size());
+    CHECK(read.is_ok() && read.value() == result.size());
+    CHECK(storage.reads < 128);
+    CHECK(std::memcmp(result.data(), payload.data(), payload.size()) == 0);
+    for (size_t i = payload.size(); i < result.size() - 4096; ++i) CHECK(result[i] == 0);
+    CHECK(std::memcmp(result.data() + result.size() - 4096, payload.data(), 4096) == 0);
+    // A subsequent mutation must be visible, not hidden by a stale table cache.
+    CHECK(fs.resize(file.value(), 0).is_ok());
+    CHECK(fs.write(file.value(), 700000, payload.data(), 4096).is_ok());
+    result.assign(704096, 0xa5);
+    CHECK(fs.read(file.value(), 0, result.data(), result.size()).is_ok());
+    for (size_t i = 0; i < 700000; ++i) CHECK(result[i] == 0);
+    CHECK(std::memcmp(result.data() + 700000, payload.data(), 4096) == 0);
   }
 }

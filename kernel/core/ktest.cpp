@@ -727,10 +727,51 @@ void test_blk() {
     fail("read back differs");
   }
   kprint("ktest: disk0 write, flush, read back ok\n");
+  // Physically scattered frames must work as one IOVA range with v1.4,
+  // and as page-sized requests without IOMMU.
+  uint64_t batch[block::kMaxPages];
+  for (uint32_t n = 0; n < block::kMaxPages; ++n) {
+    auto f = mm::alloc_frames();
+    if (f.is_err()) fail("batch memory");
+    batch[n] = f.value();
+  }
+  for (uint32_t n = 0; n < block::kMaxPages / 2; ++n) {
+    uint64_t swap = batch[n];
+    batch[n] = batch[block::kMaxPages - n - 1];
+    batch[block::kMaxPages - n - 1] = swap;
+  }
+  for (uint32_t n = 0; n < block::kMaxPages; ++n) {
+    auto* words = mm::phys_to_virt<uint32_t>(batch[n]);
+    for (uint32_t i = 0; i < 1024; ++i) words[i] = 0xa7300000u ^ (n * 1024 + i);
+  }
+  if (block::transfer(0, true, 8192, batch, block::kMaxPages) != block::Status::Ok ||
+      block::flush(0) != block::Status::Ok) fail("batch write/flush");
+  for (auto phys : batch) __builtin_memset(mm::phys_to_virt<void>(phys), 0, 4096);
+  if (block::transfer(0, false, 8192, batch, block::kMaxPages) != block::Status::Ok)
+    fail("batch read");
+  for (uint32_t n = 0; n < block::kMaxPages; ++n) {
+    auto* words = mm::phys_to_virt<uint32_t>(batch[n]);
+    for (uint32_t i = 0; i < 1024; ++i)
+      if (words[i] != (0xa7300000u ^ (n * 1024 + i))) fail("batch data differs");
+  }
+  kprint("ktest: disk0 full batch write, flush, read back ok\n");
+
 
   // Драйвер убит прямо перед запросами: они ждут нового запуска и
   // выполняются в нём (docs/abi/block.md §6).
   if (!devmgr::kill_driver(0x1af4, 0x1042)) fail("virtio_blk not running");
+  if (block::transfer(0, true, 8192, batch, block::kMaxPages) != block::Status::Ok ||
+      block::flush(0) != block::Status::Ok) fail("batch write after restart");
+  for (auto phys : batch) __builtin_memset(mm::phys_to_virt<void>(phys), 0, 4096);
+  if (block::transfer(0, false, 8192, batch, block::kMaxPages) != block::Status::Ok)
+    fail("batch read after restart");
+  for (uint32_t n = 0; n < block::kMaxPages; ++n) {
+    auto* words = mm::phys_to_virt<uint32_t>(batch[n]);
+    for (uint32_t i = 0; i < 1024; ++i)
+      if (words[i] != (0xa7300000u ^ (n * 1024 + i))) fail("batch restart data differs");
+    mm::free_frames(batch[n]);
+  }
+  kprint("ktest: disk0 scattered DMA batch and restart ok\n");
   for (uint32_t i = 0; i < 1024; ++i) w0[i] = 0x5eed0000u + i;
   if (block::transfer(0, true, 4096, pages, 1) != block::Status::Ok) fail("write after kill");
   __builtin_memset(mm::phys_to_virt<void>(pages[2]), 0, 4096);

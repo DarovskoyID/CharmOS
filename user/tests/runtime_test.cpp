@@ -147,10 +147,29 @@ extern "C" int main(int argc, char** argv) {
     CHECK(charm::handle_close(lazy_handle)==charm::Status::Ok);
     // A large PROT_NONE reservation followed by a small fixed replacement must
     // not require committing the untouched rest.
-    size_t budget=32u<<20;
+    size_t budget=8ull<<30;
+    auto reserve_before=charm::runtime_query(6);
     auto* sparse=static_cast<unsigned char*>(mmap(nullptr,budget,PROT_NONE,
         MAP_PRIVATE|MAP_ANONYMOUS,-1,0));
     CHECK(sparse!=MAP_FAILED);
+    auto reserve_after=charm::runtime_query(6);
+    CHECK(reserve_before.ok() && reserve_after.ok());
+    CHECK(reserve_before.value>=reserve_after.value && reserve_before.value-reserve_after.value<128);
+    // Two metadata chunks must preserve independent states at their boundary.
+    constexpr size_t boundary=16u<<20;
+    CHECK(mprotect(sparse+boundary-4096,8192,PROT_READ|PROT_WRITE)==0);
+    sparse[boundary-4096]=0x42; sparse[boundary]=0x73;
+    CHECK(munmap(sparse+boundary,4096)==0);
+    CHECK(mprotect(sparse+boundary-4096,8192,PROT_READ)==-1 && errno==ENOMEM);
+    sparse[boundary-4096]=0x52;
+    CHECK(sparse[boundary-4096]==0x52);
+    CHECK(mprotect(sparse+64u*1024*1024,4096,PROT_READ|PROT_WRITE)==0);
+    sparse[64u*1024*1024]=0x39;
+    CHECK(munmap(sparse+64u*1024*1024,64u*1024*1024)==0);
+    CHECK(mprotect(sparse+64u*1024*1024,4096,PROT_READ)==-1 && errno==ENOMEM);
+    CHECK(mprotect(sparse+128u*1024*1024-4096,4096,PROT_READ)==-1 && errno==ENOMEM);
+    CHECK(mprotect(sparse+128u*1024*1024,4096,PROT_READ|PROT_WRITE)==0);
+    sparse[128u*1024*1024]=0x19;
     CHECK(mmap(sparse+budget-8192,8192,PROT_NONE,
         MAP_FIXED|MAP_PRIVATE|MAP_ANONYMOUS,-1,0)==sparse+budget-8192);
     CHECK(mprotect(sparse+budget-4096,4096,PROT_READ|PROT_WRITE)==0);
@@ -158,6 +177,53 @@ extern "C" int main(int argc, char** argv) {
     CHECK(mprotect(sparse+budget-4096,4096,PROT_NONE)==0);
     CHECK(munmap(sparse,budget)==0);
     printf("runtime: lazy VMO reservation and alias commit ok\n");
+    // Reserving a large inaccessible range must not build millions of PTEs.
+    auto huge = charm::vmo_reserve(8ull << 30);
+    CHECK(huge.ok());
+    auto huge_handle = static_cast<charm::Handle>(huge.value);
+    auto free_before = charm::runtime_query(6);
+    auto huge_map = charm::vmo_map(huge_handle, 0);
+    auto free_after = charm::runtime_query(6);
+    CHECK(huge_map.ok() && free_before.ok() && free_after.ok());
+    CHECK(free_before.value >= free_after.value && free_before.value - free_after.value < 128);
+    CHECK(charm::vmo_unmap_range(huge_map.value + 4096, 4096) == charm::Status::Ok);
+    CHECK(charm::vmo_protect(huge_map.value + 4096, 4096, charm::rights::kRead) == charm::Status::InvalidArgs);
+    CHECK(charm::vmo_protect(huge_map.value, 8192, charm::rights::kRead) == charm::Status::InvalidArgs);
+    CHECK(charm::vmo_protect(huge_map.value, 4096, charm::rights::kRead | charm::rights::kWrite) == charm::Status::Ok);
+    auto* huge_page = reinterpret_cast<unsigned char*>(huge_map.value);
+    for (size_t i = 0; i < 4096; ++i) CHECK(huge_page[i] == 0);
+    huge_page[0] = 0x7c;
+    uint64_t last_offset = (8ull << 30) - 4096;
+    CHECK(charm::vmo_protect(huge_map.value + last_offset, 4096,
+        charm::rights::kRead | charm::rights::kWrite) == charm::Status::Ok);
+    auto* last_page = reinterpret_cast<unsigned char*>(huge_map.value + last_offset);
+    CHECK(last_page[0] == 0);
+    last_page[0] = 0x8d;
+    auto huge_alias = charm::vmo_map(huge_handle, 0);
+    CHECK(huge_alias.ok());
+    CHECK(charm::vmo_protect(huge_alias.value + last_offset, 4096,
+        charm::rights::kRead) == charm::Status::Ok);
+    CHECK(*reinterpret_cast<const unsigned char*>(huge_alias.value + last_offset) == 0x8d);
+    CHECK(charm::vmo_protect(huge_alias.value + 4096, 4096,
+        charm::rights::kRead) == charm::Status::Ok);
+    CHECK(*reinterpret_cast<const unsigned char*>(huge_alias.value + 4096) == 0);
+    CHECK(charm::vmo_unmap(huge_alias.value) == charm::Status::Ok);
+    CHECK(charm::handle_close(huge_handle) == charm::Status::Ok);
+    CHECK(charm::vmo_protect(huge_map.value, 4096, charm::rights::kRead) == charm::Status::Ok);
+    CHECK(huge_page[0] == 0x7c);
+    CHECK(charm::vmo_unmap(huge_map.value) == charm::Status::Ok);
+    printf("runtime: sparse reservation ownership and removed holes ok\n");
+    auto eager = charm::vmo_create(8192);
+    CHECK(eager.ok());
+    auto eager_handle = static_cast<charm::Handle>(eager.value);
+    auto eager_map = charm::vmo_map(eager_handle, charm::rights::kRead | charm::rights::kWrite);
+    CHECK(eager_map.ok());
+    CHECK(charm::vmo_unmap_range(eager_map.value + 4096, 4096) == charm::Status::Ok);
+    CHECK(charm::vmo_protect(eager_map.value, 8192, charm::rights::kRead) == charm::Status::InvalidArgs);
+    *reinterpret_cast<volatile unsigned char*>(eager_map.value) = 0x39;
+    CHECK(charm::vmo_unmap(eager_map.value) == charm::Status::Ok);
+    CHECK(charm::handle_close(eager_handle) == charm::Status::Ok);
+
     // ABI v1.22: partial munmap removes only the selected leaves; the rest of
     // the mapping stays usable, and mprotect over a hole fails as ENOMEM.
     auto* partial=static_cast<unsigned char*>(mmap(nullptr,3*4096,PROT_READ|PROT_WRITE,

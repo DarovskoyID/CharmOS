@@ -97,6 +97,10 @@ void set_fs_node_closed_hook(void (*hook)(uint64_t node));
 Status create_fs_node(uint64_t node, bool dir, uint32_t rights, Cap** out);
 Status install_fs_node(uint64_t node, bool dir, uint32_t rights, uint64_t* out);
 Status get_fs_node(uint32_t h, uint32_t need, uint64_t* node, bool* dir, uint32_t* rights);
+// Kernel-only lifetime lease for one synchronous file operation. No user
+// handle or new authority is created; closing/reusing h cannot retarget it.
+Status retain_fs_file(uint32_t h, uint64_t* node, void** lease);
+void release_fs_file(void* lease);
 
 // --- сеть (docs/abi/socket.md) --------------------------------------------------------------
 Status create_net(uint32_t rights, Cap** out);

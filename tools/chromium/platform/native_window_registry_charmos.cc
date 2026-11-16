@@ -3,6 +3,7 @@
 
 #include "base/check.h"
 #include "base/check_op.h"
+#include "base/logging.h"
 #include "build/charmos/platform_window_charmos.h"
 
 namespace ui {
@@ -37,6 +38,7 @@ void NativeWindowRegistryCharmOS::AttachPresenter(
   DCHECK(thread_checker_.CalledOnValidThread());
   CHECK(windows_.Lookup(widget));
   base::AutoLock lock(presenters_lock_);
+  LOG(WARNING) << "charmos-canvas: attach widget " << widget;
   presenters_.insert_or_assign(widget,std::move(presenter));
 }
 scoped_refptr<NativeWindowPresenterCharmOS> NativeWindowRegistryCharmOS::AcquirePresenter(

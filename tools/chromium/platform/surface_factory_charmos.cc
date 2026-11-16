@@ -1,5 +1,6 @@
 #include "build/charmos/surface_factory_charmos.h"
 
+#include "base/logging.h"
 #include "build/charmos/native_window_registry_charmos.h"
 #include "build/charmos/platform_window_charmos.h"
 #include "build/charmos/surface_ozone_canvas_charmos.h"
@@ -11,7 +12,10 @@ SurfaceFactoryCharmOS::~SurfaceFactoryCharmOS() = default;
 std::unique_ptr<SurfaceOzoneCanvas> SurfaceFactoryCharmOS::CreateCanvasForWidget(
     gfx::AcceleratedWidget widget) {
   auto presenter=registry_->AcquirePresenter(widget);
-  if(!presenter) return nullptr;
+  if(!presenter) {
+    LOG(ERROR) << "charmos-canvas: no presenter for widget " << widget;
+    return nullptr;
+  }
   return std::make_unique<SurfaceOzoneCanvasCharmOS>(std::move(presenter));
 }
 bool SurfaceFactoryCharmOS::CanCreateNativePixmapForFormat(viz::SharedImageFormat) { return false; }

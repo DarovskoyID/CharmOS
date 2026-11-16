@@ -1,10 +1,10 @@
 #pragma once
 // Блочный слой ядра (docs/abi/block.md): диски, которые обслуживают драйверы
-// класса block в юзерспейсе. Запрос — до 6 страниц по 4 КиБ, подряд на диске;
+// класса block в юзерспейсе. Пакет — до 256 страниц по 4 КиБ, подряд на диске;
 // страницы на время запроса отображаются в домен IOMMU драйвера.
 //
-// Пока запрос на диск один в каждый момент (кольцо на 64 места используется
-// на одно): правило 9 — очередь глубже только после замера.
+// Один пакет на диск; пакет разбивается на запросы ABI по 6 страниц.
+// Глубина увеличена после измерения холодной загрузки большого ELF.
 
 #include <abi/syscall.hpp>
 #include <stdint.h>
@@ -18,7 +18,7 @@ namespace kernel::block {
 using abi::syscall::Status;
 
 inline constexpr uint32_t kMaxDisks = 8;
-inline constexpr uint32_t kMaxPages = 6;  // abi::block::kMaxSegments
+inline constexpr uint32_t kMaxPages = 1536;  // Internal 6 MiB batch; wire limits are negotiated.
 
 struct DiskInfo {
   uint32_t block_size;

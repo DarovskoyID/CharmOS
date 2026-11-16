@@ -44,6 +44,7 @@ class NativeWindowPresenterCharmOS final
   gfx::Size submitted_size_;
   uint32_t expected_release_=0;
   bool in_flight_=false;
+  bool first_frame_reported_=false;
 };
 }  // namespace ui
 #endif

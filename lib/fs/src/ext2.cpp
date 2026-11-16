@@ -255,7 +255,14 @@ void Ext2::set_file_size(Inode& in, uint64_t size) const {
   if ((in.mode & kModeTypeMask) == kModeFile) in.dir_acl = static_cast<uint32_t>(size >> 32);
 }
 
-Result<uint32_t> Ext2::bmap(Inode& in, uint64_t index, bool grow) {
+struct Ext2::ReadMapCache {
+  uint32_t leaf_block = 0;
+  uint32_t entries[1024];  // One indirect block, at most 4096 bytes.
+  uint64_t upper_offset[2] = {~uint64_t{0}, ~uint64_t{0}};
+  uint32_t upper_value[2] = {};
+};
+
+Result<uint32_t> Ext2::bmap(Inode& in, uint64_t index, bool grow, ReadMapCache* cache) {
   uint64_t per = block_size_ / 4;
   uint32_t* slot;
   uint32_t level;
@@ -290,7 +297,22 @@ Result<uint32_t> Ext2::bmap(Inode& in, uint64_t index, bool grow) {
     rest %= span;
     uint64_t off = block_offset(block) + i * 4;
     uint32_t next;
-    if (io_->read(off, &next, 4).is_err()) return Result<uint32_t>::err(FsError::IoError);
+    if (cache && !grow && l == 1) {
+      if (cache->leaf_block != block) {
+        if (io_->read(block_offset(block), cache->entries, block_size_).is_err())
+          return Result<uint32_t>::err(FsError::IoError);
+        cache->leaf_block = block;
+      }
+      next = cache->entries[i];
+    } else if (cache && !grow && cache->upper_offset[l - 2] == off) {
+      next = cache->upper_value[l - 2];
+    } else {
+      if (io_->read(off, &next, 4).is_err()) return Result<uint32_t>::err(FsError::IoError);
+      if (cache && !grow) {
+        cache->upper_offset[l - 2] = off;
+        cache->upper_value[l - 2] = next;
+      }
+    }
     if (next == 0) {
       if (!grow) return Result<uint32_t>::ok(0);
       auto b = alloc(false, near);
@@ -692,6 +714,8 @@ Result<Stat> Ext2::stat(Node node) {
 }
 
 Result<size_t> Ext2::read(Node file, uint64_t offset, void* buf, size_t len) {
+  // Local to one read: writes/resize cannot leave stale block pointers here.
+  ReadMapCache map_cache;
   Inode in;
   if (read_inode(static_cast<uint32_t>(file.id), &in).is_err()) return Result<size_t>::err(FsError::IoError);
   if ((in.mode & kModeTypeMask) == kModeDir) return Result<size_t>::err(FsError::IsDirectory);
@@ -704,7 +728,7 @@ Result<size_t> Ext2::read(Node file, uint64_t offset, void* buf, size_t len) {
     uint32_t in_block = static_cast<uint32_t>(pos % block_size_);
     size_t chunk = block_size_ - in_block < len - done ? block_size_ - in_block : len - done;
     uint64_t first = pos / block_size_;
-    auto pb = bmap(in, first, false);
+    auto pb = bmap(in, first, false, &map_cache);
     if (pb.is_err()) return Result<size_t>::err(pb.error());
     if (pb.value() == 0) {
       __builtin_memset(out + done, 0, chunk);  // дыра
@@ -715,7 +739,7 @@ Result<size_t> Ext2::read(Node file, uint64_t offset, void* buf, size_t len) {
       size_t total = chunk;
       uint32_t blocks = 1;
       while (done + total < len && (offset + done + total) % block_size_ == 0) {
-        auto nb = bmap(in, first + blocks, false);
+        auto nb = bmap(in, first + blocks, false, &map_cache);
         if (nb.is_err()) return Result<size_t>::err(nb.error());
         if (nb.value() != pb.value() + blocks) break;
         size_t step = block_size_ < len - done - total ? block_size_ : len - done - total;

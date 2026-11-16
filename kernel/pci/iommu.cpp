@@ -583,10 +583,23 @@ uint64_t map(Domain* d, const uint64_t* frames, uint64_t pages, bool writable) {
 }
 
 bool map_at(Domain* d, uint64_t iova, uint64_t phys, bool writable) {
+  return map_pages_at(d, iova, &phys, 1, writable);
+}
+
+bool map_pages_at(Domain* d, uint64_t iova, const uint64_t* frames,
+                  uint64_t pages, bool writable) {
+  if (!d || !frames || !pages || (iova & (kPageSize - 1)) ||
+      pages > (UINT64_MAX - iova) / kPageSize) return false;
   sync::SpinGuard guard(g_lock);
-  volatile uint64_t* e = leaf(d, iova, true);
-  if (e == nullptr) return false;
-  store(e, phys | kSsRead | (writable ? kSsWrite : 0));
+  // Preflight may leave empty intermediate tables owned by the domain, as
+  // map() already does. No frame becomes DMA-visible on allocation failure.
+  for (uint64_t i = 0; i < pages; ++i)
+    if (leaf(d, iova + i * kPageSize, true) == nullptr) return false;
+  for (uint64_t i = 0; i < pages; ++i)
+    store(leaf(d, iova + i * kPageSize, false),
+          frames[i] | kSsRead | (writable ? kSsWrite : 0));
+  // Keep the same domain invalidation/drain semantics, but batch its costly
+  // register round trip instead of repeating it once per page.
   invalidate_domain(d);
   return true;
 }

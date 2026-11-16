@@ -99,4 +99,11 @@ Error parse_kernel_image(const void* data, size_t size, uint64_t min_vaddr, Imag
 Error parse_image(const void* data, size_t size, uint64_t min_vaddr, uint64_t max_vaddr,
                   Image* out);
 
+// Same validation with separately read header/table and the real file size.
+// No segment bytes are accessed; the caller must keep header/table alive while
+// consuming Image and eagerly load every validated segment before execution.
+Error parse_program_headers(const Elf64Ehdr& header, const Elf64Phdr* table,
+                            size_t table_bytes, uint64_t file_size,
+                            uint64_t min_vaddr, uint64_t max_vaddr, Image* out);
+
 }  // namespace lib::elf

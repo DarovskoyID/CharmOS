@@ -114,6 +114,8 @@ extern "C" void syscall_dispatch(kernel::proc::SyscallFrame* frame) {
       sys_debug_write(f);
       break;
     case Number::ProcessExit:
+      if (static_cast<int64_t>(f.rdi) == kExitKilled)
+        kernel::kprint("proc: direct exit -1000, user rip={X}\n", f.rip);
       exit_current(static_cast<int64_t>(f.rdi));
     case Number::ThreadYield:
       kernel::sched::yield();

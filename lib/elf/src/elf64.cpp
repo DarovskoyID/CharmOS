@@ -14,6 +14,29 @@ constexpr bool add_ok(uint64_t a, uint64_t b, uint64_t* out) {
   return *out >= a;
 }
 
+Error validate_header(const Elf64Ehdr* eh, uint64_t size) {
+  if (size < sizeof(Elf64Ehdr)) return Error::TooSmall;
+  if (eh->e_ident[0] != 0x7f || eh->e_ident[1] != 'E' || eh->e_ident[2] != 'L' ||
+      eh->e_ident[3] != 'F') {
+    return Error::BadMagic;
+  }
+  if (eh->e_ident[4] != kElfClass64) return Error::NotClass64;
+  if (eh->e_ident[5] != kElfData2Lsb) return Error::NotLittleEndian;
+  if (eh->e_ident[6] != kEvCurrent || eh->e_version != kEvCurrent) return Error::BadVersion;
+  if (eh->e_type != kEtExec) return Error::NotExecutable;
+  if (eh->e_machine != kEmX86_64) return Error::WrongMachine;
+
+  if (eh->e_phentsize != sizeof(Elf64Phdr) || eh->e_phnum == 0 || eh->e_phnum == kPnXnum ||
+      eh->e_phoff % 8 != 0) {
+    return Error::BadPhdrTable;
+  }
+  uint64_t ph_end;
+  if (!add_ok(eh->e_phoff, uint64_t{eh->e_phnum} * sizeof(Elf64Phdr), &ph_end) || ph_end > size) {
+    return Error::BadPhdrTable;
+  }
+  return Error::None;
+}
+
 }  // namespace
 
 const char* error_name(Error e) {
@@ -50,27 +73,21 @@ Error parse_image(const void* data, size_t size, uint64_t min_vaddr, uint64_t ma
   if (size < sizeof(Elf64Ehdr)) return Error::TooSmall;
   const auto* bytes = static_cast<const uint8_t*>(data);
   const auto* eh = static_cast<const Elf64Ehdr*>(data);
-
-  if (eh->e_ident[0] != 0x7f || eh->e_ident[1] != 'E' || eh->e_ident[2] != 'L' ||
-      eh->e_ident[3] != 'F') {
-    return Error::BadMagic;
-  }
-  if (eh->e_ident[4] != kElfClass64) return Error::NotClass64;
-  if (eh->e_ident[5] != kElfData2Lsb) return Error::NotLittleEndian;
-  if (eh->e_ident[6] != kEvCurrent || eh->e_version != kEvCurrent) return Error::BadVersion;
-  if (eh->e_type != kEtExec) return Error::NotExecutable;
-  if (eh->e_machine != kEmX86_64) return Error::WrongMachine;
-
-  if (eh->e_phentsize != sizeof(Elf64Phdr) || eh->e_phnum == 0 || eh->e_phnum == kPnXnum ||
-      eh->e_phoff % 8 != 0) {
-    return Error::BadPhdrTable;
-  }
-  uint64_t ph_end;
-  if (!add_ok(eh->e_phoff, uint64_t{eh->e_phnum} * sizeof(Elf64Phdr), &ph_end) || ph_end > size) {
-    return Error::BadPhdrTable;
-  }
+  auto error = validate_header(eh, size);
+  if (error != Error::None) return error;
   const auto* ph = reinterpret_cast<const Elf64Phdr*>(bytes + eh->e_phoff);
+  return parse_program_headers(*eh, ph, size - static_cast<size_t>(eh->e_phoff),
+                               size, min_vaddr, max_vaddr, out);
+}
 
+Error parse_program_headers(const Elf64Ehdr& header, const Elf64Phdr* ph,
+                            size_t table_bytes, uint64_t file_size,
+                            uint64_t min_vaddr, uint64_t max_vaddr, Image* out) {
+  const auto* eh = &header;
+  auto error = validate_header(eh, file_size);
+  if (error != Error::None) return error;
+  if (!ph || table_bytes < uint64_t{eh->e_phnum} * sizeof(Elf64Phdr))
+    return Error::BadPhdrTable;
   uint64_t lo = ~uint64_t{0};
   uint64_t hi = 0;
   bool any = false;
@@ -79,7 +96,7 @@ Error parse_image(const void* data, size_t size, uint64_t min_vaddr, uint64_t ma
     const Elf64Phdr& p = ph[i];
     if (p.p_type != kPtLoad) continue;
     uint64_t file_end;
-    if (!add_ok(p.p_offset, p.p_filesz, &file_end) || file_end > size) {
+    if (!add_ok(p.p_offset, p.p_filesz, &file_end) || file_end > file_size) {
       return Error::SegmentOutOfFile;
     }
     if (p.p_filesz > p.p_memsz) return Error::SegmentFileGtMem;

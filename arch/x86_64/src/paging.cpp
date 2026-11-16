@@ -56,6 +56,16 @@ uint64_t* PageTables::next_table(uint64_t* t, size_t i, bool user) {
   return fresh;
 }
 
+bool PageTables::prepare_4k(uint64_t virt, uint64_t flags) {
+  if (virt % kPageSize != 0) return false;
+  uint64_t* t = table(pml4_);
+  for (int level = 3; level > 0; --level) {
+    t = next_table(t, index(virt, level), (flags & kMapUser) != 0);
+    if (t == nullptr) return false;
+  }
+  return true;
+}
+
 bool PageTables::map_4k(uint64_t virt, uint64_t phys, uint64_t flags) {
   if (virt % kPageSize != 0 || phys % kPageSize != 0) return false;
   uint64_t* t = table(pml4_);

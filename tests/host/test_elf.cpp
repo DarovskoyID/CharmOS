@@ -108,3 +108,26 @@ TEST(elf_error_names_defined) {
     CHECK(std::strcmp(error_name(static_cast<Error>(i)), "unknown") != 0);
   }
 }
+
+TEST(elf_separate_program_headers_preserve_validation_and_large_offsets) {
+  Fixture f;
+  Image img;
+  auto parse = [&](size_t bytes, uint64_t file_size) {
+    return parse_program_headers(*f.eh(), f.ph(), bytes, file_size, kBase, ~uint64_t{0}, &img);
+  };
+  constexpr size_t table_size = 3 * sizeof(Elf64Phdr);
+  CHECK(parse(table_size, sizeof f.buf) == Error::None);
+  CHECK(img.entry == kBase + 0x10 && img.phdrs == f.ph());
+  CHECK(parse(table_size - 1, sizeof f.buf) == Error::BadPhdrTable);
+  CHECK(parse(table_size, sizeof f.buf - 1) == Error::SegmentOutOfFile);
+  f.ph()[0].p_flags |= kPfW;
+  CHECK(parse(table_size, sizeof f.buf) == Error::SegmentWriteExec);
+  f.ph()[0].p_flags &= ~kPfW;
+  f.ph()[1].p_vaddr = kBase;
+  CHECK(parse(table_size, sizeof f.buf) == Error::SegmentsOverlap);
+  f.ph()[1].p_vaddr = kBase + 4096;
+  f.eh()->e_phoff = 256ull << 20;
+  CHECK(parse(table_size, f.eh()->e_phoff + table_size) == Error::None);
+  f.eh()->e_ident[1] = 'X';
+  CHECK(parse(table_size, f.eh()->e_phoff + table_size) == Error::BadMagic);
+}

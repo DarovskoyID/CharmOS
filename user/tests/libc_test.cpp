@@ -157,6 +157,41 @@ extern "C" int main(int argc, char** argv) {
   CHECK(fputs("X", stream) == 0 && fflush(stream) == 0 && fclose(stream) == 0);
   CHECK(stat("note.txt", &st) == 0 && st.st_size == 22);
 
+  // Bulk reads must preserve pushback, read-ahead, logical offsets, EOF and
+  // partial-item semantics while bypassing the small buffer for large reads.
+  unsigned char bulk[BUFSIZ * 3 + 17], readback[sizeof bulk];
+  for (size_t i = 0; i < sizeof bulk; ++i) bulk[i] = static_cast<unsigned char>(i % 251);
+  fd = open("bulk.bin", O_WRONLY | O_CREAT | O_TRUNC, 0600);
+  CHECK(fd >= 0 && write(fd, bulk, sizeof bulk) == static_cast<ssize_t>(sizeof bulk));
+  CHECK(close(fd) == 0);
+  stream = fopen("bulk.bin", "r");
+  CHECK(stream && fgetc(stream) == bulk[0] && ungetc('Z', stream) == 'Z');
+  CHECK(fread(readback, 1, sizeof readback, stream) == sizeof readback);
+  CHECK(readback[0] == 'Z' && memcmp(readback + 1, bulk + 1, sizeof bulk - 1) == 0);
+  CHECK(ftell(stream) == static_cast<long>(sizeof bulk) && !feof(stream));
+  CHECK(fread(readback, 1, 1, stream) == 0 && feof(stream));
+  CHECK(fseek(stream, 0, SEEK_SET) == 0);
+  unsigned char partial[sizeof bulk + 7];
+  CHECK(fread(partial, 7, (sizeof bulk + 6) / 7, stream) == sizeof bulk / 7);
+  CHECK(memcmp(partial, bulk, sizeof bulk) == 0 && feof(stream));
+  CHECK(fclose(stream) == 0 && unlink("bulk.bin") == 0);
+  printf("libc: bulk fread, pushback and partial items ok\n");
+  stream = fopen("bulk-write.bin", "w");
+  CHECK(stream && setvbuf(stream, nullptr, _IONBF, 0) == 0);
+  CHECK(fwrite(bulk, 7, sizeof bulk / 7, stream) == sizeof bulk / 7);
+  CHECK(fputs("tail", stream) == 0 && !ferror(stream));
+  CHECK(fclose(stream) == 0);
+  stream = fopen("bulk-write.bin", "r");
+  CHECK(stream && setvbuf(stream, nullptr, _IONBF, 0) == 0);
+  size_t written_bulk = sizeof bulk / 7 * 7;
+  CHECK(fread(readback, 1, written_bulk, stream) == written_bulk);
+  CHECK(memcmp(readback, bulk, written_bulk) == 0);
+  CHECK(fread(readback, 1, 4, stream) == 4 && memcmp(readback, "tail", 4) == 0);
+  errno = 0;
+  CHECK(fwrite("x", 1, 1, stream) == 0 && ferror(stream) && errno == EBADF);
+  CHECK(fclose(stream) == 0 && unlink("bulk-write.bin") == 0);
+  printf("libc: unbuffered bulk writes and stream errors ok\n");
+
   // fflush(NULL) must report the bad stream but still flush the good one.
   int pipefd[2];
   CHECK(pipe(pipefd) == 0);

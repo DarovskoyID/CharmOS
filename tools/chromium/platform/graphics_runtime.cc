@@ -6,6 +6,8 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "build/charmos/window_event_source_charmos.h"
+#include "build/charmos/font_fallback_charmos.h"
+#include "build/charmos/static_codec_frame_charmos.h"
 #include "skia/ext/codec_utils.h"
 #include "skia/ext/font_utils.h"
 #include "third_party/skia/include/codec/SkCodec.h"
@@ -34,6 +36,14 @@ bool CheckPng(const SkPixmap& pixels) {
   SkCodec::Result result=SkCodec::kInvalidInput;
   auto codec=SkPngDecoder::Decode(encoded,&result);
   if(!codec || result!=SkCodec::kSuccess || codec->dimensions()!=pixels.dimensions()) return false;
+  SkCodec::FrameInfo frame{};
+  if (!charmos::CodecFrameInfo(codec.get(), true, 0, &frame) ||
+      frame.fRequiredFrame != SkCodec::kNoFrame || !frame.fFullyReceived ||
+      frame.fFrameRect != SkIRect::MakeSize(pixels.dimensions()) ||
+      frame.fAlphaType != codec->getInfo().alphaType() ||
+      charmos::CodecFrameInfo(codec.get(), true, 1, &frame) ||
+      !charmos::CodecFrameInfo(codec.get(), false, 0, &frame) || frame.fFullyReceived)
+    return false;
   auto info=pixels.info();
   std::vector<unsigned char> decoded(info.computeMinByteSize());
   if(codec->getPixels(info,decoded.data(),info.minRowBytes())!=SkCodec::kSuccess)
@@ -82,6 +92,18 @@ extern "C" int main(int argc,char** argv) {
   if(!manager || manager->countFamilies()<2) return Failure("font directory");
   auto typeface=manager->matchFamilyStyle("Space Grotesk",SkFontStyle());
   if(!typeface || !typeface->unicharToGlyph('A')) return Failure("FreeType glyphs");
+  // Space Grotesk lacks Cyrillic. Exercise the actual directory fallback,
+  // including a missing family and UTF-16 supplementary scalar decoding.
+  for (SkUnichar c : {0x0416, 0x044f, 0x0401, 0x0451, 0x2116, 0x0627, 0x0645, 0x4e2d, 0x6587}) {
+    auto fallback = charmos::FontForCharacter(manager.get(), "Space Grotesk", SkFontStyle(), c);
+    if (!fallback || !fallback->unicharToGlyph(c)) return Failure("Cyrillic fallback");
+  }
+  if (!charmos::FontForCharacter(manager.get(), "Missing family", SkFontStyle(), 0x0416) ||
+      charmos::FirstScalar(u"\U0001f600") != 0x1f600 ||
+      charmos::FirstScalar(std::u16string_view(u"\xd800", 1)) != -1 ||
+      charmos::FontForCharacter(manager.get(), nullptr, SkFontStyle(), 0xd800))
+    return Failure("Unicode fallback bounds");
+  printf("Skia native: Cyrillic fallback and Unicode scalar checks ok\n");
   SkFont font(typeface,26);
   font.setEdging(SkFont::Edging::kAntiAlias);
   auto info=SkImageInfo::Make(kWidth,kHeight,kBGRA_8888_SkColorType,kOpaque_SkAlphaType);

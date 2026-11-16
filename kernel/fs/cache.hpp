@@ -36,6 +36,7 @@ struct CacheStats {
   uint64_t writebacks;
   uint64_t read_requests;
   uint64_t write_requests;
+  uint64_t read_io_ns;
 };
 CacheStats cache_stats();
 

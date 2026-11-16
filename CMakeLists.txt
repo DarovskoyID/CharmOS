@@ -7,6 +7,11 @@ cmake_minimum_required(VERSION 3.25)
 if(NOT DEFINED CHARMOS_TARGET)
   project(CharmOS NONE)
   include(ExternalProject)
+  # Native startup is dominated by the OS/runtime as well as Chromium itself.
+  # Keep symbols while avoiding an accidental -O0 product build. Debug remains
+  # an explicit selectable profile for instruction-level debugging.
+  set(CHARMOS_NATIVE_BUILD_TYPE RelWithDebInfo CACHE STRING "Kernel/user build profile")
+  set_property(CACHE CHARMOS_NATIVE_BUILD_TYPE PROPERTY STRINGS Debug RelWithDebInfo Release MinSizeRel)
 
   function(charmos_subbuild name)
     ExternalProject_Add(${name}
@@ -23,9 +28,11 @@ if(NOT DEFINED CHARMOS_TARGET)
   charmos_subbuild(uefi
     -DCMAKE_TOOLCHAIN_FILE=${CMAKE_SOURCE_DIR}/cmake/toolchain-uefi.cmake)
   charmos_subbuild(kernel
-    -DCMAKE_TOOLCHAIN_FILE=${CMAKE_SOURCE_DIR}/cmake/toolchain-kernel.cmake)
+    -DCMAKE_TOOLCHAIN_FILE=${CMAKE_SOURCE_DIR}/cmake/toolchain-kernel.cmake
+    -DCMAKE_BUILD_TYPE=${CHARMOS_NATIVE_BUILD_TYPE})
   charmos_subbuild(user
-    -DCMAKE_TOOLCHAIN_FILE=${CMAKE_SOURCE_DIR}/cmake/toolchain-user.cmake)
+    -DCMAKE_TOOLCHAIN_FILE=${CMAKE_SOURCE_DIR}/cmake/toolchain-user.cmake
+    -DCMAKE_BUILD_TYPE=${CHARMOS_NATIVE_BUILD_TYPE})
   # Хост-тесты тем же clang, что и ядро: одинаковые диагностики и встроенные трейты.
   charmos_subbuild(host -DCMAKE_BUILD_TYPE=Debug
     -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++)

@@ -94,6 +94,19 @@ void dispatch(uint64_t signo, void* info, void* context) {
   if (h == SIG_DFL) {
     // Действие по умолчанию (process.md §9): завершить или игнорировать.
     if (signo == SIGINT || signo == SIGQUIT || signo == SIGTERM || signo == SIGSEGV) {
+      uint64_t address = info ? static_cast<const abi::signal::SignalInfo*>(info)->addr : 0;
+      uint64_t rip = context ? static_cast<const abi::signal::SignalFrame*>(context)->rip : 0;
+      fprintf(stderr, "libc: fatal signal %llu addr=%llx rip=%llx\n",
+              static_cast<unsigned long long>(signo),
+              static_cast<unsigned long long>(address),
+              static_cast<unsigned long long>(rip));
+      if (context) {
+        const auto* frame = static_cast<const abi::signal::SignalFrame*>(context);
+        const auto* stack = reinterpret_cast<const uint64_t*>(frame->rsp);
+        for (unsigned i = 0; i < 24; ++i)
+          fprintf(stderr, "libc: stack[%u]=%llx\n", i,
+                  static_cast<unsigned long long>(stack[i]));
+      }
       charm::process_exit(ap::kExitKilled);
     }
   } else if (h != SIG_IGN) {
@@ -300,6 +313,7 @@ int sigaltstack(const stack_t* ss, stack_t* old_ss) {
   return 0;
 }
 int sigaction(int signo, const struct sigaction* act, struct sigaction* old) {
+  if (signo == SIGPROF) return fail_errno(ENOTSUP);
   if (signo <= 0 || signo >= NSIG) return fail_errno(EINVAL);
   if (!ensure_dispatch()) return -1;
   if (old != nullptr) {

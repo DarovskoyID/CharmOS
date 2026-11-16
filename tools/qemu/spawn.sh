@@ -4,4 +4,5 @@ work="$build/spawn-work"
 mkdir -p "$work"
 echo "hello from mkdisk" >"$work/hello"
 "$build/host/tools/mkdisk/mkdisk" "$build/disk-spawn.img" 96 --esp 40 --root ext2 \
-  --put "2:/etc/hello.txt=$work/hello" --put "2:/bin/spawn_child=$build/user/user/spawn_child.elf"
+  --put "2:/etc/hello.txt=$work/hello" --put "2:/bin/spawn_child=$build/user/user/spawn_child.elf" \
+  --put "2:/bin/loader_probe=$build/user/user/loader_probe.elf"

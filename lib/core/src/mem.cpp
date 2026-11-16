@@ -3,18 +3,30 @@
 #include <stdint.h>
 
 extern "C" {
+#if defined(CHARMOS_KERNEL_MEMORY)
+void* charmos_x86_memset(void*, int, size_t);
+void* charmos_x86_memcpy(void*, const void*, size_t);
+#endif
 
 void* memset(void* dst, int c, size_t n) {
+#if defined(CHARMOS_KERNEL_MEMORY)
+  return charmos_x86_memset(dst, c, n);
+#else
   auto* d = static_cast<unsigned char*>(dst);
   for (size_t i = 0; i < n; ++i) d[i] = static_cast<unsigned char>(c);
   return dst;
+#endif
 }
 
 void* memcpy(void* __restrict dst, const void* __restrict src, size_t n) {
+#if defined(CHARMOS_KERNEL_MEMORY)
+  return charmos_x86_memcpy(dst, src, n);
+#else
   auto* d = static_cast<unsigned char*>(dst);
   const auto* s = static_cast<const unsigned char*>(src);
   for (size_t i = 0; i < n; ++i) d[i] = s[i];
   return dst;
+#endif
 }
 
 void* memmove(void* dst, const void* src, size_t n) {

@@ -205,3 +205,20 @@ TEST(paging_remap_inaccessible_marker) {
   CHECK(pt.unmap_4k(va) == 0xb000);
   CHECK(!pt.remap_4k(va, 0xc000, user_noexec));  // no leaf
 }
+
+TEST(paging_sparse_preflight_does_not_expose_leaf) {
+  Pool pool(3);
+  PageTables pt;
+  CHECK(pt.init(&Pool::alloc, &pool, 0));
+  uint64_t phys = 0, flags = 0;
+  CHECK(!pt.prepare_4k(0x400000, arch::x86_64::kMapUser));
+  CHECK(!pt.translate(0x400000, &phys, &flags));
+  pool.cap = 4;
+  CHECK(pt.prepare_4k(0x400000, arch::x86_64::kMapUser));
+  CHECK(!pt.translate(0x400000, &phys, &flags));
+  CHECK(pool.used == 4);
+  CHECK(pt.map_4k(0x400000, 0x123000, arch::x86_64::kMapUser));
+  CHECK(pool.used == 4 && pt.translate(0x400000, &phys, &flags));
+  CHECK(phys == 0x123000 && (flags & arch::x86_64::kMapUser));
+  CHECK(!pt.prepare_4k(0x400001, arch::x86_64::kMapUser));
+}

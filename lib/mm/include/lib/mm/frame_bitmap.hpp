@@ -35,6 +35,9 @@ class FrameBitmap {
   // Выделяет count подряд идущих фреймов, первый из которых выровнен на
   // align_frames (степень двойки). Возвращает физический адрес первого.
   lib::core::Result<uint64_t, FrameError> alloc(uint64_t count = 1, uint64_t align_frames = 1);
+  // Bulk loader path: start near the last allocation, then wrap through the
+  // normal search. Preserves all free-space and preferred-region checks.
+  lib::core::Result<uint64_t, FrameError> alloc_near_hint(uint64_t count);
 
   // То же, но весь участок обязан лежать ниже limit_phys (физ. адрес, не включительно).
   // Нужно, например, для кода запуска AP, который исполняется в реальном режиме.

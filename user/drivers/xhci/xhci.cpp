@@ -296,6 +296,7 @@ bool service_disk() {
     uint32_t tail = h->cq_tail;
     block_cq[tail % abi::block::kRingEntries] = {r.id, static_cast<int32_t>(result), 0};
     __atomic_store_n(&h->cq_tail, tail + 1, __ATOMIC_RELEASE);
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);  // Publish CQ before reading the sleep flag.
     if (__atomic_load_n(&h->kernel_wants_kick, __ATOMIC_ACQUIRE) != 0) {
       __atomic_store_n(&h->kernel_wants_kick, 0u, __ATOMIC_RELAXED);
       (void)channel_write(block_note, nullptr, 0, nullptr, 0);

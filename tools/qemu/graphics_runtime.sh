@@ -14,7 +14,12 @@ puts=(--put "2:/etc/init.conf=$work/init.conf"
       --put "2:/fonts/ui.ttf=$root/assets/fonts/space-grotesk/SpaceGrotesk-Medium.ttf"
       --put "2:/fonts/ui-OFL.txt=$root/assets/fonts/space-grotesk/OFL.txt"
       --put "2:/fonts/mono.ttf=$root/assets/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf"
-      --put "2:/fonts/mono-OFL.txt=$root/assets/fonts/jetbrains-mono/OFL.txt")
+      --put "2:/fonts/mono-OFL.txt=$root/assets/fonts/jetbrains-mono/OFL.txt"
+      --put "2:/fonts/fallback.ttf=$root/assets/fonts/noto/NotoSans-Regular.ttf"
+      --put "2:/fonts/fallback-OFL.txt=$root/assets/fonts/noto/OFL.txt"
+      --put "2:/fonts/arabic.ttf=$root/assets/fonts/noto/NotoSansArabic-Regular.ttf"
+      --put "2:/fonts/cjk.otf=$root/assets/fonts/noto-cjk/NotoSansCJKsc-Regular.otf"
+      --put "2:/fonts/cjk-OFL.txt=$root/assets/fonts/noto-cjk/OFL.txt")
 for program in init logd wm graphics_runtime sh; do
   puts+=(--put "2:/bin/$program=$build/user/user/$program.elf")
 done

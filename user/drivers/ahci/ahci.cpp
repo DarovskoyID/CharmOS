@@ -262,6 +262,7 @@ extern "C" int64_t charm_main(Handle kernel) {
       uint32_t t = h->cq_tail;
       cq[t % blk::kRingEntries] = {r.id, static_cast<int32_t>(s), 0};
       __atomic_store_n(&h->cq_tail, t + 1, __ATOMIC_RELEASE);
+      fence();  // CQ publication must be visible before checking the kick flag.
       if (__atomic_load_n(&h->kernel_wants_kick, __ATOMIC_ACQUIRE) != 0) {
         __atomic_store_n(&h->kernel_wants_kick, 0u, __ATOMIC_RELAXED);
         char none = 0;

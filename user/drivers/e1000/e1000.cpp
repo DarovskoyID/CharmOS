@@ -233,8 +233,14 @@ extern "C" int64_t charm_main(Handle kernel) {
     // Ждём прерывания (или, без линии, короткий сон опроса); звонок ядра и
     // закрытие канала будят раньше.
     __atomic_store_n(&h->driver_wants_kick, 1u, __ATOMIC_SEQ_CST);
-    if (h->rx_free_head != __atomic_load_n(&h->rx_free_tail, __ATOMIC_ACQUIRE) ||
-        h->tx_head != __atomic_load_n(&h->tx_tail, __ATOMIC_ACQUIRE)) {
+    // A nonempty software queue is not runnable work when the hardware ring
+    // is full. The kernel initially gives us 64 RX buffers, but only 63 fit;
+    // spinning on that last buffer starves the block driver on the same CPU.
+    // Wait for a completion/IRQ before trying to replenish a full ring.
+    if ((rx_used < kN - 1 &&
+         h->rx_free_head != __atomic_load_n(&h->rx_free_tail, __ATOMIC_ACQUIRE)) ||
+        (tx_used < kN - 1 &&
+         h->tx_head != __atomic_load_n(&h->tx_tail, __ATOMIC_ACQUIRE))) {
       continue;
     }
     if (irq_h != 0 && !irq_armed) irq_armed = object_bind(port_h, irq_h, 1) == Status::Ok;

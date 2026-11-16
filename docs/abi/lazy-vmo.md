@@ -15,7 +15,7 @@ fault handler is required. `VmoCreate` remains eager and unchanged.
 ## Syscall
 
 `VmoReserve(size)` (syscall 84, ABI v1.21) returns normal transferable VMO
-authority (`kVmoDefault`) whose frame-index array is zero. `size` is page
+authority (`kVmoDefault`) whose logical frame index is zero. `size` is page
 aligned; an eager `VmoCreate` remains capped at 1 GiB, while a lazy reservation
 may be up to 64 GiB so allocator VA pools can reserve address space without
 committing frames. The Job reservation quota is charged
@@ -48,6 +48,15 @@ alias commits the VMO. Restoring access always reloads the physical address
 from the VMO and rewrites the leaf (`protect_4k` alone is insufficient). This
 is covered by a host page-table test and a guest alias test.
 
+Initially inaccessible mappings now use the Mapping ownership record without
+eagerly allocating page-table leaves. Partial-unmap tombstones are independent
+of leaf presence. Protection validates ownership and preflights intermediate
+tables before publishing permissions; an OOM leaves existing permissions
+unchanged. The frame index uses lazily allocated 512-entry chunks, so large
+reservations do not allocate multi-MiB flat frame arrays. Job quota and backing
+ownership are unchanged. Empty metadata allocated by a failed commit remains
+owned by the VMO and is freed on destruction.
+
 ## libc
 
 - Anonymous private `mmap(PROT_NONE)` uses `VmoReserve`.
@@ -60,9 +69,9 @@ is covered by a host page-table test and a guest alias test.
   release or discard committed pages.
 - File snapshots and non-`PROT_NONE` anonymous mappings keep eager `VmoCreate`.
 
-Actual discard/free of committed pages, arbitrary `MAP_FIXED`, shared mappings
-and partial `munmap` remain future work; partial `munmap` is still a documented
-no-op.
+Actual discard/free of committed pages, arbitrary `MAP_FIXED` and shared
+mappings remain future work. Partial `munmap` is implemented by ABI v1.22
+and removes access; it is not a no-op.
 
 ## Proof
 
@@ -70,11 +79,27 @@ no-op.
   second commit with a different frame replaces the stale physical address.
 - `runtime/runtime_none`, `runtime/runtime_cpu`:
   `runtime: lazy VMO reservation and alias commit ok` (two mappings of one
-  reserved VMO, mutually visible writes after commit; 32 MiB sparse reservation
-  with a small fixed replacement).
+  reserved VMO, mutually visible writes after commit; 8 GiB sparse reservation
+  with bounded physical overhead, a small fixed replacement, metadata-chunk
+  boundaries and a 64 MiB removed interior range).
 - `m10/v8_runtime`: strict V8 lifecycle at the default 512 MiB QEMU RAM, with
   the x64 default CodeRange reservation (no 64 MiB workaround).
 
 Partial `munmap` (ABI v1.22) removes leaves without reclaiming the VMO's
 frames; committed pages are released only when the VMO is released. Physical
 discard/zero-on-recommit remains future work.
+
+## Internal sparse metadata (2026-11-11)
+
+Lazy VMO frame directories allocate 512-frame chunks only when committed.
+An inaccessible mapping owns its range without leaf PTEs; a per-mapping bitmap
+retains removed holes. Teardown skips empty frame chunks. Large partial unmaps
+set complete bitmap bytes together, without a per-page loop over empty pools.
+
+libc stores 4096 page states per metadata chunk (16 MiB virtual coverage).
+Each chunk has a uniform default or an allocated byte array. Protection changes
+preflight metadata before kernel calls. Partial munmap only allocates boundary
+chunks; fully removed chunks release their arrays and retain a non-live uniform
+state. No permission or known-zero state is inferred from an absent data array
+without consulting that chunk's explicit default. Mapping lifetime, capability
+rights, zero-fill and the prohibition on restoring removed pages are unchanged.

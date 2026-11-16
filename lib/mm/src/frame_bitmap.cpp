@@ -48,6 +48,15 @@ Result<uint64_t, FrameError> FrameBitmap::alloc(uint64_t count, uint64_t align_f
 
 void FrameBitmap::set_preferred_start(uint64_t phys) { preferred_start_ = phys / kFrameSize; }
 
+Result<uint64_t, FrameError> FrameBitmap::alloc_near_hint(uint64_t count) {
+  uint64_t start = hint_ * 64;
+  if (start < preferred_start_) start = preferred_start_;
+  auto result = alloc_from(start, frame_count_, count, 1);
+  if (result.is_err() && result.error() == FrameError::OutOfMemory) result = alloc(count, 1);
+  if (result.is_ok()) hint_ = (result.value() / kFrameSize + count) / 64;
+  return result;
+}
+
 Result<uint64_t, FrameError> FrameBitmap::alloc_below(uint64_t limit_phys, uint64_t count,
                                                       uint64_t align_frames) {
   uint64_t limit = limit_phys / kFrameSize;

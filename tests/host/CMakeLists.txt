@@ -6,6 +6,10 @@ function(charmos_host_test name)
 endfunction()
 
 charmos_host_test(test_chromium_json test_chromium_json.cpp)
+charmos_host_test(test_cache_index test_cache_index.cpp)
+charmos_host_test(test_block_request test_block_request.cpp)
+target_link_libraries(test_block_request PRIVATE abi)
+charmos_host_test(test_x86_memory test_x86_memory.cpp ${CMAKE_SOURCE_DIR}/arch/x86_64/src/memory.S)
 
 add_library(native_path_test_impl OBJECT ${CMAKE_SOURCE_DIR}/user/libc/src/path.cpp)
 target_include_directories(native_path_test_impl PRIVATE ${CMAKE_SOURCE_DIR}/user/libc/include)

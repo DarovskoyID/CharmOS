@@ -41,6 +41,10 @@ uint64_t map(Domain* d, const uint64_t* frames, uint64_t pages, bool writable);
 // Отображает одну страницу по заданному IOVA (окно ядра kKernelIovaBase…,
 // не пересекается с адресами map). false — нет памяти под таблицы.
 bool map_at(Domain* d, uint64_t iova, uint64_t phys, bool writable);
+// То же для диапазона: все листья готовятся до публикации, одна IOTLB
+// invalidation на весь запрос; при OOM новые отображения не публикуются.
+bool map_pages_at(Domain* d, uint64_t iova, const uint64_t* frames,
+                  uint64_t pages, bool writable);
 
 // IOVA выше этой границы map не выдаёт: окно для отображений ядра (блочный
 // слой отображает страницы кэша на время запроса).

@@ -43,6 +43,9 @@ class PageTables {
 
   // false — нет памяти, адреса не выровнены или страница уже отображена.
   bool map_4k(uint64_t virt, uint64_t phys, uint64_t flags);
+  // Allocate intermediate tables without exposing a leaf. Used to preflight
+  // restoration of a sparse, inaccessible reservation before changing rights.
+  bool prepare_4k(uint64_t virt, uint64_t flags);
   bool map_2m(uint64_t virt, uint64_t phys, uint64_t flags);
   // Отображает [virt, virt+size) на [phys, ...): страницы 2 МиБ там, где
   // virt и phys оба выровнены, иначе 4 КиБ. size кратен 4 КиБ.

@@ -647,6 +647,10 @@ int putchar(int c) { return fputc(c,stdout); }
 
 int fputs(const char* s, FILE* f) {
   if(fwide(f,-1)>0) { errno=EINVAL; f->err=true; return EOF; }
+  if (f->mode == _IONBF) {
+    size_t length = strlen(s);
+    return fwrite(s, 1, length, f) == length ? 0 : EOF;
+  }
   for (; *s != '\0'; ++s) {
     if (put(f, *s) == EOF) return EOF;
   }
@@ -711,14 +715,37 @@ char* fgets(char* buf, int n, FILE* f) {
 size_t fread(void* buf, size_t size, size_t n, FILE* f) {
   if(!size || !n) return 0;
   if(size && n>SIZE_MAX/size) { errno=EOVERFLOW; f->err=true; return 0; }
+  if(!f->readable) { errno=EBADF; f->err=true; return 0; }
+  if(fwide(f,-1)>0) { errno=EINVAL; f->err=true; return 0; }
   auto* p = static_cast<char*>(buf);
   size_t total = size * n, got = 0;
   while (got < total) {
-    int c = fgetc(f);
-    if (c == EOF) break;
-    p[got++] = static_cast<char>(c);
+    if (f->unget_count) {
+      p[got++] = static_cast<char>(f->unget[--f->unget_count]);
+    } else if (f->rpos < f->rlen) {
+      size_t amount = f->rlen - f->rpos;
+      if (amount > total - got) amount = total - got;
+      memcpy(p + got, f->rbuf + f->rpos, amount);
+      f->rpos += amount;
+      got += amount;
+    } else if (total - got >= sizeof f->rbuf) {
+      // Large consumers (ICU/font data) should use the native batched file
+      // path, not one syscall and fgetc loop per 1 KiB. First drain pushback
+      // and read-ahead above so the descriptor and stream positions agree.
+      if (f == stdin) fflush(stdout);
+      ssize_t amount = ::read(f->fd, p + got, total - got);
+      if (amount <= 0) {
+        if (!amount) f->eof = true; else f->err = true;
+        break;
+      }
+      got += static_cast<size_t>(amount);
+    } else {
+      int c = get_byte(f);
+      if (c == EOF) break;
+      p[got++] = static_cast<char>(c);
+    }
   }
-  return size != 0 ? got / size : 0;
+  return got / size;
 }
 
 size_t fwrite(const void* buf, size_t size, size_t n, FILE* f) {
@@ -727,6 +754,26 @@ size_t fwrite(const void* buf, size_t size, size_t n, FILE* f) {
   if(fwide(f,-1)>0) { errno=EINVAL; f->err=true; return 0; }
   const auto* p = static_cast<const char*>(buf);
   size_t total = size * n, done = 0;
+  if (f->mode == _IONBF) {
+    if (!f->writable || f->err) {
+      if (!f->writable) errno = EBADF;
+      f->err = true;
+      return 0;
+    }
+    // Unbuffered means no retained stream buffer, not one syscall per byte.
+    // Chromium emits each diagnostic as one fwrite; keep that write batched.
+    while (done < total) {
+      ssize_t amount = ::write(f->fd, p + done, total - done);
+      if (amount < 0 && errno == EINTR) continue;
+      if (amount <= 0) {
+        if (!amount) errno = EIO;
+        f->err = true;
+        break;
+      }
+      done += static_cast<size_t>(amount);
+    }
+    return done / size;
+  }
   for (; done < total; ++done) {
     if (put(f, p[done]) == EOF) break;
   }

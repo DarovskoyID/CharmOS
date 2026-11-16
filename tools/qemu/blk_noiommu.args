@@ -1,0 +1,4 @@
+# M6: IOMMU и virtio-blk (современный интерфейс, DMA через IOMMU).
+-device intel-iommu
+-drive if=none,id=d0,format=raw,file=build/disk-blk.img
+-device virtio-blk-pci,drive=d0,disable-legacy=on,iommu_platform=on

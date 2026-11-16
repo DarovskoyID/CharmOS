@@ -45,6 +45,11 @@ using namespace libc;
 
 extern "C" [[noreturn]] void __libc_start(uint64_t boot) {
   g_main_thread.self = &g_main_thread;
+  // docs/abi/process.md: the initial process stack has a fixed native range.
+  // Publish it before any runtime code asks pthread_getattr_np for the main
+  // thread (Blink does this in separately launched renderer processes).
+  g_main_thread.stack_top = 0x00007ffffff00000ull;
+  g_main_thread.stack_size = 64 * 1024;
   (void)charm::thread_set_fs(reinterpret_cast<uint64_t>(&g_main_thread));
 
   int argc = 0;

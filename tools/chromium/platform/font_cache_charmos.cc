@@ -1,9 +1,10 @@
 // CharmOS Blink font fallback.
 //
 // The platform has a directory font manager rooted at /fonts. Character
-// fallback asks Skia to match the requested family/style/BCP47 list and then
-// resolves the returned family through Blink's normal font platform data path.
+// fallback enumerates registered families and checks actual glyph coverage,
+// then resolves the result through Blink's normal font platform data path.
 #include "skia/ext/font_utils.h"
+#include "build/charmos/font_fallback_charmos.h"
 #include "third_party/blink/renderer/platform/fonts/font_cache.h"
 #include "third_party/blink/renderer/platform/fonts/font_description.h"
 #include "third_party/blink/renderer/platform/fonts/font_face_creation_params.h"
@@ -49,11 +50,7 @@ const SimpleFontData* FontCache::PlatformFallbackFontForCharacter(
       SkFontStyle::kNormal_Width,
       font_description.Style() == kItalicSlopeValue ? SkFontStyle::kItalic_Slant
                                                     : SkFontStyle::kUpright_Slant);
-  const auto locale = font_description.LocaleOrDefault().Ascii();
-  const char* languages[] = {locale.data()};
-  const char* family = "";
-  sk_sp<SkTypeface> typeface = manager->matchFamilyStyleCharacter(
-      family, style, languages, locale.length() ? 1 : 0, c);
+  auto typeface = charmos::FontForCharacter(manager.get(), nullptr, style, c);
   if (!typeface) return nullptr;
 
   SkString family_name;
@@ -64,7 +61,7 @@ const SimpleFontData* FontCache::PlatformFallbackFontForCharacter(
       AtomicString(family_name.c_str()));
   const FontPlatformData* platform_data =
       GetFontPlatformData(font_description, creation_params);
-  if (!platform_data) return nullptr;
+  if (!platform_data || !platform_data->FontContainsCharacter(c)) return nullptr;
   return FontDataFromFontPlatformData(platform_data);
 }
 

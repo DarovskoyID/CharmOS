@@ -4,6 +4,7 @@
 
 #include <abi/syscall.hpp>
 #include <lib/core/string_view.hpp>
+#include <lib/fs/fs.hpp>
 #include <stdint.h>
 
 namespace kernel::ipc {
@@ -35,6 +36,24 @@ Status sync_all();
 // Файл по хендлу (право Read) целиком в куче ядра (освободить — mm::kfree).
 // Пустой или больше max — InvalidArgs.
 Status read_file(uint32_t file, uint64_t max, void** data, uint64_t* size);
+
+// Eager executable loading reads directly into private process pages. A lease
+// pins the original inode across concurrent handle close/reuse until return.
+class ExecutableFile {
+ public:
+  ExecutableFile() = default;
+  ~ExecutableFile();
+  ExecutableFile(const ExecutableFile&) = delete;
+  ExecutableFile& operator=(const ExecutableFile&) = delete;
+  Status open(uint32_t handle, uint64_t max);
+  Status read(uint64_t offset, void* buffer, size_t size);
+  uint64_t size() const { return size_; }
+  uint64_t read_ns() const { return read_ns_; }
+ private:
+  lib::fs::FileSystem* fs_ = nullptr;
+  uint64_t node_ = 0, size_ = 0, read_ns_ = 0;
+  void* lease_ = nullptr;
+};
 
 // --- системные вызовы 23–30 ---------------------------------------------------------------
 Status sys_fs_open(uint32_t dir, uint64_t path, uint64_t len, uint64_t flags, uint64_t* out);

@@ -1,5 +1,5 @@
 #pragma once
-// Протокол «ядро — блочный драйвер», ABI v1.3. Нормативный документ —
+// Протокол «ядро — блочный драйвер», block ABI v1.4. Нормативный документ —
 // docs/abi/block.md.
 
 #include <stddef.h>
@@ -10,6 +10,7 @@ namespace abi::block {
 inline constexpr char kHelloMagic[4] = {'b', 'l', 'k', '1'};
 inline constexpr uint32_t kHelloReadOnly = 1u << 0;
 inline constexpr uint32_t kHelloFlush = 1u << 1;
+inline constexpr uint32_t kHelloLargeSegments = 1u << 2;
 
 // §5.1
 struct BlockHello {

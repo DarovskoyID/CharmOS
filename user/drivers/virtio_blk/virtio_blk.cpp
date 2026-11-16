@@ -2,6 +2,7 @@
 // интерфейс PCI (§4.1), разделённая очередь (§2.7), virtio-blk (§5.2).
 // С ядром говорит по протоколу docs/abi/block.md.
 #include <abi/block.hpp>
+#include "request.hpp"
 
 #include "../../tests/check.hpp"
 
@@ -150,8 +151,6 @@ void submit(Driver& d, uint32_t s, const blk::Request& r) {
   fence();
   ++d.avail_idx;
   d.avail[1] = d.avail_idx;
-  fence();
-  reg<uint16_t>(d.notify, 0) = 0;  // номер очереди 0
 }
 
 }  // namespace
@@ -264,8 +263,9 @@ extern "C" int64_t charm_main(Handle kernel) {
   for (int i = 0; i < 4; ++i) hello.magic[i] = blk::kHelloMagic[i];
   hello.block_size = 512;
   hello.block_count = capacity;
-  hello.max_blocks = blk::kMaxSegments * 8;
-  hello.flags = ((accepted & kFeatureRo) != 0 ? blk::kHelloReadOnly : 0) |
+  hello.max_blocks = virtio_blk::kMaxBlocks;
+  hello.flags = blk::kHelloLargeSegments |
+                ((accepted & kFeatureRo) != 0 ? blk::kHelloReadOnly : 0) |
                 ((accepted & kFeatureFlush) != 0 ? blk::kHelloFlush : 0);
   EXPECT(channel_write(kernel, &hello, sizeof hello, nullptr, 0) == Status::Ok);
   EXPECT(read_msg(kernel, buf, sizeof buf, hs, 2, &n, &nh) == Status::Ok);
@@ -288,6 +288,8 @@ extern "C" int64_t charm_main(Handle kernel) {
 
   for (;;) {
     // Новые запросы ядра.
+    bool submitted = false;
+    bool completed = false;
     for (;;) {
       uint32_t head = __atomic_load_n(&h->sq_head, __ATOMIC_RELAXED);
       if (head == __atomic_load_n(&h->sq_tail, __ATOMIC_ACQUIRE)) break;
@@ -299,19 +301,25 @@ extern "C" int64_t charm_main(Handle kernel) {
       }
       blk::Request r = sq[head % blk::kRingEntries];
       __atomic_store_n(&h->sq_head, head + 1, __ATOMIC_RELEASE);
-      bool valid = (r.op == blk::kOpFlush && r.segment_count == 0) ||
-                   ((r.op == blk::kOpRead || r.op == blk::kOpWrite) && r.segment_count >= 1 &&
-                    r.segment_count <= blk::kMaxSegments);
-      if (!valid || (r.op == blk::kOpFlush && (accepted & kFeatureFlush) == 0)) {
+      Status validation = virtio_blk::validate_request(r, capacity,
+          (accepted & kFeatureRo) != 0, (accepted & kFeatureFlush) != 0);
+      if (validation != Status::Ok) {
         uint32_t t = h->cq_tail;
-        cq[t % blk::kRingEntries] = {r.id, static_cast<int32_t>(Status::InvalidArgs), 0};
+        cq[t % blk::kRingEntries] = {r.id, static_cast<int32_t>(validation), 0};
         __atomic_store_n(&h->cq_tail, t + 1, __ATOMIC_RELEASE);
+        completed = true;
         continue;
       }
       submit(d, s, r);
+      submitted = true;
+    }
+    // Virtio 1.2 §2.7.13 permits notification after a batch of available
+    // buffers. Publish every descriptor before the one MMIO doorbell.
+    if (submitted) {
+      fence();
+      reg<uint16_t>(d.notify, 0) = 0;
     }
     // Готовые запросы устройства (§2.7.8).
-    bool completed = false;
     fence();
     uint16_t used_idx = *reinterpret_cast<volatile uint16_t*>(d.used + 2);
     while (d.used_seen != used_idx) {
@@ -329,6 +337,7 @@ extern "C" int64_t charm_main(Handle kernel) {
       d.slots[s].busy = false;
       completed = true;
     }
+    if (completed) fence();  // CQ publication must precede the kick flag load.
     if (completed && __atomic_load_n(&h->kernel_wants_kick, __ATOMIC_ACQUIRE) != 0) {
       __atomic_store_n(&h->kernel_wants_kick, 0u, __ATOMIC_RELAXED);
       char none = 0;

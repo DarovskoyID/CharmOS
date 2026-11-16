@@ -30,9 +30,11 @@ struct Service {
   char name[32];
   char path[128];
   char* argv[kMaxArgs + 1];
-  char args[256];
+  char args[1024];
   bool console;
   bool manual;  // "manual": зарегистрирована, но не стартует при загрузке
+  bool stop_requested;  // пользователь закрыл: не перезапускать
+  bool restart_pending;  // "start" при живом процессе: поднять после выхода
   Handle proc;  // 0 — не запущена
   int restarts;
 };
@@ -49,7 +51,7 @@ Handle g_wm_door = 0;    // наш конец двери компоновщик�
 bool parse_conf() {
   FILE* f = fopen("/etc/init.conf", "r");
   if (f == nullptr) return false;
-  char line[256];
+  char line[1024];
   while (fgets(line, sizeof line, f) != nullptr && g_count < kMaxServices) {
     char* save;
     char* kind = strtok_r(line, " \t\r\n", &save);
@@ -110,6 +112,11 @@ bool start(int i) {
   bool logd = strcmp(s.name, "logd") == 0;
   const bool browser = strcmp(s.name, "browser") == 0;
   if (browser) o.give |= CHARM_GIVE_NET | CHARM_GIVE_CONSOLE;
+  // The UI must stay responsive when a page hangs or a renderer spins: the
+  // compositor runs above the default priority, the browser below it. The
+  // browser's worker threads inherit its lower priority.
+  if (browser) o.priority = 8;
+  if (strcmp(s.name, "wm") == 0) o.priority = 24;
   if (logd) {
     Handle ch[2];
     if (charm::channel_create(ch) != Status::Ok) return false;
@@ -247,7 +254,11 @@ bool start(int i) {
   o.extra = extra;
   o.extra_roles = roles;
   o.extra_count = n;
+  uint64_t spawn_ns = charm::now_ns();
+  if (browser) printf("init: browser: spawning\n");
   int64_t p = charm_spawn(s.path, s.argv, nullptr, &o);
+  if (browser) printf("init: browser spawn %llu us\n",
+      static_cast<unsigned long long>((charm::now_ns() - spawn_ns) / 1000));
   if (p < 0) {
     printf("init: cannot start %s (%s): %s\n", s.name, s.path, strerror(errno));
     for (uint32_t k = 0; k < n; ++k) (void)charm::handle_close(extra[k]);
@@ -289,17 +300,41 @@ void control() {
     for (int i = 0; i < g_count; ++i) {
       if (strcmp(g_svc[i].name, msg + 6) != 0) continue;
       if (g_svc[i].proc != 0) {
-        reply("running\n");
+        // The previous instance is still being torn down (kill was just sent,
+        // or it is wedged). Replace it as soon as its exit packet arrives.
+        g_svc[i].stop_requested = false;
+        g_svc[i].restart_pending = true;
+        reply("restarting\n");
         return;
       }
       g_svc[i].restarts = 0;  // явный запрос снимает прежний лимит падений
+      g_svc[i].stop_requested = false;
       reply(start(i) ? "ok\n" : "failed\n");
+      return;
+    }
+    reply("no such service\n");
+  } else if (strncmp(msg, "stop ", 5) == 0) {
+    for (int i = 0; i < g_count; ++i) {
+      if (strcmp(g_svc[i].name, msg + 5) != 0) continue;
+      if (g_svc[i].proc == 0) {
+        reply("stopped\n");
+        return;
+      }
+      // User-initiated close: terminate and do not restart when the exit
+      // packet arrives. An explicit "start" clears the flag.
+      g_svc[i].stop_requested = true;
+      g_svc[i].restart_pending = false;
+      (void)charm_kill(g_svc[i].proc);
+      reply("ok\n");
       return;
     }
     reply("no such service\n");
   } else if (strncmp(msg, "kill ", 5) == 0) {
     for (int i = 0; i < g_count; ++i) {
       if (strcmp(g_svc[i].name, msg + 5) == 0 && g_svc[i].proc != 0 && !g_svc[i].console) {
+        // A forced kill is a stop: the exit must not be answered by an
+        // automatic restart. A pending "start" still replaces the process.
+        g_svc[i].stop_requested = !g_svc[i].restart_pending;
         (void)charm_kill(g_svc[i].proc);
         reply("ok\n");
         return;
@@ -362,7 +397,7 @@ extern "C" int main(int, char**) {
   if (charm::channel_create(ctl) == Status::Ok) {
     g_control = ctl[0];
     g_control_peer = ctl[1];
-    (void)charm::object_bind(g_port, g_control, kControlKey);
+    (void)charm::object_watch(g_port, g_control, kControlKey, 1);
   }
   if (!parse_conf()) {
     printf("init: no /etc/init.conf\n");
@@ -380,11 +415,10 @@ extern "C" int main(int, char**) {
     Status s = charm::port_wait(g_port, &pkt, charm::kForever);
     if (s != Status::Ok) continue;
     if (pkt.key == kControlKey) {
-      // Читаем и перевзводим наблюдение при любом типе пакета: канал мог
-      // стать writable, и раньше в этом случае чтение больше не взводилось —
-      // команда «start browser» от WM терялась.
+      // Управляющий канал ждёт только чтение/закрытие. После обработки
+      // перевзводим one-shot watch, включая ранние/пустые уведомления.
       control();
-      (void)charm::object_bind(g_port, g_control, kControlKey);
+      (void)charm::object_watch(g_port, g_control, kControlKey, 1);
       continue;
     }
     if (pkt.type != abi::syscall::kPacketProcessExited || pkt.key >= static_cast<uint64_t>(g_count)) continue;
@@ -393,7 +427,20 @@ extern "C" int main(int, char**) {
     (void)charm::handle_close(svc.proc);
     svc.proc = 0;
     if (svc.console) shutdown();
-    if (svc.restarts++ >= (strcmp(svc.name, "browser") == 0 ? 1000 : kMaxRestarts)) {
+    if (svc.restart_pending) {
+      svc.restart_pending = false;
+      svc.stop_requested = false;
+      svc.restarts = 0;
+      printf("init: restarting %s\n", svc.name);
+      start(static_cast<int>(pkt.key));
+      continue;
+    }
+    if (svc.stop_requested) {
+      svc.stop_requested = false;
+      printf("init: %s stopped\n", svc.name);
+      continue;
+    }
+    if (svc.restarts++ >= kMaxRestarts) {
       printf("init: %s failed %d times, not restarting\n", svc.name, svc.restarts);
       continue;
     }

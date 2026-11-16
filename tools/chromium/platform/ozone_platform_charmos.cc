@@ -68,7 +68,7 @@ class OzonePlatformCharmOSImpl final : public OzonePlatform {
     return properties_;
   }
   const PlatformRuntimeProperties& GetPlatformRuntimeProperties() override {
-    runtime_properties_.supports_server_side_window_decorations = true;
+    runtime_properties_.supports_server_side_window_decorations = false;
     return runtime_properties_;
   }
 
