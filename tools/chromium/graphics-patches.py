@@ -2390,6 +2390,12 @@ def graphics_patches():
                  '      sources += [ "upgrade_util_linux.cc" ]\n'
                  '    }\n\n'
                  '    if (is_linux || is_mac || is_charmos) {'),
+                ('    if (is_linux || is_charmos) {\n'
+                 '      sources += [ "first_run_internal_linux.cc" ]\n'
+                 '      deps += [ "//chrome/browser/ui/views:eula_dialog_linux" ]',
+                 '    if (is_linux) {\n'
+                 '      sources += [ "first_run_internal_linux.cc" ]\n'
+                 '      deps += [ "//chrome/browser/ui/views:eula_dialog_linux" ]'),
             ]),
         "components/crash/core/app/BUILD.gn": (
             "7de07fef84262e2fb0e2071f99f83ac0818ccbe9ffbbbe66fa01adbeb19d8200", [

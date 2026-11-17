@@ -31,19 +31,6 @@ void EnableTerminationOnOutOfMemory() {
 
 }  // namespace base
 
-namespace crash_reporter {
-
-// Declared in components/crash/core/app/crashpad.h.
-bool InitializeCrashpad(bool initial_client, const std::string& process_type);
-
-bool InitializeCrashpad(bool /*initial_client*/,
-                        const std::string& /*process_type*/) {
-  // No crashpad handler or client library is present in the Rust-free build.
-  return false;
-}
-
-}  // namespace crash_reporter
-
 namespace media {
 
 std::unique_ptr<AudioManager> CreateAudioManager(

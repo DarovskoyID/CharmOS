@@ -796,3 +796,11 @@ CrashReporterClient и два content-shell test Views delegate теперь д�
 только при `!charmos_build_chrome`; platform shims остаются общими. Требуется
 повторная линковка для поиска следующего возможного слоя ошибок; QEMU ещё не
 запущен.
+
+
+Checkpoint (2026-11-17): вторая линковка оставила два duplicate-symbol слоя.
+Удалена старая `platform_charmos.cc` копия `InitializeCrashpad`, поскольку
+компонентный `crashpad_charmos.cc` уже входит в `components/crash/core/app`.
+Linux `first_run_internal_linux.cc` больше не включается на CharmOS: generic
+`first_run.cc` содержит соответствующий символ. 551 patch context проверен;
+нужна следующая линковка, затем ELF audit и QEMU.
