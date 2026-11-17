@@ -755,3 +755,9 @@ Crashpad include/SetFirstChance guards объединены в одном patch 
 и недостающие POSIX errno, без Linux userspace. Resource IDs присутствуют в
 сгенерированном `generated_resources.h`. Patch contexts зелёные; повторная
 инкрементальная компиляция, линковка и пользовательский QEMU PASS ещё впереди.
+
+
+Checkpoint (2026-11-17): 548 pinned contexts. `fxbarcode` разрешён на CharmOS
+без включения несвязанного PDF XFA; QR wrapper использует только существующий
+PDFium barcode target. Предыдущий запуск остановился на этом GN assert до
+компиляции. Остальные проверки остаются в силе, линковка/QEMU ещё впереди.

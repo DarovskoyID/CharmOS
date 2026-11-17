@@ -318,6 +318,10 @@ def graphics_patches():
                 ('  if (!InitQRCode(numInputBytes, ecLevel, qrCode)) {',
                  '  if (!InitQRCode(numInputBytes, ecLevel, qrCode, min_version)) {'),
             ]),
+        "third_party/pdfium/fxbarcode/BUILD.gn": (
+            "bca35c4e9f43bcde59eabab41479c999e23286a59c07770ccd8fd512ffc26454", [
+                ('assert(pdf_enable_xfa)', 'assert(pdf_enable_xfa || is_charmos)'),
+            ]),
         "third_party/pdfium/BUILD.gn": (
             "12115525dfcd49686970cbb0d2c92abbf8b32f9bdc22a864f8a48dc59806f4f5", [
                 ('component("pdfium") {\n  output_name = "pdfium"',
