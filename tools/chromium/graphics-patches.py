@@ -145,6 +145,8 @@ def graphics_patches():
                  '#if BUILDFLAG(IS_CHARMOS)\n#include "build/charmos/portability_history_charmos.h"\n#else\n#include "components/user_data_importer/utility/parsing_ffi/lib.rs.h"\n#endif'),
                 ('std::string_view RustStringToStringView(const rust::String& rust_string) {',
                  '#if BUILDFLAG(IS_CHARMOS)\nusing NativeHistoryString = std::string;\n#else\nusing NativeHistoryString = rust::String;\n#endif\n\nstd::string_view RustStringToStringView(const NativeHistoryString& rust_string) {'),
+                ('std::u16string RustStringToUTF16(const rust::String& rust_string) {',
+                 'std::u16string RustStringToUTF16(const NativeHistoryString& rust_string) {'),
             ]),
         "components/user_data_importer/mojom/BUILD.gn": (
             "341701f5779c269b274b01eb0f21dfef10b8918d31c847ef72f3800093f5ac85", [
@@ -176,6 +178,28 @@ def graphics_patches():
                  'namespace {\n#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)'),
                 ('#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)\n  // When an unauthenticated supervised user',
                  '#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\n  // When an unauthenticated supervised user'),
+            ]),
+        "chrome/browser/supervised_user/supervised_user_browser_utils.h": (
+            "143acdf2a2f198b7c9cc97908ac5e781d6793ba44d987a2650feae5310d8a963", [
+                ('#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)\nstd::string CreateReauthenticationInterstitialForYouTube(',
+                 '#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\nstd::string CreateReauthenticationInterstitialForYouTube('),
+            ]),
+        "chrome/browser/supervised_user/supervised_user_browser_utils.cc": (
+            "e882e1606b171105ff04b701a69084433e754332f3c6f29e581b8fd26db4b328", [
+                ('#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)\n#include "chrome/browser/supervised_user/supervised_user_verification_page_youtube.h"',
+                 '#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\n#include "chrome/browser/supervised_user/supervised_user_verification_page_youtube.h"'),
+                ('#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)\nstd::string CreateReauthenticationInterstitialForYouTube(',
+                 '#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\nstd::string CreateReauthenticationInterstitialForYouTube('),
+            ]),
+        "components/supervised_user/core/common/features.h": (
+            "cce436380df7ea26b2a63270ac53cfe7eb32bcf714e87fb0bab1453f1ff9f5d0", [
+                ('#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)\n// Uses supervised user strings on the signout dialog.',
+                 '#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\n// Uses supervised user strings on the signout dialog.'),
+            ]),
+        "components/supervised_user/core/common/features.cc": (
+            "ec69321d038cdbd2831c283edb7295e7b322e993cafecef4a3e8be6361a19a36", [
+                ('#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)\nBASE_FEATURE(kEnableSupervisedUserVersionSignOutDialog,',
+                 '#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\nBASE_FEATURE(kEnableSupervisedUserVersionSignOutDialog,'),
             ]),
         "chrome/browser/supervised_user/supervised_user_navigation_observer.cc": (
             "d483eefcd3c1abb00d719a01c46d78ee14895227b6d02d05af01ae4a40ec23b1", [
@@ -293,6 +317,13 @@ def graphics_patches():
                  'bool CBC_QRCoderEncoder::Encode(WideStringView content,\n                                const CBC_QRCoderErrorCorrectionLevel* ecLevel,\n                                CBC_QRCoder* qrCode) {\n  return EncodeBytesWithMinimumVersion(FX_UTF8Encode(content), ecLevel, qrCode, 1);\n}\n\nbool CBC_QRCoderEncoder::EncodeBytesWithMinimumVersion(\n    ByteString content,\n    const CBC_QRCoderErrorCorrectionLevel* ecLevel,\n    CBC_QRCoder* qrCode,\n    int32_t min_version) {\n  if (min_version < 1 || min_version > CBC_QRCoderVersion::kMaxVersion) {\n    return false;\n  }\n  CBC_QRCoderMode* mode = ChooseMode(content);'),
                 ('  if (!InitQRCode(numInputBytes, ecLevel, qrCode)) {',
                  '  if (!InitQRCode(numInputBytes, ecLevel, qrCode, min_version)) {'),
+            ]),
+        "third_party/pdfium/BUILD.gn": (
+            "12115525dfcd49686970cbb0d2c92abbf8b32f9bdc22a864f8a48dc59806f4f5", [
+                ('component("pdfium") {\n  output_name = "pdfium"',
+                 'component("pdfium") {\n  if (is_charmos) {\n    include_dirs = [ "." ]\n    sources = [ "//build/charmos/qr_code_pdfium_charmos.cc" ]\n  }\n  output_name = "pdfium"'),
+                ('    "fxjs",\n  ]\n\n  public_deps = [',
+                 '    "fxjs",\n  ]\n  if (is_charmos) {\n    deps += [ "fxbarcode" ]\n  }\n\n  public_deps = ['),
             ]),
         "components/qr_code_generator/BUILD.gn": (
             "bbd5d994637e3e484717ec5a2d72e84343b01a3573ef85a296137a4593d220e8", [
@@ -474,8 +505,15 @@ def graphics_patches():
                 ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)\n// "Learn more" URL for the chrome apps deprecation dialog.',
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\n// "Learn more" URL for the chrome apps deprecation dialog.'),
             ]),
+        "chrome/browser/chrome_browser_interface_binders_webui_parts_desktop.cc": (
+            "b63d8d4169577b29a405c833a422c6c5b9e95c7a58f160f9e0455eedb939ab12", [
+                ('#include "components/signin/public/base/signin_buildflags.h"',
+                 '#include "components/signin/public/base/signin_buildflags.h"\n#if BUILDFLAG(IS_CHARMOS)\n#include "chrome/browser/ui/webui/signin/profile_customization_ui.h"\n#include "chrome/browser/ui/webui/signin/profile_picker_ui.h"\n#endif'),
+            ]),
         "chrome/browser/ui/webui/settings/site_settings_handler.cc": (
             "84ccd690ad267fde92bcbe3dabe676ed840d02e0bb06a9b2117e8afdddefe80a", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS)\n#include "components/webapps/isolated_web_apps/scheme.h"',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n#include "components/webapps/isolated_web_apps/scheme.h"'),
                 ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS)\n  // Show any non-default Isolated Web App zoom levels at the top of the page.',
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n  // Show any non-default Isolated Web App zoom levels at the top of the page.'),
             ]),
@@ -497,6 +535,8 @@ def graphics_patches():
             "aa452b62b363d8404b6e6d8d4150b4a617786f7452f300a9598a78b3ea9ce3af", [
                 ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)',
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\n      case certificate_manager::mojom::CertificateSource::\n          kProvisionedClientCert:\n        source_ptr = CreateProvisionedClientCertSource(profile_);\n        break;\n#endif',
+                 '#if BUILDFLAG(IS_CHARMOS)\n      case certificate_manager::mojom::CertificateSource::\n          kProvisionedClientCert:\n        break;\n#elif BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)\n      case certificate_manager::mojom::CertificateSource::\n          kProvisionedClientCert:\n        source_ptr = CreateProvisionedClientCertSource(profile_);\n        break;\n#endif'),
             ]),
         "chrome/browser/ui/pdf/chrome_pdf_document_helper_client.h": (
             "9a42d1d049d2a471fc956be429064fd5aa29d5033198f18d10a62e59c05a0c2f", [
@@ -505,10 +545,58 @@ def graphics_patches():
             ]),
         "chrome/browser/ui/pdf/chrome_pdf_document_helper_client.cc": (
             "496b734947da96b3aba3c39b24485b82e3b2be7b9195aa02d417b3e08f448a59", [
+                ('void MaybeHideSearchifyFeaturePromo(tabs::TabInterface* tab_interface) {',
+                 '[[maybe_unused]] void MaybeHideSearchifyFeaturePromo(tabs::TabInterface* tab_interface) {'),
                 ('void ChromePDFDocumentHelperClient::OnSearchifyStarted(',
                  '#if BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)\nvoid ChromePDFDocumentHelperClient::OnSearchifyStarted('),
                 ('      base::BindRepeating(&MaybeHideSearchifyFeaturePromo)));\n}',
                  '      base::BindRepeating(&MaybeHideSearchifyFeaturePromo)));\n}\n#endif'),
+            ]),
+        "chrome/browser/ui/views/user_education/browser_user_education_service.cc": (
+            "ba13ade1eb0689aedc427e1448b0d178dee765407b38c578cf53a85d8db37978", [
+                ('  // kIPHPdfSearchifyFeature:',
+                 '#if !BUILDFLAG(IS_CHARMOS)\n  // kIPHPdfSearchifyFeature:'),
+                ('  // kIPHLensOverlayFeature:',
+                 '#endif\n  // kIPHLensOverlayFeature:'),
+            ]),
+        "chrome/browser/ui/webui/chrome_web_ui_controller_factory.cc": (
+            "d6d8a1efbddeb1f322a6253614398970aa9327abc10eaf3581ccc7ab0e2e61eb", [
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS)\n#include "components/webapps/isolated_web_apps/scheme.h"',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n#include "components/webapps/isolated_web_apps/scheme.h"'),
+                ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS)\n  if (page_url.SchemeIs(webapps::kIsolatedAppScheme)) {',
+                 '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n  if (page_url.SchemeIs(webapps::kIsolatedAppScheme)) {'),
+            ]),
+        "chrome/browser/ui/web_applications/web_app_dialog_utils.cc": (
+            "c6f3faae0dbcef9937319b7fc188e576195e1d65873b9c1adb93b396c57292a5", [
+                ('#if BUILDFLAG(IS_CHROMEOS)\n    case WebAppInstallFlow::kCreateShortcut: {',
+                 '#if BUILDFLAG(IS_CHARMOS)\n    case WebAppInstallFlow::kCreateShortcut: {\n      NOTREACHED();\n    }\n#elif BUILDFLAG(IS_CHROMEOS)\n    case WebAppInstallFlow::kCreateShortcut: {'),
+            ]),
+        "chrome/browser/ui/hats/survey_config.cc": (
+            "6b01486ce67e1b49462340c56d04e57ad0a2a232c7baf7e9758c50bae53339d6", [
+                ('  survey_configs.emplace_back(&features::kAutofillAddressSurvey,',
+                 '#if !BUILDFLAG(IS_CHARMOS)\n  survey_configs.emplace_back(&features::kAutofillAddressSurvey,'),
+                ('  survey_configs.emplace_back(&features::kAutofillPasswordSurvey,\n                              kHatsSurveyTriggerAutofillPassword);',
+                 '  survey_configs.emplace_back(&features::kAutofillPasswordSurvey,\n                              kHatsSurveyTriggerAutofillPassword);\n#endif'),
+            ]),
+        "chrome/browser/supervised_user/BUILD.gn": (
+            "66fdba77882a09fa2a36cd4e8174dabf75fe1a41dafd26d1b69e5625b72116ea", [
+                ('  if (is_linux || is_mac || is_win) {\n    sources += [\n      "linux_mac_windows/parent_access_dialog_result_observer.cc",',
+                 '  if (is_linux || is_mac || is_win || is_charmos) {\n    sources += [\n      "linux_mac_windows/parent_access_dialog_result_observer.cc",'),
+            ]),
+        "third_party/federated_compute/src/fcp/client/opstats/pds_backed_opstats_db.cc": (
+            "e75964bfa05b32fea1166f9c71113f4b05dc67bedce49a7e213fc227058052ac", [
+                ('#include <sys/file.h>',
+                 '#include <sys/file.h>\n#include <sys/stat.h>\n#ifdef __charmos__\n#include "build/charmos/filesystem_charmos.h"\n#endif'),
+            ]),
+        "third_party/federated_compute/src/fcp/client/federated_select.cc": (
+            "e642778032a18ed2b13d16b0d6927d9f0f87c1cabd5f9ddbc2d4b830bbf2afb6", [
+                ('#include <filesystem>  // NOLINT(build/c++17)',
+                 '#include <filesystem>  // NOLINT(build/c++17)\n#ifdef __charmos__\n#include "build/charmos/filesystem_charmos.h"\n#endif'),
+            ]),
+        "chrome/browser/extensions/api/contextual_tasks_private/BUILD.gn": (
+            "5a8ceea5e4919c99874eb120fd6876441be8b86e0097bc180e29491d3d9537ec", [
+                ('  sources = [\n    "contextual_tasks_private_api.cc",\n    "contextual_tasks_private_api.h",\n  ]',
+                 '  if (!is_charmos) {\n    sources = [\n      "contextual_tasks_private_api.cc",\n      "contextual_tasks_private_api.h",\n    ]\n  }'),
             ]),
         "chrome/browser/process_singleton_posix.cc": (
             "333529b1c36148f0eb9ecd6d1666ffdf68939a9371afe2268cd50be4088c8af9", [
@@ -544,13 +632,6 @@ def graphics_patches():
             "03d9d5d4cccd3b74ec2b8e4d486945aa3501499f1dbd9e319b1ed1fa3b275ad5", [
                 ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC)\n      extension_misc::kTTSEngineExtensionId,',
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHARMOS)\n      extension_misc::kTTSEngineExtensionId,'),
-            ]),
-        "chrome/app/chrome_main_delegate.cc": (
-            "baa9d76ea318ac3664dc140466ee4c2a38b8002d2164878f78414d23885242c6", [
-                ('    crash_reporter::InitializeCrashpad(process_type.empty(), process_type);\n    crash_reporter::SetFirstChanceExceptionHandler(\n        v8::TryHandleWebAssemblyTrapPosix);',
-                 '    crash_reporter::InitializeCrashpad(process_type.empty(), process_type);\n#if !BUILDFLAG(IS_CHARMOS)\n    crash_reporter::SetFirstChanceExceptionHandler(\n        v8::TryHandleWebAssemblyTrapPosix);\n#endif'),
-                ('  crash_reporter::InitializeCrashpad(false, process_type);\n  crash_reporter::SetFirstChanceExceptionHandler(\n      v8::TryHandleWebAssemblyTrapPosix);',
-                 '  crash_reporter::InitializeCrashpad(false, process_type);\n#if !BUILDFLAG(IS_CHARMOS)\n  crash_reporter::SetFirstChanceExceptionHandler(\n      v8::TryHandleWebAssemblyTrapPosix);\n#endif'),
             ]),
         "chrome/browser/chrome_content_browser_client.cc": (
             "5acf5a81454ca1ad8da7474d4aeee057c2ad7f765a443957ffe4a0bb5e70326f", [
@@ -605,6 +686,20 @@ def graphics_patches():
                  '#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_WIN) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHARMOS)\n\nconst FeatureEntry::FeatureParam kNtpNextAllowDisablement[] ='),
                 ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)\nconst FeatureEntry::FeatureParam kContextualCueingEnabledNoEngagementCap[] =',
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \\\n    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHARMOS)\nconst FeatureEntry::FeatureParam kContextualCueingEnabledNoEngagementCap[] ='),
+                ('kOmniboxRichAutocompletionPromisingVariations[] = {',
+                 '[[maybe_unused]] kOmniboxRichAutocompletionPromisingVariations[] = {'),
+                ('kOmniboxStarterPackExpansionVariations[] =\n    {',
+                 '[[maybe_unused]] kOmniboxStarterPackExpansionVariations[] =\n    {'),
+                ('kOmniboxUrlSuggestionsOnFocusVariations[] =\n    {',
+                 '[[maybe_unused]] kOmniboxUrlSuggestionsOnFocusVariations[] =\n    {'),
+                ('kOmniboxZpsSuggestionLimitVariations[] = {',
+                 '[[maybe_unused]] kOmniboxZpsSuggestionLimitVariations[] = {'),
+                ('kOmniboxContextualSearchOnFocusSuggestionsVariations[] = {',
+                 '[[maybe_unused]] kOmniboxContextualSearchOnFocusSuggestionsVariations[] = {'),
+                ('kContextualSuggestionsAblateOthersWhenPresentVariations[] = {',
+                 '[[maybe_unused]] kContextualSuggestionsAblateOthersWhenPresentVariations[] = {'),
+                ('kContextualSuggestionsUiImprovementsChoices[] = {',
+                 '[[maybe_unused]] kContextualSuggestionsUiImprovementsChoices[] = {'),
             ]),
         "chrome/services/reading_mode_metrics/BUILD.gn": (
             "afa8e79d970d29ddfed132d760580f447694f556a2ee3bf769066ddd14657bc1", [
@@ -615,8 +710,16 @@ def graphics_patches():
             "2529dba4238186e287ed0a8ca06251cfa91d5c932338ffa7be9e3202f62a0e94", [
                 ('#include "chrome/services/reading_mode_metrics/reading_mode_metrics_service.h"',
                  '#if !BUILDFLAG(IS_CHARMOS)\n#include "chrome/services/reading_mode_metrics/reading_mode_metrics_service.h"\n#endif'),
+                ('#include "services/screen_ai/public/mojom/screen_ai_factory.mojom.h"  // nogncheck\n#include "services/screen_ai/screen_ai_service_impl.h"  // nogncheck',
+                 '#if !BUILDFLAG(IS_CHARMOS)\n#include "services/screen_ai/public/mojom/screen_ai_factory.mojom.h"  // nogncheck\n#include "services/screen_ai/screen_ai_service_impl.h"  // nogncheck\n#endif'),
+                ('auto RunScreenAIServiceFactory(',
+                 '#if !BUILDFLAG(IS_CHARMOS)\nauto RunScreenAIServiceFactory('),
+                ('  return std::make_unique<screen_ai::ScreenAIService>(std::move(receiver));\n}\n#endif',
+                 '  return std::make_unique<screen_ai::ScreenAIService>(std::move(receiver));\n}\n#endif\n#endif'),
                 ('  services.Add(RunReadingModeMetricsService);',
                  '#if !BUILDFLAG(IS_CHARMOS)\n  services.Add(RunReadingModeMetricsService);\n#endif'),
+                ('  services.Add(RunScreenAIServiceFactory);',
+                 '#if !BUILDFLAG(IS_CHARMOS)\n  services.Add(RunScreenAIServiceFactory);\n#endif'),
             ]),
         "chrome/browser/private_verification_tokens/BUILD.gn": (
             "7b8631a816de60fc1654d9f6882ab2d6ac11bcf59d99fef5741cd5074ca8043a", [
@@ -2525,6 +2628,12 @@ def graphics_patches():
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \\\n'
                  '    BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHARMOS)\n'
                  '#include "components/webapps/isolated_web_apps/scheme.h"'),
+                ('#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_ANDROID) || \\\n    BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)\n#include "components/crash/core/app/crashpad.h"',
+                 '#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_ANDROID) || \\\n    BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHARMOS)\n#include "components/crash/core/app/crashpad.h"'),
+                ('    crash_reporter::InitializeCrashpad(process_type.empty(), process_type);\n    crash_reporter::SetFirstChanceExceptionHandler(\n        v8::TryHandleWebAssemblyTrapPosix);',
+                 '    crash_reporter::InitializeCrashpad(process_type.empty(), process_type);\n#if !BUILDFLAG(IS_CHARMOS)\n    crash_reporter::SetFirstChanceExceptionHandler(\n        v8::TryHandleWebAssemblyTrapPosix);\n#endif'),
+                ('  crash_reporter::InitializeCrashpad(false, process_type);\n  crash_reporter::SetFirstChanceExceptionHandler(\n      v8::TryHandleWebAssemblyTrapPosix);',
+                 '  crash_reporter::InitializeCrashpad(false, process_type);\n#if !BUILDFLAG(IS_CHARMOS)\n  crash_reporter::SetFirstChanceExceptionHandler(\n      v8::TryHandleWebAssemblyTrapPosix);\n#endif'),
             ]),
         "chrome/BUILD.gn": (
             "b94f91e929415599b79d48a242c6afc8265c03454045e17adf0dbf7b1dc775f0", [

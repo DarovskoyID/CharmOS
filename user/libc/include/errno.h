@@ -22,6 +22,11 @@ int* __errno_location(void);
 #define ECHILD 10
 #define EAGAIN 11
 #define EWOULDBLOCK EAGAIN
+#define ENOTBLK 15
+#define ENONET 64
+#define ESOCKTNOSUPPORT 94
+#define EPFNOSUPPORT 96
+#define ESTALE 116
 #define ENOMEM 12
 #define EACCES 13
 #define EFAULT 14

@@ -177,6 +177,7 @@ if (charmos_build_blink) {
     sources = [
       "animation_charmos.cc",
       "content_charmos.cc",
+      "filesystem_charmos.cc",
       "font_charmos.cc",
       "gpu_charmos.cc",
       "graphic_shims_charmos.cc",

@@ -2,21 +2,9 @@
 
 #include <utility>
 
-#include "base/no_destructor.h"
-#include "fxbarcode/common/BC_CommonByteMatrix.h"
-#include "fxbarcode/qrcode/BC_QRCoder.h"
-#include "fxbarcode/qrcode/BC_QRCoderEncoder.h"
-#include "fxbarcode/qrcode/BC_QRCoderErrorCorrectionLevel.h"
+#include "build/charmos/qr_code_pdfium_charmos.h"
 
 namespace qr_code_generator {
-namespace {
-
-struct QrRuntime {
-  QrRuntime() { CBC_QRCoderEncoder::Initialize(); }
-  ~QrRuntime() { CBC_QRCoderEncoder::Finalize(); }
-};
-
-}  // namespace
 
 GeneratedCode::GeneratedCode() = default;
 GeneratedCode::~GeneratedCode() = default;
@@ -30,17 +18,13 @@ base::expected<GeneratedCode, Error> GenerateCode(
   if (version < 1 || version > 40) {
     return base::unexpected(Error::kUnknownError);
   }
-  static base::NoDestructor<QrRuntime> runtime;
-  ByteString input(reinterpret_cast<const char*>(in.data()), in.size());
-  CBC_QRCoder qr;
-  if (!CBC_QRCoderEncoder::EncodeBytesWithMinimumVersion(
-          input, CBC_QRCoderErrorCorrectionLevel::M, &qr, version)) {
+  auto native = charmos::GenerateNativeQrCode(in.data(), in.size(), version);
+  if (!native) {
     return base::unexpected(Error::kInputTooLong);
   }
-  std::unique_ptr<CBC_CommonByteMatrix> matrix = qr.TakeMatrix();
   GeneratedCode code;
-  code.qr_size = qr.GetMatrixWidth();
-  code.data = matrix->TakeArray();
+  code.qr_size = native->size;
+  code.data = std::move(native->data);
   return code;
 }
 

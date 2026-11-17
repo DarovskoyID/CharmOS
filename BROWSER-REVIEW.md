@@ -741,3 +741,17 @@ enterprise provisioning wrapper. `sandbox.mojom.Sandbox.kScreenAI` объявл�
 обязательный `kServiceSandbox`; ScreenAI service backend остаётся выключенным.
 Патчи применены к подготовленным исходникам, 533 контекста проверены. Текущая
 Ninja-задача продолжает независимые объекты; линковка/QEMU ещё не подтверждены.
+
+
+Checkpoint (2026-11-17): 547 pinned contexts. Разобрана финальная группа ошибок
+прохода 25052/25077. Добавлены supervised-user declarations/GN sources и desktop
+WebUI declarations; Isolated Web App scheme/favicons работают на CharmOS.
+Недоступные provisioned-cert source, Contextual Tasks schema и ScreenAI utility
+backend не регистрируются; обычный PDFium остаётся включён. QR encoder wrapper
+перенесён в PDFium target, чтобы его internal macros/span не смешивались с
+Chromium base config. Stable Portability больше не использует Rust string type.
+Crashpad include/SetFirstChance guards объединены в одном patch ownership.
+Для federated compute добавлены native C++ filesystem create_directories/remove
+и недостающие POSIX errno, без Linux userspace. Resource IDs присутствуют в
+сгенерированном `generated_resources.h`. Patch contexts зелёные; повторная
+инкрементальная компиляция, линковка и пользовательский QEMU PASS ещё впереди.
