@@ -1360,6 +1360,8 @@ def graphics_patches():
         "third_party/pdfium/third_party/BUILD.gn": (
             "38a9ed2a7f7c0c8bab8ab27398d610583ee3608bcd968c27e222d236f50900e2", [
                 ('if (!pdf_enable_rust_png) {', 'if (is_charmos) {\n  checkout_libpng = true\n}\n\nif (!pdf_enable_rust_png) {'),
+                ('if (pdf_enable_xfa) {\n  source_set("bigint") {',
+                 'if (pdf_enable_xfa || is_charmos) {\n  source_set("bigint") {'),
             ]),
         "components/private_verification_tokens/common/BUILD.gn": (
             "7458409620b7623b67dae3db2643cab4da815a2e866e8e78805aff5dba682d40", [
@@ -1666,7 +1668,6 @@ def graphics_patches():
         "chrome/browser/ui/views/autofill/autofill_ai/BUILD.gn": desktop_assert("d5a71eea712eb00a6131c252280df21e57bd9676a0980e2d40eea209c0c23892", False),
         "chrome/browser/ui/views/autofill/payments/BUILD.gn": desktop_assert("04c3ab027a1b3760901d8bea96fcbdcdc4be35fc815f97f85fdd3d3e3a2dc1d6", False),
         "chrome/browser/ui/views/autofill/popup/email_verifier/BUILD.gn": desktop_assert("8809d6f81e8db7766c52a1ffb05dd29f38bfe1a142a2a925650ecf55b4cbbbdf", False),
-        "chrome/browser/ui/views/bubble/BUILD.gn": desktop_assert("4ebe0278f6b0abb0695ae73f3948c9834fd0c922230dece0c4b444f413c59f67", False),
         "chrome/browser/ui/views/contextual_tasks/BUILD.gn": desktop_assert("790afd2f38f85dcedf4ede95f90a98d06137afdca54523e5ee1dc0834d98565c", False),
         "chrome/browser/ui/views/data_sharing/BUILD.gn": desktop_assert("cd16fb47714c7bc9d2b3c679325fb90fbf24fc27ec63cea26004a99205be3709", False),
         "chrome/browser/ui/views/download/BUILD.gn": desktop_assert("330ae5e59fcc4f901d9757472bbe82969d2951f0849934da44a7225146134469", False),
@@ -1782,10 +1783,6 @@ def graphics_patches():
         "chrome/browser/compose/BUILD.gn": (
             "052ec4939f562ad42fd901b8878be4d43a4b6fc9f35a12d6b6bf14266218e78b", [
                 ('assert(enable_compose)', 'assert(enable_compose || is_charmos)'),
-            ]),
-        "components/private_verification_tokens/common/athm_ffi/BUILD.gn": (
-            "8a132867c87ba7ed0ae8a33c8d03cd848169597fdbb303ca134b84b4c7a59539", [
-                ('assert(enable_rust)', 'assert(enable_rust || is_charmos)'),
             ]),
         "chrome/browser/on_device_translation/BUILD.gn": (
             "00097cc56a9c6914b48c1567545ac7c90d841a07c16b2bd9bd309c73362aedec", [

@@ -761,3 +761,11 @@ Checkpoint (2026-11-17): 548 pinned contexts. `fxbarcode` разрешён на 
 без включения несвязанного PDF XFA; QR wrapper использует только существующий
 PDFium barcode target. Предыдущий запуск остановился на этом GN assert до
 компиляции. Остальные проверки остаются в силе, линковка/QEMU ещё впереди.
+
+
+Checkpoint (2026-11-17): исправлено применение QR dependencies. Старый
+`third_party/pdfium/third_party/BUILD.gn` блок перекрывал новый bigint patch;
+теперь dependency объединена с существующим владельцем и подготовленный GN файл
+фактически содержит `pdf_enable_xfa || is_charmos`. AST-проверка подтверждает
+отсутствие duplicate keys во всём graphics patch dictionary; удалены только
+избыточные более ранние subset-блоки bubble/ATHM. Полный Chrome ещё не слинкован.
