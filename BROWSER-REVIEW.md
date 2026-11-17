@@ -780,3 +780,10 @@ utility function полностью исключена вместе с registrat
 supervised-user interstitial заменён безопасным CANCEL fallback, а лишние desktop
 UI sources не подключаются. `[[maybe_unused]]` перенесён в корректную позицию
 перед типом. Patch contexts проверены; повторная линковка и QEMU ещё впереди.
+
+
+Checkpoint (2026-11-17): проход дошёл до 5810/5810 с одним failed-объектом.
+`SetUpProfilingShutdownHandler` помечена `[[maybe_unused]]`; предыдущие QR,
+sandbox, resources, services, About Flags и supervised-user fixes уже прошли
+компиляцию. Дополнительно исправлены GN sources overwrite и PrintBackend enum.
+Следующий запуск должен перейти к окончательной линковке; QEMU ещё не проверен.

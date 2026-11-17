@@ -211,6 +211,8 @@ def graphics_patches():
                  '#elif BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\n  return std::make_unique<SupervisedUserWebContentHandlerImpl>('),
                 ('#elif BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\n  return std::make_unique<SupervisedUserWebContentHandlerImpl>(',
                  '#if BUILDFLAG(IS_CHARMOS)\n  return nullptr;\n#elif BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)\n  return std::make_unique<SupervisedUserWebContentHandlerImpl>('),
+                ('#if BUILDFLAG(IS_CHARMOS)\n  return nullptr;\n#elif BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)\n  return std::make_unique<SupervisedUserWebContentHandlerImpl>(',
+                 '#elif BUILDFLAG(IS_CHARMOS)\n  return nullptr;\n#elif BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)\n  return std::make_unique<SupervisedUserWebContentHandlerImpl>('),
             ]),
         "chrome/browser/notifications/notification_display_service_impl.cc": (
             "19b7ed39fbda9d6e6a200c57491b4081fbaf02f79a3b831efaa2906a0abf1a3e", [
@@ -329,6 +331,8 @@ def graphics_patches():
                 ('assert(pdf_enable_xfa)', 'assert(pdf_enable_xfa || is_charmos)'),
                 ('  ]\n  deps = [\n    "../core/fxcrt",',
                  '  ]\n  if (is_charmos) {\n    sources = [\n      "BC_Library.cpp",\n      "common/BC_CommonBitMatrix.cpp",\n      "common/BC_CommonByteMatrix.cpp",\n      "common/reedsolomon/BC_ReedSolomon.cpp",\n      "common/reedsolomon/BC_ReedSolomonGF256.cpp",\n      "common/reedsolomon/BC_ReedSolomonGF256Poly.cpp",\n      "qrcode/BC_QRCoder.cpp",\n      "qrcode/BC_QRCoderBitVector.cpp",\n      "qrcode/BC_QRCoderECBlockData.cpp",\n      "qrcode/BC_QRCoderEncoder.cpp",\n      "qrcode/BC_QRCoderErrorCorrectionLevel.cpp",\n      "qrcode/BC_QRCoderMaskUtil.cpp",\n      "qrcode/BC_QRCoderMatrixUtil.cpp",\n      "qrcode/BC_QRCoderMode.cpp",\n      "qrcode/BC_QRCoderVersion.cpp",\n    ]\n  }\n  deps = [\n    "../core/fxcrt",'),
+                ('  if (is_charmos) {\n    sources = [\n      "BC_Library.cpp",',
+                 '  if (is_charmos) {\n    sources = []\n    sources = [\n      "BC_Library.cpp",'),
             ]),
         "third_party/pdfium/BUILD.gn": (
             "12115525dfcd49686970cbb0d2c92abbf8b32f9bdc22a864f8a48dc59806f4f5", [
@@ -414,6 +418,8 @@ def graphics_patches():
                  '  [EnableIf=is_chromeos|is_linux|is_mac|is_win|is_charmos] kScreenAI,'),
                 ('  [EnableIf=is_chromeos|is_linux|is_mac|is_win|is_charmos] kScreenAI,',
                  '  kScreenAI,'),
+                ('  [EnableIf=is_chromeos|is_linux|is_mac|is_win] kPrintBackend,',
+                 '  kPrintBackend,'),
             ]),
         "chrome/browser/intranet_redirect_detector.h": (
             "16033c3206a1684434e4e534b85305e92c7b9c8358b0b6a775dbe0be620df586", [
@@ -2684,6 +2690,8 @@ def graphics_patches():
                  '    crash_reporter::InitializeCrashpad(process_type.empty(), process_type);\n#if !BUILDFLAG(IS_CHARMOS)\n    crash_reporter::SetFirstChanceExceptionHandler(\n        v8::TryHandleWebAssemblyTrapPosix);\n#endif'),
                 ('  crash_reporter::InitializeCrashpad(false, process_type);\n  crash_reporter::SetFirstChanceExceptionHandler(\n      v8::TryHandleWebAssemblyTrapPosix);',
                  '  crash_reporter::InitializeCrashpad(false, process_type);\n#if !BUILDFLAG(IS_CHARMOS)\n  crash_reporter::SetFirstChanceExceptionHandler(\n      v8::TryHandleWebAssemblyTrapPosix);\n#endif'),
+                ('void SetUpProfilingShutdownHandler() {',
+                 '[[maybe_unused]] void SetUpProfilingShutdownHandler() {'),
             ]),
         "chrome/BUILD.gn": (
             "b94f91e929415599b79d48a242c6afc8265c03454045e17adf0dbf7b1dc775f0", [
