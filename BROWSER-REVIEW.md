@@ -787,3 +787,12 @@ Checkpoint (2026-11-17): проход дошёл до 5810/5810 с одним fa
 sandbox, resources, services, About Flags и supervised-user fixes уже прошли
 компиляцию. Дополнительно исправлены GN sources overwrite и PrintBackend enum.
 Следующий запуск должен перейти к окончательной линковке; QEMU ещё не проверен.
+
+
+Checkpoint (2026-11-17): `chrome_port` дошёл до `LINK ./chrome.elf`. Первая
+линковка выявила duplicate CrashReporterClient symbols: content_platform
+дополнительно компилировал upstream source, уже присутствующий в полном Chrome.
+CrashReporterClient и два content-shell test Views delegate теперь добавляются
+только при `!charmos_build_chrome`; platform shims остаются общими. Требуется
+повторная линковка для поиска следующего возможного слоя ошибок; QEMU ещё не
+запущен.

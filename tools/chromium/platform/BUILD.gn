@@ -188,15 +188,16 @@ if (charmos_build_blink) {
       "platform_charmos.cc",
       "select_file_charmos.cc",
       "tts_charmos.cc",
-      # Upstream's base implementation is platform independent; only the
-      # Crashpad backend is unavailable.
-      "//components/crash/core/app/crash_reporter_client.cc",
-      # Content shell installs the desktop test delegate (it is a test app
-      # upstream). CharmOS keeps that delegate for its aura widget host, so
-      # compile the two small platform units into the product link.
-      "//ui/views/test/desktop_test_views_delegate_aura.cc",
-      "//ui/views/test/test_views_delegate_aura.cc",
     ]
+    if (!charmos_build_chrome) {
+      sources += [
+        # Content shell needs these small platform units; full Chrome gets them
+        # from its regular component dependencies.
+        "//components/crash/core/app/crash_reporter_client.cc",
+        "//ui/views/test/desktop_test_views_delegate_aura.cc",
+        "//ui/views/test/test_views_delegate_aura.cc",
+      ]
+    }
     deps = [
       "//base",
       "//build:branding_buildflags",
