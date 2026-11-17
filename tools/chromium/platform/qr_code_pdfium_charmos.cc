@@ -21,7 +21,8 @@ struct QrRuntime {
 std::optional<NativeQrCode> GenerateNativeQrCode(const uint8_t* input,
                                                  size_t input_size,
                                                  int minimum_version) {
-  static QrRuntime runtime;
+  static auto* runtime = new QrRuntime;
+  (void)runtime;
   ByteString bytes(reinterpret_cast<const char*>(input), input_size);
   CBC_QRCoder qr;
   if (!CBC_QRCoderEncoder::EncodeBytesWithMinimumVersion(

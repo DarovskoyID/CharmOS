@@ -769,3 +769,14 @@ Checkpoint (2026-11-17): исправлено применение QR dependenci
 фактически содержит `pdf_enable_xfa || is_charmos`. AST-проверка подтверждает
 отсутствие duplicate keys во всём graphics patch dictionary; удалены только
 избыточные более ранние subset-блоки bubble/ATHM. Полный Chrome ещё не слинкован.
+
+
+Checkpoint (2026-11-17): 551 pinned contexts. Проход 39222/39406 оставил 10
+failed-объектов. Добавлены ScreenAI sandbox switch/string cases; QR target
+собирает только QR/common/Reed-Solomon sources, исправлен byte input и устранён
+exit-time destructor. Resource IDs получили явный include, password OS-auth
+prompt на CharmOS использует тот же empty-platform путь, что Linux. Reading Mode
+utility function полностью исключена вместе с registration. Desktop-only
+supervised-user interstitial заменён безопасным CANCEL fallback, а лишние desktop
+UI sources не подключаются. `[[maybe_unused]]` перенесён в корректную позицию
+перед типом. Patch contexts проверены; повторная линковка и QEMU ещё впереди.

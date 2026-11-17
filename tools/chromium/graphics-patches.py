@@ -190,6 +190,8 @@ def graphics_patches():
                  '#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\n#include "chrome/browser/supervised_user/supervised_user_verification_page_youtube.h"'),
                 ('#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)\nstd::string CreateReauthenticationInterstitialForYouTube(',
                  '#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\nstd::string CreateReauthenticationInterstitialForYouTube('),
+                ('#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\nstd::string CreateReauthenticationInterstitialForYouTube(',
+                 '#if BUILDFLAG(IS_CHARMOS)\nstd::string CreateReauthenticationInterstitialForYouTube(\n    content::NavigationHandle&) {\n  return std::string();\n}\n#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)\nstd::string CreateReauthenticationInterstitialForYouTube('),
             ]),
         "components/supervised_user/core/common/features.h": (
             "cce436380df7ea26b2a63270ac53cfe7eb32bcf714e87fb0bab1453f1ff9f5d0", [
@@ -207,6 +209,8 @@ def graphics_patches():
                  '#elif BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\n#include "chrome/browser/supervised_user/linux_mac_windows/supervised_user_web_content_handler_impl.h"'),
                 ('#elif BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)\n  return std::make_unique<SupervisedUserWebContentHandlerImpl>(',
                  '#elif BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\n  return std::make_unique<SupervisedUserWebContentHandlerImpl>('),
+                ('#elif BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\n  return std::make_unique<SupervisedUserWebContentHandlerImpl>(',
+                 '#if BUILDFLAG(IS_CHARMOS)\n  return nullptr;\n#elif BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)\n  return std::make_unique<SupervisedUserWebContentHandlerImpl>('),
             ]),
         "chrome/browser/notifications/notification_display_service_impl.cc": (
             "19b7ed39fbda9d6e6a200c57491b4081fbaf02f79a3b831efaa2906a0abf1a3e", [
@@ -315,12 +319,16 @@ def graphics_patches():
                  'bool InitQRCode(int32_t numInputBytes,\n                const CBC_QRCoderErrorCorrectionLevel* ecLevel,\n                CBC_QRCoder* qrCode,\n                int32_t min_version) {\n  qrCode->SetECLevel(ecLevel);\n  for (int32_t i = min_version; i <= CBC_QRCoderVersion::kMaxVersion; ++i) {'),
                 ('bool CBC_QRCoderEncoder::Encode(WideStringView content,\n                                const CBC_QRCoderErrorCorrectionLevel* ecLevel,\n                                CBC_QRCoder* qrCode) {\n  ByteString utf8Data = FX_UTF8Encode(content);\n  CBC_QRCoderMode* mode = ChooseMode(utf8Data);',
                  'bool CBC_QRCoderEncoder::Encode(WideStringView content,\n                                const CBC_QRCoderErrorCorrectionLevel* ecLevel,\n                                CBC_QRCoder* qrCode) {\n  return EncodeBytesWithMinimumVersion(FX_UTF8Encode(content), ecLevel, qrCode, 1);\n}\n\nbool CBC_QRCoderEncoder::EncodeBytesWithMinimumVersion(\n    ByteString content,\n    const CBC_QRCoderErrorCorrectionLevel* ecLevel,\n    CBC_QRCoder* qrCode,\n    int32_t min_version) {\n  if (min_version < 1 || min_version > CBC_QRCoderVersion::kMaxVersion) {\n    return false;\n  }\n  CBC_QRCoderMode* mode = ChooseMode(content);'),
+                ('  if (!AppendBytes(utf8Data, mode, &dataBits)) {',
+                 '  if (!AppendBytes(content, mode, &dataBits)) {'),
                 ('  if (!InitQRCode(numInputBytes, ecLevel, qrCode)) {',
                  '  if (!InitQRCode(numInputBytes, ecLevel, qrCode, min_version)) {'),
             ]),
         "third_party/pdfium/fxbarcode/BUILD.gn": (
             "bca35c4e9f43bcde59eabab41479c999e23286a59c07770ccd8fd512ffc26454", [
                 ('assert(pdf_enable_xfa)', 'assert(pdf_enable_xfa || is_charmos)'),
+                ('  ]\n  deps = [\n    "../core/fxcrt",',
+                 '  ]\n  if (is_charmos) {\n    sources = [\n      "BC_Library.cpp",\n      "common/BC_CommonBitMatrix.cpp",\n      "common/BC_CommonByteMatrix.cpp",\n      "common/reedsolomon/BC_ReedSolomon.cpp",\n      "common/reedsolomon/BC_ReedSolomonGF256.cpp",\n      "common/reedsolomon/BC_ReedSolomonGF256Poly.cpp",\n      "qrcode/BC_QRCoder.cpp",\n      "qrcode/BC_QRCoderBitVector.cpp",\n      "qrcode/BC_QRCoderECBlockData.cpp",\n      "qrcode/BC_QRCoderEncoder.cpp",\n      "qrcode/BC_QRCoderErrorCorrectionLevel.cpp",\n      "qrcode/BC_QRCoderMaskUtil.cpp",\n      "qrcode/BC_QRCoderMatrixUtil.cpp",\n      "qrcode/BC_QRCoderMode.cpp",\n      "qrcode/BC_QRCoderVersion.cpp",\n    ]\n  }\n  deps = [\n    "../core/fxcrt",'),
             ]),
         "third_party/pdfium/BUILD.gn": (
             "12115525dfcd49686970cbb0d2c92abbf8b32f9bdc22a864f8a48dc59806f4f5", [
@@ -378,6 +386,27 @@ def graphics_patches():
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\n  // TODO(crbug.com/463742800): Migrate WhatsNewRegistry (and other non-core\n  // features) to Init().'),
                 ('#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)\nstd::unique_ptr<whats_new::WhatsNewRegistry>',
                  '#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\nstd::unique_ptr<whats_new::WhatsNewRegistry>'),
+            ]),
+        "sandbox/policy/sandbox_type.cc": (
+            "4154d3e409b3bf0ec5b477f6a1c8237e6c3ca6b00023e5bba38922876c1c7eaa", [
+                ('#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_WIN)\nconstexpr char kPrintBackendSandbox[]',
+                 '#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\nconstexpr char kPrintBackendSandbox[]'),
+                ('#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_WIN)\n    case Sandbox::kPrintBackend:\n    case Sandbox::kScreenAI:',
+                 '#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\n    case Sandbox::kPrintBackend:\n    case Sandbox::kScreenAI:'),
+                ('#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_WIN)\n    case Sandbox::kPrintBackend:\n      return kPrintBackendSandbox;',
+                 '#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\n    case Sandbox::kPrintBackend:\n      return kPrintBackendSandbox;'),
+                ('#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_WIN)\n  if (sandbox_string == kPrintBackendSandbox) {',
+                 '#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || \\\n    BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHARMOS)\n  if (sandbox_string == kPrintBackendSandbox) {'),
+            ]),
+        "chrome/browser/webauthn/password_credential_ui_controller.cc": (
+            "dcf54556517d42a8cc1c1229aecc334d33d3f8a1668fd78c8069292be805295f", [
+                ('#if BUILDFLAG(IS_LINUX)\n  return u"";',
+                 '#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHARMOS)\n  return u"";'),
+            ]),
+        "chrome/renderer/accessibility/read_anything/read_anything_node_utils.cc": (
+            "f73be397ce0f037e4ff213ed6554423f81243988c5f08fbc0386b554be32a656", [
+                ('#include "base/strings/stringprintf.h"',
+                 '#include "base/strings/stringprintf.h"\n#include "chrome/grit/generated_resources.h"'),
             ]),
         "sandbox/policy/mojom/sandbox.mojom": (
             "668be9fe5687cd55652073e09f6c875ebc3f837fd12d393e602114471da6ec79", [
@@ -586,6 +615,8 @@ def graphics_patches():
             "66fdba77882a09fa2a36cd4e8174dabf75fe1a41dafd26d1b69e5625b72116ea", [
                 ('  if (is_linux || is_mac || is_win) {\n    sources += [\n      "linux_mac_windows/parent_access_dialog_result_observer.cc",',
                  '  if (is_linux || is_mac || is_win || is_charmos) {\n    sources += [\n      "linux_mac_windows/parent_access_dialog_result_observer.cc",'),
+                ('  if (is_linux || is_mac || is_win || is_charmos) {\n    sources += [\n      "linux_mac_windows/parent_access_dialog_result_observer.cc",',
+                 '  if (is_linux || is_mac || is_win) {\n    sources += [\n      "linux_mac_windows/parent_access_dialog_result_observer.cc",'),
             ]),
         "third_party/federated_compute/src/fcp/client/opstats/pds_backed_opstats_db.cc": (
             "e75964bfa05b32fea1166f9c71113f4b05dc67bedce49a7e213fc227058052ac", [
@@ -704,6 +735,20 @@ def graphics_patches():
                  '[[maybe_unused]] kContextualSuggestionsAblateOthersWhenPresentVariations[] = {'),
                 ('kContextualSuggestionsUiImprovementsChoices[] = {',
                  '[[maybe_unused]] kContextualSuggestionsUiImprovementsChoices[] = {'),
+                ('const FeatureEntry::FeatureVariation\n    [[maybe_unused]] kOmniboxRichAutocompletionPromisingVariations[] = {',
+                 '[[maybe_unused]] const FeatureEntry::FeatureVariation\n    kOmniboxRichAutocompletionPromisingVariations[] = {'),
+                ('const FeatureEntry::FeatureVariation [[maybe_unused]] kOmniboxStarterPackExpansionVariations[] =\n    {',
+                 '[[maybe_unused]] const FeatureEntry::FeatureVariation kOmniboxStarterPackExpansionVariations[] =\n    {'),
+                ('const FeatureEntry::FeatureVariation [[maybe_unused]] kOmniboxUrlSuggestionsOnFocusVariations[] =\n    {',
+                 '[[maybe_unused]] const FeatureEntry::FeatureVariation kOmniboxUrlSuggestionsOnFocusVariations[] =\n    {'),
+                ('const FeatureEntry::FeatureVariation [[maybe_unused]] kOmniboxZpsSuggestionLimitVariations[] = {',
+                 '[[maybe_unused]] const FeatureEntry::FeatureVariation kOmniboxZpsSuggestionLimitVariations[] = {'),
+                ('const FeatureEntry::FeatureVariation\n    [[maybe_unused]] kOmniboxContextualSearchOnFocusSuggestionsVariations[] = {',
+                 '[[maybe_unused]] const FeatureEntry::FeatureVariation\n    kOmniboxContextualSearchOnFocusSuggestionsVariations[] = {'),
+                ('const FeatureEntry::FeatureVariation\n    [[maybe_unused]] kContextualSuggestionsAblateOthersWhenPresentVariations[] = {',
+                 '[[maybe_unused]] const FeatureEntry::FeatureVariation\n    kContextualSuggestionsAblateOthersWhenPresentVariations[] = {'),
+                ('const FeatureEntry::Choice [[maybe_unused]] kContextualSuggestionsUiImprovementsChoices[] = {',
+                 '[[maybe_unused]] const FeatureEntry::Choice kContextualSuggestionsUiImprovementsChoices[] = {'),
             ]),
         "chrome/services/reading_mode_metrics/BUILD.gn": (
             "afa8e79d970d29ddfed132d760580f447694f556a2ee3bf769066ddd14657bc1", [
@@ -716,10 +761,14 @@ def graphics_patches():
                  '#if !BUILDFLAG(IS_CHARMOS)\n#include "chrome/services/reading_mode_metrics/reading_mode_metrics_service.h"\n#endif'),
                 ('#include "services/screen_ai/public/mojom/screen_ai_factory.mojom.h"  // nogncheck\n#include "services/screen_ai/screen_ai_service_impl.h"  // nogncheck',
                  '#if !BUILDFLAG(IS_CHARMOS)\n#include "services/screen_ai/public/mojom/screen_ai_factory.mojom.h"  // nogncheck\n#include "services/screen_ai/screen_ai_service_impl.h"  // nogncheck\n#endif'),
+                ('auto RunReadingModeMetricsService(',
+                 '#if !BUILDFLAG(IS_CHARMOS)\nauto RunReadingModeMetricsService('),
                 ('auto RunScreenAIServiceFactory(',
                  '#if !BUILDFLAG(IS_CHARMOS)\nauto RunScreenAIServiceFactory('),
                 ('  return std::make_unique<screen_ai::ScreenAIService>(std::move(receiver));\n}\n#endif',
                  '  return std::make_unique<screen_ai::ScreenAIService>(std::move(receiver));\n}\n#endif\n#endif'),
+                ('  return std::make_unique<reading_mode::ReadingModeMetricsService>(\n      std::move(receiver));\n}\n\n#if !BUILDFLAG(IS_CHARMOS)\nauto RunScreenAIServiceFactory(',
+                 '  return std::make_unique<reading_mode::ReadingModeMetricsService>(\n      std::move(receiver));\n}\n#endif\n\n#if !BUILDFLAG(IS_CHARMOS)\nauto RunScreenAIServiceFactory('),
                 ('  services.Add(RunReadingModeMetricsService);',
                  '#if !BUILDFLAG(IS_CHARMOS)\n  services.Add(RunReadingModeMetricsService);\n#endif'),
                 ('  services.Add(RunScreenAIServiceFactory);',
